@@ -3,6 +3,43 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 
+//==============================================================================
+// Oscilloscope display — shows the pre-filter OSC mix in real-time
+//==============================================================================
+class OscScopeComponent : public juce::Component,
+                          public juce::Timer
+{
+public:
+    OscScopeComponent (VoltageSeq2AudioProcessor& p) : proc (p) { startTimerHz (30); }
+    ~OscScopeComponent() override { stopTimer(); }
+
+    void paint (juce::Graphics& g) override;
+    void timerCallback() override { repaint(); }
+
+private:
+    VoltageSeq2AudioProcessor& proc;
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OscScopeComponent)
+};
+
+//==============================================================================
+// Wavetable display — shows OSC 2's morphed waveform mathematically
+//==============================================================================
+class WavetableDisplayComponent : public juce::Component,
+                                  public juce::Timer
+{
+public:
+    WavetableDisplayComponent (VoltageSeq2AudioProcessor& p) : proc (p) { startTimerHz (30); }
+    ~WavetableDisplayComponent() override { stopTimer(); }
+
+    void paint (juce::Graphics& g) override;
+    void timerCallback() override { repaint(); }
+
+private:
+    VoltageSeq2AudioProcessor& proc;
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WavetableDisplayComponent)
+};
+
+//==============================================================================
 class VoltageSeq2AudioProcessorEditor  : public juce::AudioProcessorEditor
 {
 public:
@@ -69,6 +106,10 @@ private:
     juce::Slider   lfo2RateSlider;
     juce::Slider   lfo2DepthSlider;
     juce::ComboBox lfo2TargetBox;
+
+    // ── Visualisers ───────────────────────────────────────────────────────────
+    OscScopeComponent         oscScope;
+    WavetableDisplayComponent wavetableDisplay;
 
     void setupKnob (juce::Slider& s, double min, double max, double val,
                     double skewMidpoint = 0.0);

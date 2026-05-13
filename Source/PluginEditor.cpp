@@ -2,42 +2,130 @@
 #include "PluginEditor.h"
 
 namespace {
-    const juce::Colour bgColour      { 0xff1a1a2e };
-    const juce::Colour sectionColour { 0xff16213e };
+    // ── Black colour scheme ───────────────────────────────────────────────────
+    const juce::Colour bgColour      { 0xff000000 };   // pure black
+    const juce::Colour sectionColour { 0xff0c0c18 };   // very dark blue-black
     const juce::Colour accentColour  { 0xffe94560 };
     const juce::Colour textColour    { 0xffe0e0e0 };
     const juce::Colour dimColour     { 0xff6a6a8a };
     const juce::Colour gateOnColour  { 0xff00d4aa };
-    const juce::Colour gateOffColour { 0xff2a2a4a };
+    const juce::Colour gateOffColour { 0xff161622 };
     const juce::Colour slideOnColour { 0xffe94560 };
     const juce::Colour knobColour    { 0xffe09040 };
-    const juce::Colour runColour     { 0xff00d4aa };  // green for RUN
-    const juce::Colour stopColour    { 0xffe94560 };  // red  for STOP
+    const juce::Colour runColour     { 0xff00d4aa };
+    const juce::Colour stopColour    { 0xffe94560 };
 
     // ── Layout constants ──────────────────────────────────────────────────────
     constexpr int seqX = 5, seqW = 1340, seqH = 215;
-    constexpr int stepStride = 80;   // px per step (16 × 80 = 1280; 60 px label strip)
+    constexpr int stepStride = 80;
 
-    // Control panels start below sequencer (y=28+215+7 = 250)
     constexpr int ctrlY = 250;
     constexpr int ctrlH = 400;
 
-    // Label rows (14-px tall labels sitting above their controls)
-    constexpr int lY1 = ctrlY + 22;   // above knob row 1
-    constexpr int lY2 = ctrlY + 66;   // above knob row 2
-    constexpr int lY3 = ctrlY + 99;   // above knob row 3
-    constexpr int lY4 = ctrlY + 131;  // above knob row 4 (OSC1 PWM only)
+    constexpr int lY1 = ctrlY + 22;
+    constexpr int lY2 = ctrlY + 66;
+    constexpr int lY3 = ctrlY + 99;
+    constexpr int lY4 = ctrlY + 131;
 
-    // Control rows
-    constexpr int cy1 = ctrlY + 39;   // knob / combo row 1
-    constexpr int cy2 = ctrlY + 83;   // knob / combo row 2
-    constexpr int cy3 = ctrlY + 116;  // knob / combo row 3
-    constexpr int cy4 = ctrlY + 148;  // knob / combo row 4
+    constexpr int cy1 = ctrlY + 39;
+    constexpr int cy2 = ctrlY + 83;
+    constexpr int cy3 = ctrlY + 116;
+    constexpr int cy4 = ctrlY + 148;
+}
+
+//==============================================================================
+// OscScopeComponent  — live oscilloscope with rising zero-crossing trigger
+//==============================================================================
+void OscScopeComponent::paint (juce::Graphics& g)
+{
+    auto b = getLocalBounds();
+    g.fillAll (juce::Colour (0xff020208));
+    g.setColour (juce::Colour (0xff2a2a4a));
+    g.drawRect (b, 1);
+
+    const float cy = (float)b.getCentreY();
+
+    // dim centre line
+    g.setColour (juce::Colour (0xff1a1a30));
+    g.drawHorizontalLine ((int)cy, 2.0f, (float)(b.getWidth() - 2));
+
+    // Rising zero-crossing trigger: search back half a buffer
+    const int n        = proc.scopeSize;
+    const int writePos = proc.scopeWritePos;
+    int trigger = 0;
+    for (int i = n / 2; i > 1; --i)
+    {
+        int idx  = (writePos - i     + n) % n;
+        int idxP = (writePos - i - 1 + n) % n;
+        if (proc.oscScopeBuffer[idxP] <= 0.0f && proc.oscScopeBuffer[idx] > 0.0f)
+        {
+            trigger = idx;
+            break;
+        }
+    }
+
+    g.setColour (juce::Colour (0xff00d4aa));   // teal waveform
+    juce::Path wave;
+    const int drawW = b.getWidth() - 4;
+    for (int x = 0; x < drawW; ++x)
+    {
+        int   sampleIdx = (trigger + (x * n / drawW)) % n;
+        float s         = juce::jlimit (-1.0f, 1.0f, proc.oscScopeBuffer[sampleIdx]);
+        float yPx       = cy - s * (b.getHeight() * 0.4f);
+        if (x == 0) wave.startNewSubPath (2.0f + x, yPx);
+        else         wave.lineTo          (2.0f + x, yPx);
+    }
+    g.strokePath (wave, juce::PathStrokeType (1.5f));
+}
+
+//==============================================================================
+// WavetableDisplayComponent  — mathematically rendered OSC 2 wavetable morph
+//==============================================================================
+void WavetableDisplayComponent::paint (juce::Graphics& g)
+{
+    auto b = getLocalBounds();
+    g.fillAll (juce::Colour (0xff020208));
+    g.setColour (juce::Colour (0xff2a2a4a));
+    g.drawRect (b, 1);
+
+    const float cy = (float)b.getCentreY();
+
+    g.setColour (juce::Colour (0xff1a1a30));
+    g.drawHorizontalLine ((int)cy, 2.0f, (float)(b.getWidth() - 2));
+
+    // Blend between the two nearest wavetable rows
+    const float tPos  = proc.osc2Position * (float)(proc.numWavetables - 1);
+    const int   tA    = (int)tPos;
+    const int   tB    = juce::jmin (tA + 1, proc.numWavetables - 1);
+    const float blend = tPos - (float)tA;
+    const int   ws    = proc.wavetableSize;
+    const int   drawW = b.getWidth() - 4;
+
+    g.setColour (juce::Colour (0xffe09040));   // amber waveform
+    juce::Path wave;
+    for (int x = 0; x < drawW; ++x)
+    {
+        float phase = (float)x / (float)(drawW - 1);
+        float rp    = phase * (float)(ws - 1);
+        int   ri    = (int)rp;
+        float frac  = rp - (float)ri;
+        int   riN   = (ri + 1) % ws;
+
+        float sA = proc.wavetables[tA][ri] + frac * (proc.wavetables[tA][riN] - proc.wavetables[tA][ri]);
+        float sB = proc.wavetables[tB][ri] + frac * (proc.wavetables[tB][riN] - proc.wavetables[tB][ri]);
+        float s  = sA + blend * (sB - sA);
+
+        float yPx = cy - s * (b.getHeight() * 0.4f);
+        if (x == 0) wave.startNewSubPath (2.0f + x, yPx);
+        else         wave.lineTo          (2.0f + x, yPx);
+    }
+    g.strokePath (wave, juce::PathStrokeType (1.5f));
 }
 
 //==============================================================================
 VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2AudioProcessor& p)
-    : AudioProcessorEditor (&p), audioProcessor (p)
+    : AudioProcessorEditor (&p), audioProcessor (p),
+      oscScope (p), wavetableDisplay (p)
 {
     setSize (1350, 660);
 
@@ -108,7 +196,6 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     clockDivBox.onChange = [this]() { audioProcessor.clockDivision = clockDivBox.getSelectedItemIndex(); };
     addAndMakeVisible (clockDivBox);
 
-    // RUN / STOP button
     bool isRunning = audioProcessor.sequencerRunning.load();
     runStopBtn.setButtonText (isRunning ? "STOP" : "RUN");
     runStopBtn.setColour (juce::TextButton::buttonColourId, isRunning ? stopColour : runColour);
@@ -123,7 +210,6 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     };
     addAndMakeVisible (runStopBtn);
 
-    // AUTO toggle — when ON the sequencer starts automatically on load/transport
     bool isAuto = audioProcessor.autoRun.load();
     autoBtn.setButtonText ("AUTO");
     autoBtn.setToggleState (isAuto, juce::dontSendNotification);
@@ -151,11 +237,11 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     rootBox.onChange = [this]() { audioProcessor.rootNote = rootBox.getSelectedItemIndex(); };
     addAndMakeVisible (rootBox);
 
-    scaleBox.addItem ("Major",         1); scaleBox.addItem ("Natural Minor", 2);
-    scaleBox.addItem ("Dorian",        3); scaleBox.addItem ("Phrygian",      4);
-    scaleBox.addItem ("Lydian",        5); scaleBox.addItem ("Mixolydian",    6);
-    scaleBox.addItem ("Penta Major",   7); scaleBox.addItem ("Penta Minor",   8);
-    scaleBox.addItem ("Chromatic",     9);
+    scaleBox.addItem ("Major",       1); scaleBox.addItem ("Natural Minor", 2);
+    scaleBox.addItem ("Dorian",      3); scaleBox.addItem ("Phrygian",      4);
+    scaleBox.addItem ("Lydian",      5); scaleBox.addItem ("Mixolydian",    6);
+    scaleBox.addItem ("Penta Major", 7); scaleBox.addItem ("Penta Minor",   8);
+    scaleBox.addItem ("Chromatic",   9);
     scaleBox.setSelectedItemIndex (audioProcessor.currentScale, juce::dontSendNotification);
     scaleBox.onChange = [this]() { audioProcessor.currentScale = scaleBox.getSelectedItemIndex(); };
     addAndMakeVisible (scaleBox);
@@ -163,8 +249,8 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     //==========================================================================
     // OSC 1
     //==========================================================================
-    osc1WaveBox.addItem ("Sine", 1); osc1WaveBox.addItem ("Saw",      2);
-    osc1WaveBox.addItem ("Square", 3); osc1WaveBox.addItem ("Triangle", 4);
+    osc1WaveBox.addItem ("Sine",     1); osc1WaveBox.addItem ("Saw",      2);
+    osc1WaveBox.addItem ("Square",   3); osc1WaveBox.addItem ("Triangle", 4);
     osc1WaveBox.setSelectedItemIndex (audioProcessor.osc1Waveform, juce::dontSendNotification);
     osc1WaveBox.onChange = [this]() { audioProcessor.osc1Waveform = osc1WaveBox.getSelectedItemIndex(); };
     addAndMakeVisible (osc1WaveBox);
@@ -181,7 +267,6 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     };
     addAndMakeVisible (osc1OctaveBox);
 
-    // Base pulse width knob (only affects Square wave)
     setupKnob (osc1PWMSlider, 0.05, 0.95, audioProcessor.osc1PulseWidth);
     osc1PWMSlider.onValueChange = [this]() {
         audioProcessor.osc1PulseWidth = (float)osc1PWMSlider.getValue();
@@ -218,7 +303,7 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     filterEnvAmtSlider.onValueChange = [this]() { audioProcessor.filterEnvAmount = (float)filterEnvAmtSlider.getValue(); };
 
     //==========================================================================
-    // AMP ENVELOPE  — skewed for more responsive short-time control
+    // AMP ENVELOPE
     //==========================================================================
     setupKnob (attackSlider,  0.001, 2.0, audioProcessor.adsrParams.attack,  0.3);
     attackSlider.onValueChange  = [this]() { audioProcessor.adsrParams.attack  = (float)attackSlider.getValue(); };
@@ -226,14 +311,14 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     setupKnob (decaySlider,   0.001, 2.0, audioProcessor.adsrParams.decay,   0.3);
     decaySlider.onValueChange   = [this]() { audioProcessor.adsrParams.decay   = (float)decaySlider.getValue(); };
 
-    setupKnob (sustainSlider, 0.0,   1.0, audioProcessor.adsrParams.sustain);  // linear
+    setupKnob (sustainSlider, 0.0,   1.0, audioProcessor.adsrParams.sustain);
     sustainSlider.onValueChange = [this]() { audioProcessor.adsrParams.sustain = (float)sustainSlider.getValue(); };
 
     setupKnob (releaseSlider, 0.001, 3.0, audioProcessor.adsrParams.release,  0.3);
     releaseSlider.onValueChange = [this]() { audioProcessor.adsrParams.release = (float)releaseSlider.getValue(); };
 
     //==========================================================================
-    // FILTER ENVELOPE  — same skew treatment
+    // FILTER ENVELOPE
     //==========================================================================
     setupKnob (fAttackSlider,  0.001, 4.0, audioProcessor.filterEnvParams.attack,  0.3);
     fAttackSlider.onValueChange  = [this]() { audioProcessor.filterEnvParams.attack  = (float)fAttackSlider.getValue(); };
@@ -278,6 +363,12 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     lfo2TargetBox.setSelectedItemIndex (audioProcessor.lfo2Target, juce::dontSendNotification);
     lfo2TargetBox.onChange = [this]() { audioProcessor.lfo2Target = lfo2TargetBox.getSelectedItemIndex(); };
     addAndMakeVisible (lfo2TargetBox);
+
+    //==========================================================================
+    // VISUALISERS
+    //==========================================================================
+    addAndMakeVisible (oscScope);
+    addAndMakeVisible (wavetableDisplay);
 }
 
 VoltageSeq2AudioProcessorEditor::~VoltageSeq2AudioProcessorEditor() {}
@@ -301,10 +392,16 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
 {
     g.fillAll (bgColour);
 
-    // Title
+    // ── Header strip ──────────────────────────────────────────────────────────
+    // Branding — left side
     g.setColour (accentColour);
+    g.setFont (juce::Font (13.0f, juce::Font::bold));
+    g.drawText ("MURGATROYD INSTRUMENTS", 10, 4, 380, 18, juce::Justification::centredLeft);
+
+    // Product name — centred
+    g.setColour (textColour);
     g.setFont (juce::Font (16.0f, juce::Font::bold));
-    g.drawText ("VOLTAGE SEQ", 0, 5, getWidth(), 18, juce::Justification::centred);
+    g.drawText ("VOLTAGE SEQ 2", 0, 4, getWidth(), 18, juce::Justification::centred);
 
     // ── Sequencer panel ───────────────────────────────────────────────────────
     g.setColour (sectionColour);
@@ -317,7 +414,7 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     g.setFont (juce::Font (8.0f));
     g.drawText ("0V", seqX + seqW - 32, 83, 30, 10, juce::Justification::left);
 
-    // Row labels (right of last step button)
+    // Row labels
     g.setFont (juce::Font (8.5f, juce::Font::bold));
     g.setColour (gateOnColour);
     g.drawText ("GATE",  1291, 155, 50, 17, juce::Justification::centredLeft);
@@ -343,7 +440,7 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     drawPanel ( 990, 175, "FILTER ENV");
     drawPanel (1170, 175, "LFO");
 
-    // Vertical divider splitting LFO panel into LFO1 / LFO2
+    // Vertical divider in LFO panel
     g.setColour (dimColour.withAlpha (0.5f));
     g.drawLine (1259.0f, (float)(ctrlY + 18), 1259.0f, (float)(ctrlY + ctrlH - 10), 1.0f);
 
@@ -351,17 +448,17 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     g.setColour (textColour);
     g.setFont (juce::Font (10.0f));
 
-    // SEQ transport
-    g.drawText ("BPM",       7,   lY1, 55, 14, juce::Justification::centred);
-    g.drawText ("RANGE",     67,  lY1, 68, 14, juce::Justification::centred);
-    g.drawText ("PORTA",      5, ctrlY + 67, 140, 14, juce::Justification::centred);
-    g.drawText ("CLOCK DIV",  5, ctrlY + 107, 140, 14, juce::Justification::centred);
+    // SEQ transport  (porta now below clock div)
+    g.drawText ("BPM",       7,   lY1,              55, 14, juce::Justification::centred);
+    g.drawText ("RANGE",    67,   lY1,              68, 14, juce::Justification::centred);
+    g.drawText ("CLOCK DIV", 5,  ctrlY + 87,       140, 14, juce::Justification::centred);
+    g.drawText ("PORTA",     5,  ctrlY + 129,      140, 14, juce::Justification::centred);
 
-    // Sub-labels for LFO1 / LFO2
+    // LFO sub-labels
     g.setColour (dimColour);
     g.setFont (juce::Font (8.5f, juce::Font::bold));
-    g.drawText ("LFO 1", 1172, ctrlY + 19, 84, 12, juce::Justification::centred);
-    g.drawText ("LFO 2", 1261, ctrlY + 19, 82, 12, juce::Justification::centred);
+    g.drawText ("LFO 1", 1172, ctrlY + 19,  84, 12, juce::Justification::centred);
+    g.drawText ("LFO 2", 1261, ctrlY + 19,  82, 12, juce::Justification::centred);
 
     g.setColour (textColour);
     g.setFont (juce::Font (10.0f));
@@ -371,20 +468,22 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     g.drawText ("SCALE", 150, lY2, 160, 14, juce::Justification::centred);
 
     // OSC 1
-    g.drawText ("WAVE",   315, lY1, 170, 14, juce::Justification::centred);
-    g.drawText ("LEVEL",  315, lY2,  60, 14, juce::Justification::centred);
-    g.drawText ("OCT",    374, lY2, 108, 14, juce::Justification::centred);
-    g.drawText ("BASE PW",315, lY4, 170, 14, juce::Justification::centred);
+    g.drawText ("WAVE",    315, lY1, 170, 14, juce::Justification::centred);
+    g.drawText ("LEVEL",   315, lY2,  60, 14, juce::Justification::centred);
+    g.drawText ("OCT",     374, lY2, 108, 14, juce::Justification::centred);
+    g.drawText ("BASE PW", 315, lY4, 170, 14, juce::Justification::centred);
+    g.drawText ("SCOPE",   315, ctrlY + 197, 170, 12, juce::Justification::centred);
 
     // OSC 2
-    g.drawText ("WT POS", 490, lY1,  75, 14, juce::Justification::centred);
-    g.drawText ("LEVEL",  563, lY1,  82, 14, juce::Justification::centred);
-    g.drawText ("OCTAVE", 490, lY3, 155, 14, juce::Justification::centred);
+    g.drawText ("WT POS",  490, lY1,  75, 14, juce::Justification::centred);
+    g.drawText ("LEVEL",   563, lY1,  82, 14, juce::Justification::centred);
+    g.drawText ("OCTAVE",  490, lY3, 155, 14, juce::Justification::centred);
+    g.drawText ("WT VIEW", 490, ctrlY + 148, 155, 12, juce::Justification::centred);
 
     // Filter
-    g.drawText ("CUTOFF", 650, lY1,  72, 14, juce::Justification::centred);
-    g.drawText ("RES",    720, lY1,  85, 14, juce::Justification::centred);
-    g.drawText ("ENV AMT",650, lY3, 155, 14, juce::Justification::centred);
+    g.drawText ("CUTOFF",  650, lY1,  72, 14, juce::Justification::centred);
+    g.drawText ("RES",     720, lY1,  85, 14, juce::Justification::centred);
+    g.drawText ("ENV AMT", 650, lY3, 155, 14, juce::Justification::centred);
 
     // Amp Env
     g.drawText ("ATK",  815, lY1, 40, 14, juce::Justification::centred);
@@ -393,10 +492,10 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     g.drawText ("REL",  941, lY1, 40, 14, juce::Justification::centred);
 
     // Filter Env
-    g.drawText ("ATK",  995, lY1, 40, 14, juce::Justification::centred);
-    g.drawText ("DEC", 1037, lY1, 40, 14, juce::Justification::centred);
-    g.drawText ("SUS", 1079, lY1, 40, 14, juce::Justification::centred);
-    g.drawText ("REL", 1121, lY1, 40, 14, juce::Justification::centred);
+    g.drawText ("ATK",  995,  lY1, 40, 14, juce::Justification::centred);
+    g.drawText ("DEC", 1037,  lY1, 40, 14, juce::Justification::centred);
+    g.drawText ("SUS", 1079,  lY1, 40, 14, juce::Justification::centred);
+    g.drawText ("REL", 1121,  lY1, 40, 14, juce::Justification::centred);
 
     // LFO 1
     g.drawText ("RATE",   1175, lY1,  40, 14, juce::Justification::centred);
@@ -429,13 +528,13 @@ void VoltageSeq2AudioProcessorEditor::resized()
         slideBtn[i].setBounds (bx + 11, 174, 54, 17);
     }
 
-    // ── SEQ transport (absolute y within SEQ panel) ───────────────────────────
-    bpmSlider  .setBounds ( 10, cy1,      52, 62);
-    rangeSlider.setBounds ( 70, cy1 + 6,  62, 50);
-    portaSlider.setBounds ( 44, ctrlY + 83, 50, 50);
-    clockDivBox.setBounds ( 10, ctrlY + 122, 125, 24);
-    runStopBtn .setBounds ( 10, ctrlY + 158, 125, 30);
-    autoBtn    .setBounds ( 10, ctrlY + 196, 125, 24);
+    // ── SEQ transport — porta now sits BELOW clock div ────────────────────────
+    bpmSlider  .setBounds (10,  cy1,          52, 62);
+    rangeSlider.setBounds (70,  cy1 + 6,      62, 50);
+    clockDivBox.setBounds (10,  ctrlY + 100, 125, 24);   // moved up from 122
+    portaSlider.setBounds (44,  ctrlY + 145,  50, 50);   // moved below clock div
+    runStopBtn .setBounds (10,  ctrlY + 210, 125, 30);
+    autoBtn    .setBounds (10,  ctrlY + 250, 125, 24);
 
     // ── Quantizer ─────────────────────────────────────────────────────────────
     rootBox .setBounds (155, cy1, 150, 24);
@@ -445,36 +544,42 @@ void VoltageSeq2AudioProcessorEditor::resized()
     osc1WaveBox    .setBounds (320, cy1,       160, 24);
     osc1LevelSlider.setBounds (320, cy2,        45, 45);
     osc1OctaveBox  .setBounds (373, cy2 + 10,  105, 24);
-    osc1PWMSlider  .setBounds (375, cy4,        45, 45);   // centred in 170-px panel
+    osc1PWMSlider  .setBounds (375, cy4,        45, 45);
+
+    // OSC 1 scope — below PWM knob
+    oscScope.setBounds (317, ctrlY + 210, 163, 178);
 
     // ── OSC 2 ─────────────────────────────────────────────────────────────────
     osc2PosSlider  .setBounds (495, cy1,  50, 50);
     osc2LevelSlider.setBounds (560, cy1,  50, 50);
     osc2OctaveBox  .setBounds (500, cy3, 140, 24);
 
+    // OSC 2 wavetable display — below octave box
+    wavetableDisplay.setBounds (492, ctrlY + 160, 151, 225);
+
     // ── Filter ────────────────────────────────────────────────────────────────
     cutoffSlider      .setBounds (655, cy1,  50, 50);
     resonanceSlider   .setBounds (720, cy1,  50, 50);
     filterEnvAmtSlider.setBounds (688, cy3,  50, 50);
 
-    // ── Amp Envelope (40×40 knobs, skewed) ────────────────────────────────────
+    // ── Amp Envelope ──────────────────────────────────────────────────────────
     attackSlider .setBounds (815, cy1, 40, 40);
     decaySlider  .setBounds (857, cy1, 40, 40);
     sustainSlider.setBounds (899, cy1, 40, 40);
     releaseSlider.setBounds (941, cy1, 40, 40);
 
-    // ── Filter Envelope (40×40 knobs, skewed) ─────────────────────────────────
+    // ── Filter Envelope ───────────────────────────────────────────────────────
     fAttackSlider .setBounds ( 995, cy1, 40, 40);
     fDecaySlider  .setBounds (1037, cy1, 40, 40);
     fSustainSlider.setBounds (1079, cy1, 40, 40);
     fReleaseSlider.setBounds (1121, cy1, 40, 40);
 
-    // ── LFO 1 (left half of LFO panel) ───────────────────────────────────────
+    // ── LFO 1 ─────────────────────────────────────────────────────────────────
     lfoRateSlider .setBounds (1175, cy1, 38, 38);
     lfoDepthSlider.setBounds (1218, cy1, 38, 38);
     lfoTargetBox  .setBounds (1173, cy3, 83, 24);
 
-    // ── LFO 2 (right half of LFO panel) ──────────────────────────────────────
+    // ── LFO 2 ─────────────────────────────────────────────────────────────────
     lfo2RateSlider .setBounds (1263, cy1, 38, 38);
     lfo2DepthSlider.setBounds (1306, cy1, 38, 38);
     lfo2TargetBox  .setBounds (1261, cy3, 83, 24);
