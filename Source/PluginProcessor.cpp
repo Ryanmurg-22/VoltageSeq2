@@ -1,17 +1,20 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+// Static member definition required by the linker
+constexpr double VoltageSeq2AudioProcessor::ppqDivTable[7];
+
 static const int scaleIntervals[][12] =
 {
-    { 0, 2, 4, 5, 7, 9, 11, -1, -1, -1, -1, -1 },  // Major
-    { 0, 2, 3, 5, 7, 8, 10, -1, -1, -1, -1, -1 },  // Natural Minor
-    { 0, 2, 3, 5, 7, 9, 10, -1, -1, -1, -1, -1 },  // Dorian
-    { 0, 1, 3, 5, 7, 8, 10, -1, -1, -1, -1, -1 },  // Phrygian
-    { 0, 2, 4, 6, 7, 9, 11, -1, -1, -1, -1, -1 },  // Lydian
-    { 0, 2, 4, 5, 7, 9, 10, -1, -1, -1, -1, -1 },  // Mixolydian
-    { 0, 2, 4, 7,  9, -1, -1, -1, -1, -1, -1, -1 },// Pentatonic Major
-    { 0, 3, 5, 7, 10, -1, -1, -1, -1, -1, -1, -1 },// Pentatonic Minor
-    { 0, 1, 2, 3,  4,  5,  6,  7,  8,  9, 10, 11 } // Chromatic
+    { 0, 2, 4, 5, 7, 9, 11, -1, -1, -1, -1, -1 },
+    { 0, 2, 3, 5, 7, 8, 10, -1, -1, -1, -1, -1 },
+    { 0, 2, 3, 5, 7, 9, 10, -1, -1, -1, -1, -1 },
+    { 0, 1, 3, 5, 7, 8, 10, -1, -1, -1, -1, -1 },
+    { 0, 2, 4, 6, 7, 9, 11, -1, -1, -1, -1, -1 },
+    { 0, 2, 4, 5, 7, 9, 10, -1, -1, -1, -1, -1 },
+    { 0, 2, 4, 7,  9, -1, -1, -1, -1, -1, -1, -1 },
+    { 0, 3, 5, 7, 10, -1, -1, -1, -1, -1, -1, -1 },
+    { 0, 1, 2, 3,  4,  5,  6,  7,  8,  9, 10, 11 }
 };
 static const int scaleSizes[] = { 7, 7, 7, 7, 7, 7, 5, 5, 12 };
 
@@ -74,11 +77,15 @@ void VoltageSeq2AudioProcessor::prepareToPlay (double sampleRate, int samplesPer
     ic1eq = 0.0f;
     ic2eq = 0.0f;
     lfoPhase     = 0.0f;
-    pulseWidth   = 0.5f;
+    lfo2Phase    = 0.0f;
+    pulseWidth   = osc1PulseWidth;
     glideActive  = false;
     sampleCounter = 0.0;
     lastStep      = -1;
     currentStep   = 0;
+
+    if (autoRun.load())
+        sequencerRunning.store (true);
 
     float freq   = voltageToQuantizedFreq (stepVoltages[0]);
     currentFreq1 = freq * (float)std::pow (2.0, (double)osc1Octave);
@@ -110,6 +117,13 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     adsr.setParameters (adsrParams);
     filterEnv.setParameters (filterEnvParams);
 
+    // Act on a reset request from the UI thread
+    if (resetOnNextBlock.exchange (false))
+    {
+        sampleCounter = 0.0;
+        lastStep      = -1;
+    }
+
     //--------------------------------------------------------------------------
     // HOST SYNC
     //--------------------------------------------------------------------------
@@ -130,13 +144,13 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
     }
 
-    double ppqPerSample   = effectiveBPM / 60.0 / currentSampleRate;
-    double samplesPerBeat = currentSampleRate * 60.0 / effectiveBPM;
-    double samplesPerStep = samplesPerBeat / 4.0;   // 1/16-note
+    // PPQ per step from the clock-division table
+    const double ppqStep      = ppqDivTable[juce::jlimit (0, 6, clockDivision)];
+    const double samplesPerBeat = currentSampleRate * 60.0 / effectiveBPM;
+    const double samplesPerStep = ppqStep * samplesPerBeat;
+    const double ppqPerSample   = effectiveBPM / 60.0 / currentSampleRate;
 
-    //--------------------------------------------------------------------------
-    // Pre-compute glide coefficient once per block (std::exp is expensive)
-    //--------------------------------------------------------------------------
+    // Pre-compute glide coefficient once per block
     float glideCoeff = 0.0f;
     if (portamentoTime > 0.001f)
         glideCoeff = std::exp (-1.0f / ((float)portamentoTime * (float)currentSampleRate));
@@ -144,71 +158,67 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     auto* leftCh  = buffer.getWritePointer (0);
     auto* rightCh = buffer.getWritePointer (1);
 
+    const bool running = sequencerRunning.load();
+
     for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
     {
         //----------------------------------------------------------------------
-        // SEQUENCER CLOCK
+        // SEQUENCER CLOCK  (only advances when running)
         //----------------------------------------------------------------------
-        int newStep;
-        if (useHostSync)
+        if (running)
         {
-            double samplePPQ = startPPQ + (double)sample * ppqPerSample;
-            newStep = (int)(samplePPQ / 0.25) % numSteps;
-            if (newStep < 0) newStep = 0;
-        }
-        else
-        {
-            newStep = (int)(sampleCounter / samplesPerStep) % numSteps;
-        }
-
-        if (newStep != lastStep)
-        {
-            lastStep    = newStep;
-            currentStep = newStep;
-
-            if (stepGates[currentStep])
+            int newStep;
+            if (useHostSync)
             {
-                float baseFreq = voltageToQuantizedFreq (stepVoltages[currentStep]);
-                targetFreq1 = baseFreq * (float)std::pow (2.0, (double)osc1Octave);
-                targetFreq2 = baseFreq * (float)std::pow (2.0, (double)osc2Octave);
-
-                bool doGlide = (portamentoTime > 0.001f && stepGlides[currentStep]);
-
-                if (doGlide)
-                {
-                    // 303-style legato slide:
-                    //  - pitch glides smoothly from currentFreq to targetFreq
-                    //  - ADSR is NOT retriggered (envelope continues)
-                    glideActive = true;
-                }
-                else
-                {
-                    // Hard step: snap to new pitch and retrigger both envelopes
-                    glideActive  = false;
-                    currentFreq1 = targetFreq1;
-                    currentFreq2 = targetFreq2;
-                    osc1PhaseInc = currentFreq1 / currentSampleRate;
-                    osc2PhaseInc = currentFreq2 / currentSampleRate;
-                    adsr.noteOff();
-                    adsr.noteOn();
-                    filterEnv.noteOff();
-                    filterEnv.noteOn();
-                }
+                double samplePPQ = startPPQ + (double)sample * ppqPerSample;
+                newStep = (int)(samplePPQ / ppqStep) % numSteps;
+                if (newStep < 0) newStep = 0;
             }
             else
             {
-                glideActive = false;
-                adsr.noteOff();
-                filterEnv.noteOff();
+                newStep = (int)(sampleCounter / samplesPerStep) % numSteps;
             }
+
+            if (newStep != lastStep)
+            {
+                lastStep    = newStep;
+                currentStep = newStep;
+
+                if (stepGates[currentStep])
+                {
+                    float baseFreq = voltageToQuantizedFreq (stepVoltages[currentStep]);
+                    targetFreq1 = baseFreq * (float)std::pow (2.0, (double)osc1Octave);
+                    targetFreq2 = baseFreq * (float)std::pow (2.0, (double)osc2Octave);
+
+                    bool doGlide = (portamentoTime > 0.001f && stepGlides[currentStep]);
+                    glideActive  = doGlide;
+
+                    if (!doGlide)
+                    {
+                        currentFreq1 = targetFreq1;
+                        currentFreq2 = targetFreq2;
+                        osc1PhaseInc = currentFreq1 / currentSampleRate;
+                        osc2PhaseInc = currentFreq2 / currentSampleRate;
+                        adsr.noteOff();      adsr.noteOn();
+                        filterEnv.noteOff(); filterEnv.noteOn();
+                    }
+                    // Glide steps: pitch slides, envelope continues (legato)
+                }
+                else
+                {
+                    glideActive = false;
+                    adsr.noteOff();
+                    filterEnv.noteOff();
+                }
+            }
+
+            sampleCounter += 1.0;
+            if (sampleCounter >= samplesPerStep * numSteps)
+                sampleCounter -= samplesPerStep * numSteps;
         }
 
-        sampleCounter += 1.0;
-        if (sampleCounter >= samplesPerStep * numSteps)
-            sampleCounter -= samplesPerStep * numSteps;
-
         //----------------------------------------------------------------------
-        // PORTAMENTO — exponential frequency smoothing towards target
+        // PORTAMENTO
         //----------------------------------------------------------------------
         if (glideActive)
         {
@@ -219,38 +229,49 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
 
         //----------------------------------------------------------------------
-        // LFO
+        // LFO 1 + LFO 2
+        // Both contribute additively to each destination; pitch is multiplicative.
         //----------------------------------------------------------------------
-        float lfoRaw   = std::sin (lfoPhase * juce::MathConstants<float>::twoPi);
-        float lfoValue = lfoRaw * lfoDepth;
-        lfoPhase += (float)(lfoRate / currentSampleRate);
-        if (lfoPhase >= 1.0f) lfoPhase -= 1.0f;
+        float lfo1Val = std::sin (lfoPhase  * juce::MathConstants<float>::twoPi) * lfoDepth;
+        float lfo2Val = std::sin (lfo2Phase * juce::MathConstants<float>::twoPi) * lfo2Depth;
 
-        pulseWidth = 0.5f;
-        float pitchMod  = 1.0f;
+        lfoPhase  += (float)(lfoRate  / currentSampleRate);
+        lfo2Phase += (float)(lfo2Rate / currentSampleRate);
+        if (lfoPhase  >= 1.0f) lfoPhase  -= 1.0f;
+        if (lfo2Phase >= 1.0f) lfo2Phase -= 1.0f;
+
+        // Accumulate modulation per destination
+        float pwmMod    = 0.0f;
         float cutoffMod = 0.0f;
+        float pitchMod  = 1.0f;
 
-        switch (lfoTarget)
-        {
-            case 0:  pulseWidth = juce::jlimit (0.05f, 0.95f, 0.5f + lfoValue * 0.4f); break;
-            case 1:  cutoffMod  = lfoValue * 4000.0f;                                   break;
-            case 2:  pitchMod   = std::pow (2.0f, lfoValue / 12.0f);                    break;
-        }
+        // LFO 1
+        if (lfoTarget == 0) pwmMod    += lfo1Val * 0.4f;
+        if (lfoTarget == 1) cutoffMod += lfo1Val * 4000.0f;
+        if (lfoTarget == 2) pitchMod  *= std::pow (2.0f, lfo1Val / 12.0f);
+
+        // LFO 2
+        if (lfo2Target == 0) pwmMod    += lfo2Val * 0.4f;
+        if (lfo2Target == 1) cutoffMod += lfo2Val * 4000.0f;
+        if (lfo2Target == 2) pitchMod  *= std::pow (2.0f, lfo2Val / 12.0f);
+
+        // Pulse width = user base + combined LFO contribution
+        pulseWidth = juce::jlimit (0.05f, 0.95f, osc1PulseWidth + pwmMod);
 
         //----------------------------------------------------------------------
         // FILTER ENVELOPE → effective cutoff
         //----------------------------------------------------------------------
-        float filterEnvSample = filterEnv.getNextSample();
-        float effectiveCutoff = filterCutoff
-                                * std::pow (2.0f, filterEnvAmount * 4.0f * filterEnvSample);
-        effectiveCutoff = juce::jlimit (20.0f, 20000.0f, effectiveCutoff + cutoffMod);
+        float fEnvSample  = filterEnv.getNextSample();
+        float effectiveCut = filterCutoff
+                             * std::pow (2.0f, filterEnvAmount * 4.0f * fEnvSample);
+        effectiveCut = juce::jlimit (20.0f, 20000.0f, effectiveCut + cutoffMod);
 
         //----------------------------------------------------------------------
         // SYNTH VOICE
         //----------------------------------------------------------------------
         float osc1    = generateOsc1Sample (osc1PhaseInc * pitchMod) * osc1Level;
         float osc2    = generateOsc2Sample (osc2PhaseInc * pitchMod) * osc2Level;
-        float filtered = applyFilter (osc1 + osc2, effectiveCutoff);
+        float filtered = applyFilter (osc1 + osc2, effectiveCut);
         float envelope = adsr.getNextSample();
         float output   = filtered * envelope * 0.3f;
 
@@ -260,11 +281,10 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 }
 
 //==============================================================================
-// Topology-Preserving Transform State Variable Filter (Simper / Cytomic)
 float VoltageSeq2AudioProcessor::applyFilter (float input, float effectiveCutoff)
 {
-    float cutClamped = juce::jlimit (20.0f, (float)currentSampleRate * 0.45f, effectiveCutoff);
-    float g  = std::tan (juce::MathConstants<float>::pi * cutClamped / (float)currentSampleRate);
+    float cut = juce::jlimit (20.0f, (float)currentSampleRate * 0.45f, effectiveCutoff);
+    float g  = std::tan (juce::MathConstants<float>::pi * cut / (float)currentSampleRate);
     float k  = juce::jlimit (0.01f, 2.0f, 2.0f - 1.99f * filterResonance);
     float a1 = 1.0f / (1.0f + g * (g + k));
     float a2 = g * a1;
@@ -321,6 +341,7 @@ float VoltageSeq2AudioProcessor::generateOsc1Sample (double phaseInc)
             output = (float)(osc1Phase * 2.0 - 1.0);
             break;
         case Square:
+            // pulseWidth = osc1PulseWidth (base) + LFO contributions, clamped 0.05–0.95
             output = (osc1Phase < pulseWidth) ? 1.0f : -1.0f;
             break;
         case Triangle:

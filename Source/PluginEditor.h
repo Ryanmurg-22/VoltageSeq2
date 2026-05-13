@@ -17,13 +17,16 @@ private:
 
     // ── Sequencer ─────────────────────────────────────────────────────────────
     juce::Slider     stepKnob[16];
-    juce::TextButton gateBtn[16];    // row 1 — gate on/off  (teal when on)
-    juce::TextButton slideBtn[16];   // row 2 — slide on/off (accent when on)
+    juce::TextButton gateBtn[16];
+    juce::TextButton slideBtn[16];
 
     // ── SEQ transport ─────────────────────────────────────────────────────────
-    juce::Slider   bpmSlider;
-    juce::Slider   rangeSlider;
-    juce::Slider   portaSlider;      // global portamento time
+    juce::Slider     bpmSlider;
+    juce::Slider     rangeSlider;
+    juce::Slider     portaSlider;
+    juce::ComboBox   clockDivBox;
+    juce::TextButton runStopBtn;
+    juce::TextButton autoBtn;
 
     // ── Quantizer ─────────────────────────────────────────────────────────────
     juce::ComboBox rootBox;
@@ -33,6 +36,7 @@ private:
     juce::ComboBox osc1WaveBox;
     juce::Slider   osc1LevelSlider;
     juce::ComboBox osc1OctaveBox;
+    juce::Slider   osc1PWMSlider;    // base pulse width
 
     // ── OSC 2 ─────────────────────────────────────────────────────────────────
     juce::Slider   osc2PosSlider;
@@ -44,24 +48,30 @@ private:
     juce::Slider   resonanceSlider;
     juce::Slider   filterEnvAmtSlider;
 
-    // ── Amp Envelope ──────────────────────────────────────────────────────────
+    // ── Amp Envelope (larger knobs) ───────────────────────────────────────────
     juce::Slider   attackSlider;
     juce::Slider   decaySlider;
     juce::Slider   sustainSlider;
     juce::Slider   releaseSlider;
 
-    // ── Filter Envelope ───────────────────────────────────────────────────────
+    // ── Filter Envelope (larger knobs) ────────────────────────────────────────
     juce::Slider   fAttackSlider;
     juce::Slider   fDecaySlider;
     juce::Slider   fSustainSlider;
     juce::Slider   fReleaseSlider;
 
-    // ── LFO ───────────────────────────────────────────────────────────────────
+    // ── LFO 1 ─────────────────────────────────────────────────────────────────
     juce::Slider   lfoRateSlider;
     juce::Slider   lfoDepthSlider;
     juce::ComboBox lfoTargetBox;
 
-    void setupKnob (juce::Slider& s, double min, double max, double val, double skew = 0.0);
+    // ── LFO 2 ─────────────────────────────────────────────────────────────────
+    juce::Slider   lfo2RateSlider;
+    juce::Slider   lfo2DepthSlider;
+    juce::ComboBox lfo2TargetBox;
+
+    void setupKnob (juce::Slider& s, double min, double max, double val,
+                    double skewMidpoint = 0.0);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VoltageSeq2AudioProcessorEditor)
 };
