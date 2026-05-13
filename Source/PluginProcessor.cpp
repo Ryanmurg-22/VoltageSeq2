@@ -306,23 +306,45 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // Accumulate complex env modulation per destination
         float cenvAmpMod    = 1.0f;
         float cenvCutoffMod = 1.0f;
-        float cenvPitchMod  = 1.0f;
+        float cenvRangeMod  = 0.0f;   // additive delta applied to rangeVCA pre-quantizer
 
         auto applyCEnv = [&](const ComplexEnvParams& p, float envOut)
         {
             const float v = envOut * p.depth;
-            if (p.dest == 0)  // Amplitude
+            if (p.dest == 0)       // Amplitude
                 cenvAmpMod    *= (1.0f - p.depth + v);
             else if (p.dest == 1)  // Filter Cutoff
                 cenvCutoffMod *= std::pow (2.0f, v * 4.0f);
-            else if (p.dest == 2)  // Pitch
-                cenvPitchMod  *= std::pow (2.0f, v * 2.0f);
+            else if (p.dest == 2)  // Pitch — pre-quantizer via range scaling
+                cenvRangeMod  += v; // accumulates 0..depth per envelope
         };
         applyCEnv (cenv1, cenv1Out);
         applyCEnv (cenv2, cenv2Out);
 
-        // Combine pitch mods (LFO + complex env)
-        pitchMod *= cenvPitchMod;
+        // Pre-quantizer pitch: re-run voltageToQuantizedFreq with a wider/narrower range.
+        // The quantizer then snaps the result to the active scale, so every pitch value
+        // the envelope produces is already in-key.
+        if (cenvRangeMod > 0.001f && running)
+        {
+            // Treat depth as additive to rangeVCA (same units, same knob range 0–1)
+            const float effRange = juce::jlimit (0.0f, 2.0f, rangeVCA + cenvRangeMod);
+            const float baseFreq = voltageToQuantizedFreq (stepVoltages[currentStep], effRange);
+            const float f1 = baseFreq * (float)std::pow (2.0, (double)osc1Octave);
+            const float f2 = baseFreq * (float)std::pow (2.0, (double)osc2Octave);
+
+            if (glideActive)
+            {
+                // Let the glide system slide toward the envelope-modulated target
+                targetFreq1 = f1;
+                targetFreq2 = f2;
+            }
+            else
+            {
+                osc1PhaseInc = (double)f1 / currentSampleRate;
+                osc2PhaseInc = (double)f2 / currentSampleRate;
+            }
+        }
+        // pitchMod (from LFOs) is still applied in OSC generation for vibrato etc.
 
         //----------------------------------------------------------------------
         // FILTER ENVELOPE → effective cutoff
@@ -369,9 +391,10 @@ float VoltageSeq2AudioProcessor::applyFilter (float input, float effectiveCutoff
 }
 
 //==============================================================================
-float VoltageSeq2AudioProcessor::voltageToQuantizedFreq (float voltage)
+float VoltageSeq2AudioProcessor::voltageToQuantizedFreq (float voltage, float rangeOverride)
 {
-    float scaledVoltage = voltage * rangeVCA;
+    float range = (rangeOverride >= 0.0f) ? rangeOverride : rangeVCA;
+    float scaledVoltage = voltage * range;
     float rawMidi = juce::jlimit (0.0f, 127.0f, 60.0f + scaledVoltage * 5.0f);
     int quantizedNote = quantizeNoteToScale ((int)std::round (rawMidi));
     return 440.0f * std::pow (2.0f, (quantizedNote - 69.0f) / 12.0f);

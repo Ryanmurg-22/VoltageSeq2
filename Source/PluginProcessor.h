@@ -189,7 +189,8 @@ private:
     float generateOsc1Sample (double phaseInc);
     float generateOsc2Sample (double phaseInc);
     float applyFilter (float input, float effectiveCutoff);
-    float voltageToQuantizedFreq (float voltage);
+    // rangeOverride < 0 → use member rangeVCA; otherwise uses the supplied value
+    float voltageToQuantizedFreq (float voltage, float rangeOverride = -1.0f);
     int   quantizeNoteToScale (int midiNote);
     float processCEnv (const ComplexEnvParams& p, CEnvState& s, bool gateOn, double bpm);
 
