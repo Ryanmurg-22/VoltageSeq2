@@ -171,12 +171,12 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             if (useHostSync)
             {
                 double samplePPQ = startPPQ + (double)sample * ppqPerSample;
-                newStep = (int)(samplePPQ / ppqStep) % numSteps;
+                newStep = (int)(samplePPQ / ppqStep) % sequenceLength;
                 if (newStep < 0) newStep = 0;
             }
             else
             {
-                newStep = (int)(sampleCounter / samplesPerStep) % numSteps;
+                newStep = (int)(sampleCounter / samplesPerStep) % sequenceLength;
             }
 
             if (newStep != lastStep)
@@ -213,8 +213,8 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             }
 
             sampleCounter += 1.0;
-            if (sampleCounter >= samplesPerStep * numSteps)
-                sampleCounter -= samplesPerStep * numSteps;
+            if (sampleCounter >= samplesPerStep * sequenceLength)
+                sampleCounter -= samplesPerStep * sequenceLength;
         }
 
         //----------------------------------------------------------------------
@@ -271,6 +271,11 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         //----------------------------------------------------------------------
         float osc1    = generateOsc1Sample (osc1PhaseInc * pitchMod) * osc1Level;
         float osc2    = generateOsc2Sample (osc2PhaseInc * pitchMod) * osc2Level;
+
+        // Feed scope ring-buffer (pre-filter, pre-envelope — always shows waveform shape)
+        oscScopeBuffer[scopeWritePos] = osc1 + osc2;
+        scopeWritePos = (scopeWritePos + 1) % scopeSize;
+
         float filtered = applyFilter (osc1 + osc2, effectiveCut);
         float envelope = adsr.getNextSample();
         float output   = filtered * envelope * 0.3f;

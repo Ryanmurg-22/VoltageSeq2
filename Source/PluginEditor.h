@@ -40,7 +40,8 @@ private:
 };
 
 //==============================================================================
-class VoltageSeq2AudioProcessorEditor  : public juce::AudioProcessorEditor
+class VoltageSeq2AudioProcessorEditor  : public juce::AudioProcessorEditor,
+                                         public juce::Timer
 {
 public:
     VoltageSeq2AudioProcessorEditor (VoltageSeq2AudioProcessor&);
@@ -48,6 +49,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void timerCallback() override;
 
 private:
     VoltageSeq2AudioProcessor& audioProcessor;
@@ -106,6 +108,11 @@ private:
     juce::Slider   lfo2RateSlider;
     juce::Slider   lfo2DepthSlider;
     juce::ComboBox lfo2TargetBox;
+
+    // ── Seq length / reset / bipolar ─────────────────────────────────────────
+    juce::Slider     seqLengthSlider;
+    juce::TextButton resetBtn;
+    juce::TextButton bipolarBtn;
 
     // ── Visualisers ───────────────────────────────────────────────────────────
     OscScopeComponent         oscScope;

@@ -83,7 +83,25 @@ public:
     // LFO 2
     float lfo2Rate   = 3.0f;
     float lfo2Depth  = 0.0f;
-    int   lfo2Target = 1;    // default to Cutoff so it differs from LFO1
+    int   lfo2Target = 1;
+
+    // Sequencer length (1–16 active steps); currentStep exposed for UI highlight
+    int sequenceLength = 16;    // how many steps are active
+    int currentStep    = 0;     // plain int — display-only read from UI thread, harmless race
+
+    // Bipolar (default) vs unipolar mode — affects UI slider range only
+    bool unipolar = false;
+
+    // ── Visualiser data (written on audio thread, read on UI thread) ──────────
+    // Wavetable arrays exposed so the WT display can render mathematically
+    static const int wavetableSize = 2048;
+    static const int numWavetables = 4;
+    float wavetables[numWavetables][wavetableSize];
+
+    // Ring buffer filled with pre-filter OSC mix for the oscilloscope display
+    static const int scopeSize = 512;
+    float            oscScopeBuffer[scopeSize] {};
+    int              scopeWritePos = 0;   // plain int — visual-only, race is harmless
 
 private:
     double currentSampleRate = 44100.0;
@@ -92,10 +110,7 @@ private:
     double osc1Phase    = 0.0;
     double osc1PhaseInc = 0.0;
 
-    // OSC 2 wavetable
-    static const int wavetableSize = 2048;
-    static const int numWavetables = 4;
-    float  wavetables[4][2048];
+    // OSC 2 wavetable (arrays are now public for visualiser access)
     double osc2Phase    = 0.0;
     double osc2PhaseInc = 0.0;
 
@@ -121,7 +136,6 @@ private:
     float pulseWidth = 0.5f;
 
     // Sequencer state
-    int    currentStep   = 0;
     int    lastStep      = -1;
     double sampleCounter = 0.0;
 
