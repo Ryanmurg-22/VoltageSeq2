@@ -1,8 +1,9 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
-// Static member definition required by the linker
+// Static member definitions required by the linker
 constexpr double VoltageSeq2AudioProcessor::ppqDivTable[7];
+constexpr double VoltageSeq2AudioProcessor::cenvDivBars[8];
 
 static const int scaleIntervals[][12] =
 {
@@ -81,8 +82,11 @@ void VoltageSeq2AudioProcessor::prepareToPlay (double sampleRate, int samplesPer
     pulseWidth   = osc1PulseWidth;
     glideActive  = false;
     sampleCounter = 0.0;
-    lastStep      = -1;
-    currentStep   = 0;
+    lastPos      = -1;
+    currentStep  = 0;
+    randomStep   = 0;
+    cenv1State   = {};
+    cenv2State   = {};
 
     if (autoRun.load())
         sequencerRunning.store (true);
@@ -121,7 +125,7 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (resetOnNextBlock.exchange (false))
     {
         sampleCounter = 0.0;
-        lastStep      = -1;
+        lastPos       = -1;
     }
 
     //--------------------------------------------------------------------------
@@ -160,6 +164,29 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     const bool running = sequencerRunning.load();
 
+    // Build step-order mapping for this block (cheap, O(seqLen))
+    int stepOrder[16];
+    switch (playOrder)
+    {
+        case Backward:
+            for (int i = 0; i < sequenceLength; ++i)
+                stepOrder[i] = sequenceLength - 1 - i;
+            break;
+        case Converge:
+        {
+            int lo = 0, hi = sequenceLength - 1;
+            for (int i = 0; i < sequenceLength; ++i)
+                stepOrder[i] = (i % 2 == 0) ? lo++ : hi--;
+            break;
+        }
+        case Forward:
+        case Random:
+        default:
+            for (int i = 0; i < sequenceLength; ++i)
+                stepOrder[i] = i;
+            break;
+    }
+
     for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
     {
         //----------------------------------------------------------------------
@@ -167,21 +194,32 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         //----------------------------------------------------------------------
         if (running)
         {
-            int newStep;
+            int pos;
             if (useHostSync)
             {
                 double samplePPQ = startPPQ + (double)sample * ppqPerSample;
-                newStep = (int)(samplePPQ / ppqStep) % sequenceLength;
-                if (newStep < 0) newStep = 0;
+                pos = (int)(samplePPQ / ppqStep) % sequenceLength;
+                if (pos < 0) pos = 0;
             }
             else
             {
-                newStep = (int)(sampleCounter / samplesPerStep) % sequenceLength;
+                pos = (int)(sampleCounter / samplesPerStep) % sequenceLength;
             }
 
-            if (newStep != lastStep)
+            if (pos != lastPos)
             {
-                lastStep    = newStep;
+                lastPos = pos;
+
+                int newStep;
+                if (playOrder == Random)
+                {
+                    newStep = juce::Random::getSystemRandom().nextInt (sequenceLength);
+                    randomStep = newStep;
+                }
+                else
+                {
+                    newStep = stepOrder[pos];
+                }
                 currentStep = newStep;
 
                 if (stepGates[currentStep])
@@ -202,7 +240,6 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                         adsr.noteOff();      adsr.noteOn();
                         filterEnv.noteOff(); filterEnv.noteOn();
                     }
-                    // Glide steps: pitch slides, envelope continues (legato)
                 }
                 else
                 {
@@ -259,12 +296,41 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         pulseWidth = juce::jlimit (0.05f, 0.95f, osc1PulseWidth + pwmMod);
 
         //----------------------------------------------------------------------
+        // COMPLEX ENVELOPES
+        // Gate signal: sustained-high while current step has a gate
+        //----------------------------------------------------------------------
+        const bool gateOn = running && stepGates[currentStep];
+        const float cenv1Out = processCEnv (cenv1, cenv1State, gateOn, effectiveBPM);
+        const float cenv2Out = processCEnv (cenv2, cenv2State, gateOn, effectiveBPM);
+
+        // Accumulate complex env modulation per destination
+        float cenvAmpMod    = 1.0f;
+        float cenvCutoffMod = 1.0f;
+        float cenvPitchMod  = 1.0f;
+
+        auto applyCEnv = [&](const ComplexEnvParams& p, float envOut)
+        {
+            const float v = envOut * p.depth;
+            if (p.dest == 0)  // Amplitude
+                cenvAmpMod    *= (1.0f - p.depth + v);
+            else if (p.dest == 1)  // Filter Cutoff
+                cenvCutoffMod *= std::pow (2.0f, v * 4.0f);
+            else if (p.dest == 2)  // Pitch
+                cenvPitchMod  *= std::pow (2.0f, v * 2.0f);
+        };
+        applyCEnv (cenv1, cenv1Out);
+        applyCEnv (cenv2, cenv2Out);
+
+        // Combine pitch mods (LFO + complex env)
+        pitchMod *= cenvPitchMod;
+
+        //----------------------------------------------------------------------
         // FILTER ENVELOPE → effective cutoff
         //----------------------------------------------------------------------
         float fEnvSample  = filterEnv.getNextSample();
         float effectiveCut = filterCutoff
                              * std::pow (2.0f, filterEnvAmount * 4.0f * fEnvSample);
-        effectiveCut = juce::jlimit (20.0f, 20000.0f, effectiveCut + cutoffMod);
+        effectiveCut = juce::jlimit (20.0f, 20000.0f, (effectiveCut + cutoffMod) * cenvCutoffMod);
 
         //----------------------------------------------------------------------
         // SYNTH VOICE
@@ -278,7 +344,7 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
         float filtered = applyFilter (osc1 + osc2, effectiveCut);
         float envelope = adsr.getNextSample();
-        float output   = filtered * envelope * 0.3f;
+        float output   = filtered * envelope * cenvAmpMod * 0.3f;
 
         leftCh[sample]  = output;
         rightCh[sample] = output;
@@ -378,6 +444,94 @@ float VoltageSeq2AudioProcessor::generateOsc2Sample (double phaseInc)
     osc2Phase += phaseInc;
     if (osc2Phase >= 1.0) osc2Phase -= 1.0;
     return sA + blend * (sB - sA);
+}
+
+//==============================================================================
+// Complex envelope processor
+// Clock-sync mode: cycles continuously at the selected bar division.
+// Gate-triggered mode: standard ADSR state machine driven by the step gate.
+//==============================================================================
+float VoltageSeq2AudioProcessor::processCEnv (const ComplexEnvParams& p, CEnvState& s,
+                                               bool gateOn, double bpm)
+{
+    if (p.clockSync)
+    {
+        // One cycle = cenvDivBars bars; 1 bar = 4 beats = 4 * (60/bpm) seconds
+        const double cycleSeconds = cenvDivBars[juce::jlimit (0, 7, p.clockDiv)]
+                                    * 4.0 * 60.0 / bpm;
+        const double cycleSamples = cycleSeconds * currentSampleRate;
+
+        // A, D, R are proportional to the time params (0–4 s range each);
+        // sustain fills whatever remains.
+        const float weightTotal = p.attack + p.decay + p.release + 0.3f;
+        const double aSamp = (p.attack  / weightTotal) * cycleSamples;
+        const double dSamp = (p.decay   / weightTotal) * cycleSamples;
+        const double sSamp = (0.3f      / weightTotal) * cycleSamples;
+        const double rSamp = (p.release / weightTotal) * cycleSamples;
+
+        s.clockPos += 1.0;
+        if (s.clockPos >= cycleSamples) s.clockPos -= cycleSamples;
+
+        const double cp = s.clockPos;
+        if (cp < aSamp)
+        {
+            s.level = (float)(cp / aSamp);
+        }
+        else if (cp < aSamp + dSamp)
+        {
+            float t = (float)((cp - aSamp) / dSamp);
+            s.level = 1.0f - t * (1.0f - p.sustain);
+        }
+        else if (cp < aSamp + dSamp + sSamp)
+        {
+            s.level = p.sustain;
+        }
+        else
+        {
+            float t = (float)((cp - aSamp - dSamp - sSamp) / juce::jmax (1.0, rSamp));
+            s.level = p.sustain * (1.0f - juce::jmin (1.0f, t));
+        }
+    }
+    else
+    {
+        // Gate-triggered ADSR
+        const float sr    = (float)currentSampleRate;
+        const float aSamp = juce::jmax (1.0f, p.attack  * sr);
+        const float dSamp = juce::jmax (1.0f, p.decay   * sr);
+        const float rSamp = juce::jmax (1.0f, p.release * sr);
+
+        const bool rise = gateOn  && !s.prevGate;
+        const bool fall = !gateOn && s.prevGate;
+        s.prevGate = gateOn;
+
+        if (rise) s.stage = CEnvState::Attack;
+        else if (fall && s.stage != CEnvState::Idle) s.stage = CEnvState::Release;
+
+        switch (s.stage)
+        {
+            case CEnvState::Idle: break;
+            case CEnvState::Attack:
+                s.level += 1.0f / aSamp;
+                if (s.level >= 1.0f) { s.level = 1.0f; s.stage = CEnvState::Decay; }
+                break;
+            case CEnvState::Decay:
+                s.level -= (1.0f - p.sustain) / dSamp;
+                if (s.level <= p.sustain) { s.level = p.sustain; s.stage = CEnvState::Sustain; }
+                break;
+            case CEnvState::Sustain:
+                s.level = p.sustain;
+                break;
+            case CEnvState::Release:
+                s.level -= p.sustain / rSamp;
+                if (s.level <= 0.0f)
+                {
+                    s.level = 0.0f;
+                    s.stage = p.looping ? CEnvState::Attack : CEnvState::Idle;
+                }
+                break;
+        }
+    }
+    return s.level;
 }
 
 //==============================================================================

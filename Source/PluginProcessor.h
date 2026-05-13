@@ -45,7 +45,7 @@ public:
     double internalBPM    = 120.0;
     float  portamentoTime = 0.0f;
 
-    // Clock division index:
+    // Clock division index (sequencer):
     //  0=1/4, 1=1/8, 2=1/16 (default), 3=1/8T, 4=1/16T, 5=1/8dot, 6=1/16dot
     int clockDivision = 2;
 
@@ -61,8 +61,8 @@ public:
     enum Waveform { Sine = 0, Saw, Square, Triangle };
     int   osc1Waveform   = Saw;
     float osc1Level      = 0.7f;
-    int   osc1Octave     = 0;         // -2 … +2
-    float osc1PulseWidth = 0.5f;      // base pulse-width for square wave (0.05–0.95)
+    int   osc1Octave     = 0;
+    float osc1PulseWidth = 0.5f;
 
     float osc2Position = 0.0f;
     float osc2Level    = 0.5f;
@@ -85,32 +85,57 @@ public:
     float lfo2Depth  = 0.0f;
     int   lfo2Target = 1;
 
-    // Sequencer length (1–16 active steps); currentStep exposed for UI highlight
-    int sequenceLength = 16;    // how many steps are active
-    int currentStep    = 0;     // plain int — display-only read from UI thread, harmless race
+    // Sequencer length & display
+    int  sequenceLength = 16;
+    int  currentStep    = 0;     // plain int — read from UI thread for display only
+    bool unipolar       = false;
 
-    // Bipolar (default) vs unipolar mode — affects UI slider range only
-    bool unipolar = false;
+    // Play order
+    enum PlayOrder { Forward = 0, Backward, Converge, Random };
+    int playOrder = Forward;
+
+    // ── Complex envelopes ─────────────────────────────────────────────────────
+    struct ComplexEnvParams
+    {
+        float attack   = 0.05f;
+        float decay    = 0.3f;
+        float sustain  = 0.6f;
+        float release  = 0.2f;
+        float depth    = 0.5f;
+        int   dest     = 0;       // 0 = Amplitude, 1 = Filter Cutoff, 2 = Pitch
+        bool  looping  = false;
+        bool  clockSync = false;
+        int   clockDiv  = 3;      // index into cenvDivBars[]
+    };
+    ComplexEnvParams cenv1, cenv2;
+
+    // Clock divisions for complex envelopes (bars; 1/1 = 1 bar = 4 beats)
+    static constexpr double cenvDivBars[8] = {
+        8.0,    // 8/1
+        4.0,    // 4/1
+        2.0,    // 2/1
+        1.0,    // 1/1
+        0.5,    // 1/2
+        0.25,   // 1/4
+        0.125,  // 1/8
+        0.0625  // 1/16
+    };
 
     // ── Visualiser data (written on audio thread, read on UI thread) ──────────
-    // Wavetable arrays exposed so the WT display can render mathematically
     static const int wavetableSize = 2048;
     static const int numWavetables = 4;
     float wavetables[numWavetables][wavetableSize];
 
-    // Ring buffer filled with pre-filter OSC mix for the oscilloscope display
     static const int scopeSize = 512;
     float            oscScopeBuffer[scopeSize] {};
-    int              scopeWritePos = 0;   // plain int — visual-only, race is harmless
+    int              scopeWritePos = 0;
 
 private:
     double currentSampleRate = 44100.0;
 
-    // OSC 1
+    // OSC phases
     double osc1Phase    = 0.0;
     double osc1PhaseInc = 0.0;
-
-    // OSC 2 wavetable (arrays are now public for visualiser access)
     double osc2Phase    = 0.0;
     double osc2PhaseInc = 0.0;
 
@@ -132,23 +157,33 @@ private:
     float lfoPhase  = 0.0f;
     float lfo2Phase = 0.0f;
 
-    // Current effective pulse width (set per-sample from base + LFO modulation)
     float pulseWidth = 0.5f;
 
     // Sequencer state
-    int    lastStep      = -1;
+    int    lastPos       = -1;   // clock position (0..seqLen-1), not step index
+    int    randomStep    = 0;    // persists between blocks in Random mode
     double sampleCounter = 0.0;
 
     // PPQ duration of one step for each clock-division index
     static constexpr double ppqDivTable[7] = {
         1.0,           // 0: 1/4
         0.5,           // 1: 1/8
-        0.25,          // 2: 1/16  (default)
+        0.25,          // 2: 1/16 (default)
         1.0 / 3.0,     // 3: 1/8 triplet
         1.0 / 6.0,     // 4: 1/16 triplet
         0.75,          // 5: 1/8 dotted
         0.375          // 6: 1/16 dotted
     };
+
+    // Complex envelope state machine
+    struct CEnvState
+    {
+        enum Stage { Idle, Attack, Decay, Sustain, Release } stage = Idle;
+        float  level    = 0.0f;
+        double clockPos = 0.0;   // position within clock-sync cycle (samples)
+        bool   prevGate = false; // for gate edge-detection in gate-triggered mode
+    };
+    CEnvState cenv1State, cenv2State;
 
     void  buildWavetables();
     float generateOsc1Sample (double phaseInc);
@@ -156,6 +191,7 @@ private:
     float applyFilter (float input, float effectiveCutoff);
     float voltageToQuantizedFreq (float voltage);
     int   quantizeNoteToScale (int midiNote);
+    float processCEnv (const ComplexEnvParams& p, CEnvState& s, bool gateOn, double bpm);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VoltageSeq2AudioProcessor)
 };

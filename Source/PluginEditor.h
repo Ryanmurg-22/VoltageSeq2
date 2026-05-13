@@ -4,44 +4,54 @@
 #include "PluginProcessor.h"
 
 //==============================================================================
-// Oscilloscope display — shows the pre-filter OSC mix in real-time
+// Oscilloscope — live pre-filter OSC mix with zero-crossing trigger
 //==============================================================================
-class OscScopeComponent : public juce::Component,
-                          public juce::Timer
+class OscScopeComponent : public juce::Component, public juce::Timer
 {
 public:
     OscScopeComponent (VoltageSeq2AudioProcessor& p) : proc (p) { startTimerHz (30); }
     ~OscScopeComponent() override { stopTimer(); }
-
     void paint (juce::Graphics& g) override;
     void timerCallback() override { repaint(); }
-
 private:
     VoltageSeq2AudioProcessor& proc;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OscScopeComponent)
 };
 
 //==============================================================================
-// Wavetable display — shows OSC 2's morphed waveform mathematically
+// Wavetable display — mathematical OSC 2 morph render
 //==============================================================================
-class WavetableDisplayComponent : public juce::Component,
-                                  public juce::Timer
+class WavetableDisplayComponent : public juce::Component, public juce::Timer
 {
 public:
     WavetableDisplayComponent (VoltageSeq2AudioProcessor& p) : proc (p) { startTimerHz (30); }
     ~WavetableDisplayComponent() override { stopTimer(); }
-
     void paint (juce::Graphics& g) override;
     void timerCallback() override { repaint(); }
-
 private:
     VoltageSeq2AudioProcessor& proc;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WavetableDisplayComponent)
 };
 
 //==============================================================================
-class VoltageSeq2AudioProcessorEditor  : public juce::AudioProcessorEditor,
-                                         public juce::Timer
+// Complex envelope display — draws the ADSR curve from parameter values
+//==============================================================================
+class ComplexEnvDisplay : public juce::Component, public juce::Timer
+{
+public:
+    ComplexEnvDisplay (const VoltageSeq2AudioProcessor::ComplexEnvParams& p)
+        : params (p) { startTimerHz (15); }
+    ~ComplexEnvDisplay() override { stopTimer(); }
+    void paint (juce::Graphics& g) override;
+    void timerCallback() override { repaint(); }
+private:
+    const VoltageSeq2AudioProcessor::ComplexEnvParams& params;
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ComplexEnvDisplay)
+};
+
+//==============================================================================
+class VoltageSeq2AudioProcessorEditor : public juce::AudioProcessorEditor,
+                                        public juce::Timer
 {
 public:
     VoltageSeq2AudioProcessorEditor (VoltageSeq2AudioProcessor&);
@@ -49,7 +59,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
-    void timerCallback() override;
+    void timerCallback() override;   // step highlight + alpha dim
 
 private:
     VoltageSeq2AudioProcessor& audioProcessor;
@@ -58,6 +68,12 @@ private:
     juce::Slider     stepKnob[16];
     juce::TextButton gateBtn[16];
     juce::TextButton slideBtn[16];
+
+    // ── Sub-strip controls (below sequencer) ─────────────────────────────────
+    juce::Slider     seqLengthSlider;
+    juce::TextButton playFwdBtn, playRevBtn, playConvBtn, playRndBtn;
+    juce::TextButton resetBtn;
+    juce::TextButton bipolarBtn;
 
     // ── SEQ transport ─────────────────────────────────────────────────────────
     juce::Slider     bpmSlider;
@@ -75,7 +91,7 @@ private:
     juce::ComboBox osc1WaveBox;
     juce::Slider   osc1LevelSlider;
     juce::ComboBox osc1OctaveBox;
-    juce::Slider   osc1PWMSlider;    // base pulse width
+    juce::Slider   osc1PWMSlider;
 
     // ── OSC 2 ─────────────────────────────────────────────────────────────────
     juce::Slider   osc2PosSlider;
@@ -87,13 +103,13 @@ private:
     juce::Slider   resonanceSlider;
     juce::Slider   filterEnvAmtSlider;
 
-    // ── Amp Envelope (larger knobs) ───────────────────────────────────────────
+    // ── Amp Envelope ─────────────────────────────────────────────────────────
     juce::Slider   attackSlider;
     juce::Slider   decaySlider;
     juce::Slider   sustainSlider;
     juce::Slider   releaseSlider;
 
-    // ── Filter Envelope (larger knobs) ────────────────────────────────────────
+    // ── Filter Envelope ───────────────────────────────────────────────────────
     juce::Slider   fAttackSlider;
     juce::Slider   fDecaySlider;
     juce::Slider   fSustainSlider;
@@ -109,17 +125,27 @@ private:
     juce::Slider   lfo2DepthSlider;
     juce::ComboBox lfo2TargetBox;
 
-    // ── Seq length / reset / bipolar ─────────────────────────────────────────
-    juce::Slider     seqLengthSlider;
-    juce::TextButton resetBtn;
-    juce::TextButton bipolarBtn;
+    // ── Complex Envelope 1 ────────────────────────────────────────────────────
+    juce::Slider     cenv1AtkSlider, cenv1DecSlider, cenv1SusSlider,
+                     cenv1RelSlider, cenv1DepthSlider;
+    juce::ComboBox   cenv1DestBox, cenv1DivBox;
+    juce::TextButton cenv1LoopBtn, cenv1SyncBtn;
+    ComplexEnvDisplay cenv1Display;
 
-    // ── Visualisers ───────────────────────────────────────────────────────────
+    // ── Complex Envelope 2 ────────────────────────────────────────────────────
+    juce::Slider     cenv2AtkSlider, cenv2DecSlider, cenv2SusSlider,
+                     cenv2RelSlider, cenv2DepthSlider;
+    juce::ComboBox   cenv2DestBox, cenv2DivBox;
+    juce::TextButton cenv2LoopBtn, cenv2SyncBtn;
+    ComplexEnvDisplay cenv2Display;
+
+    // ── OSC scope + WT display ────────────────────────────────────────────────
     OscScopeComponent         oscScope;
     WavetableDisplayComponent wavetableDisplay;
 
     void setupKnob (juce::Slider& s, double min, double max, double val,
                     double skewMidpoint = 0.0);
+    void setupCEnvControls (int envIdx);   // shared wiring helper
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VoltageSeq2AudioProcessorEditor)
 };
