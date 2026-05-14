@@ -35,70 +35,11 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
     //==========================================================================
-    // PUBLIC PARAMETERS
+    // TYPES
     //==========================================================================
 
-    static const int numSteps = 16;
-    float  stepVoltages[16];
-    bool   stepGates[16];
-    bool   stepGlides[16];
-    double internalBPM    = 120.0;
-    float  portamentoTime = 0.0f;
-
-    // Clock division index (sequencer):
-    //  0=1/4, 1=1/8, 2=1/16 (default), 3=1/8T, 4=1/16T, 5=1/8dot, 6=1/16dot
-    int clockDivision = 2;
-
-    // Swing amount: 0.5 = perfectly straight, 0.75 = maximum swing
-    // Even steps are lengthened, odd steps shortened by the same amount.
-    float swingAmount = 0.5f;
-
-    // Transport (atomic — written from UI thread, read on audio thread)
-    std::atomic<bool> sequencerRunning { true };
-    std::atomic<bool> autoRun          { true };
-    std::atomic<bool> resetOnNextBlock { false };
-
-    float rangeVCA     = 1.0f;
-    int   rootNote     = 0;
-    int   currentScale = 0;
-
-    enum Waveform { Sine = 0, Saw, Square, Triangle };
-    int   osc1Waveform   = Saw;
-    float osc1Level      = 0.7f;
-    int   osc1Octave     = 0;
-    float osc1PulseWidth = 0.5f;
-
-    float osc2Position = 0.0f;
-    float osc2Level    = 0.5f;
-    int   osc2Octave   = 0;
-
-    float filterCutoff    = 2000.0f;
-    float filterResonance = 0.0f;
-    float filterEnvAmount = 0.5f;
-    juce::ADSR::Parameters filterEnvParams { 0.01f, 0.5f, 0.0f, 0.3f };
-
-    juce::ADSR::Parameters adsrParams;
-
-    // LFO 1
-    float lfoRate   = 2.0f;
-    float lfoDepth  = 0.0f;
-    int   lfoTarget = 0;     // 0=PWM, 1=Cutoff, 2=Pitch
-
-    // LFO 2
-    float lfo2Rate   = 3.0f;
-    float lfo2Depth  = 0.0f;
-    int   lfo2Target = 1;
-
-    // Sequencer length & display
-    int  sequenceLength = 16;
-    int  currentStep    = 0;     // plain int — read from UI thread for display only
-    bool unipolar       = false;
-
-    // Play order
-    enum PlayOrder { Forward = 0, Backward, Converge, Random };
-    int playOrder = Forward;
-
-    // ── Complex envelopes ─────────────────────────────────────────────────────
+    // Complex envelope parameters — top-level nested type so ComplexEnvDisplay
+    // in the editor can reference it without knowing about VoiceParams.
     struct ComplexEnvParams
     {
         float attack   = 0.05f;
@@ -106,67 +47,131 @@ public:
         float sustain  = 0.6f;
         float release  = 0.2f;
         float depth    = 0.5f;
-        int   dest     = 0;       // 0 = Amplitude, 1 = Filter Cutoff, 2 = Pitch
+        int   dest     = 0;       // 0=Amplitude  1=Filter  2=Pitch
         bool  looping  = false;
         bool  clockSync = false;
         int   clockDiv  = 3;      // index into cenvDivBars[]
     };
-    ComplexEnvParams cenv1, cenv2;
 
-    // Clock divisions for complex envelopes (bars; 1/1 = 1 bar = 4 beats)
-    static constexpr double cenvDivBars[8] = {
-        8.0,    // 8/1
-        4.0,    // 4/1
-        2.0,    // 2/1
-        1.0,    // 1/1
-        0.5,    // 1/2
-        0.25,   // 1/4
-        0.125,  // 1/8
-        0.0625  // 1/16
+    // All per-voice parameters — written by the UI thread.
+    struct VoiceParams
+    {
+        // ── Sequencer ────────────────────────────────────────────────────────
+        float stepVoltages[16] = {};
+        bool  stepGates   [16] = {};
+        bool  stepGlides  [16] = {};
+        float portamentoTime   = 0.0f;
+        float swingAmount      = 0.5f;
+        int   clockDivision    = 2;      // 1/16 default
+        int   sequenceLength   = 16;
+        bool  unipolar         = false;
+        int   playOrder        = 0;      // Forward
+
+        // ── Pitch / quantiser ────────────────────────────────────────────────
+        float rangeVCA    = 1.0f;
+        int   rootNote    = 0;
+        int   currentScale = 0;
+
+        // ── OSC 1 ────────────────────────────────────────────────────────────
+        int   osc1Waveform   = 1;        // Saw
+        float osc1Level      = 0.7f;
+        int   osc1Octave     = 0;
+        float osc1PulseWidth = 0.5f;
+
+        // ── OSC 2 ────────────────────────────────────────────────────────────
+        float osc2Position = 0.0f;
+        float osc2Level    = 0.5f;
+        int   osc2Octave   = 0;
+
+        // ── Filter ───────────────────────────────────────────────────────────
+        float filterCutoff    = 2000.0f;
+        float filterResonance = 0.0f;
+        float filterEnvAmount = 0.5f;
+        juce::ADSR::Parameters filterEnvParams { 0.01f, 0.5f, 0.0f, 0.3f };
+
+        // ── Amp envelope ─────────────────────────────────────────────────────
+        juce::ADSR::Parameters adsrParams { 0.01f, 0.1f, 0.7f, 0.08f };
+
+        // ── LFO 1 ────────────────────────────────────────────────────────────
+        float lfoRate  = 2.0f;
+        float lfoDepth = 0.0f;
+        int   lfoTarget = 0;
+
+        // ── LFO 2 ────────────────────────────────────────────────────────────
+        float lfo2Rate  = 3.0f;
+        float lfo2Depth = 0.0f;
+        int   lfo2Target = 1;
+
+        // ── Complex envelopes ────────────────────────────────────────────────
+        ComplexEnvParams cenv1, cenv2;
+
+        // ── Display / transport (written audio thread, read UI — harmless race)
+        int currentStep = 0;
+        std::atomic<bool> sequencerRunning { true };
+        std::atomic<bool> resetOnNextBlock  { false };
+
+        enum PlayOrder { Forward = 0, Backward, Converge, Random };
+        enum Waveform  { Sine   = 0, Saw, Square, Triangle };
     };
 
-    // ── Visualiser data (written on audio thread, read on UI thread) ──────────
+    //==========================================================================
+    // PUBLIC DATA
+    //==========================================================================
+    static const int numVoices = 2;
+    static const int numSteps  = 16;
+
+    VoiceParams voice[numVoices];   // voice[0]=A  voice[1]=B
+
+    // Shared between both voices
+    double            internalBPM = 120.0;
+    std::atomic<bool> autoRun     { true };
+
+    // Clock divisions for complex envelopes (bars; 1 bar = 4 beats)
+    static constexpr double cenvDivBars[8] = {
+        8.0, 4.0, 2.0, 1.0, 0.5, 0.25, 0.125, 0.0625
+    };
+
+    // Wavetables — shared (OSC 2)
     static const int wavetableSize = 2048;
     static const int numWavetables = 4;
     float wavetables[numWavetables][wavetableSize];
 
+    // Per-voice oscilloscope ring buffers (written audio, read UI)
     static const int scopeSize = 512;
-    float            oscScopeBuffer[scopeSize] {};
-    int              scopeWritePos = 0;
+    float oscScopeBuffer[numVoices][scopeSize] {};
+    int   scopeWritePos [numVoices]            {};
 
 private:
+    //==========================================================================
+    // PRIVATE AUDIO-THREAD STATE
+    //==========================================================================
     double currentSampleRate = 44100.0;
 
-    // OSC phases
-    double osc1Phase    = 0.0;
-    double osc1PhaseInc = 0.0;
-    double osc2Phase    = 0.0;
-    double osc2PhaseInc = 0.0;
+    struct CEnvState
+    {
+        enum Stage { Idle, Attack, Decay, Sustain, Release } stage = Idle;
+        float  level    = 0.0f;
+        double clockPos = 0.0;
+        bool   prevGate = false;
+    };
 
-    // Portamento
-    float currentFreq1 = 261.63f;
-    float currentFreq2 = 261.63f;
-    float targetFreq1  = 261.63f;
-    float targetFreq2  = 261.63f;
-    bool  glideActive  = false;
+    struct VoiceState
+    {
+        double osc1Phase = 0.0, osc1PhaseInc = 0.0;
+        double osc2Phase = 0.0, osc2PhaseInc = 0.0;
+        float  currentFreq1 = 261.63f, targetFreq1 = 261.63f;
+        float  currentFreq2 = 261.63f, targetFreq2 = 261.63f;
+        bool   glideActive  = false;
+        float  ic1eq = 0.0f, ic2eq = 0.0f;
+        juce::ADSR adsr, filterEnv;
+        float  lfoPhase  = 0.0f, lfo2Phase  = 0.0f;
+        float  pulseWidth = 0.5f;
+        int    lastPos = -1, randomStep = 0;
+        double sampleCounter = 0.0;
+        CEnvState cenv1State, cenv2State;
+    };
 
-    // SVF integrator states
-    float ic1eq = 0.0f;
-    float ic2eq = 0.0f;
-
-    juce::ADSR adsr;
-    juce::ADSR filterEnv;
-
-    // LFO phases
-    float lfoPhase  = 0.0f;
-    float lfo2Phase = 0.0f;
-
-    float pulseWidth = 0.5f;
-
-    // Sequencer state
-    int    lastPos       = -1;   // clock position (0..seqLen-1), not step index
-    int    randomStep    = 0;    // persists between blocks in Random mode
-    double sampleCounter = 0.0;
+    VoiceState vstate[numVoices];
 
     // PPQ duration of one step for each clock-division index
     static constexpr double ppqDivTable[7] = {
@@ -179,24 +184,31 @@ private:
         0.375          // 6: 1/16 dotted
     };
 
-    // Complex envelope state machine
-    struct CEnvState
-    {
-        enum Stage { Idle, Attack, Decay, Sustain, Release } stage = Idle;
-        float  level    = 0.0f;
-        double clockPos = 0.0;   // position within clock-sync cycle (samples)
-        bool   prevGate = false; // for gate edge-detection in gate-triggered mode
-    };
-    CEnvState cenv1State, cenv2State;
-
+    //==========================================================================
+    // PRIVATE METHODS
+    //==========================================================================
     void  buildWavetables();
-    float generateOsc1Sample (double phaseInc);
-    float generateOsc2Sample (double phaseInc);
-    float applyFilter (float input, float effectiveCutoff);
-    // rangeOverride < 0 → use member rangeVCA; otherwise uses the supplied value
-    float voltageToQuantizedFreq (float voltage, float rangeOverride = -1.0f);
-    int   quantizeNoteToScale (int midiNote);
-    float processCEnv (const ComplexEnvParams& p, CEnvState& s, bool gateOn, double bpm);
+
+    // Process one sample of one voice; returns the output sample.
+    float processSingleVoiceSample (int vi, bool running,
+                                    bool useHostSync, double samplePPQ,
+                                    double effectiveBPM,
+                                    const double* swingBounds,
+                                    const double* swingPPQBounds,
+                                    double totalSwingCycle,
+                                    double totalSwingPPQ,
+                                    const int*   stepOrder,
+                                    float        glideCoeff);
+
+    float generateOsc1Sample (VoiceState& vs, const VoiceParams& vp, double phaseInc);
+    float generateOsc2Sample (VoiceState& vs, const VoiceParams& vp, double phaseInc);
+    float applyFilter        (VoiceState& vs, const VoiceParams& vp,
+                              float input, float effectiveCutoff);
+    float voltageToQuantizedFreq (const VoiceParams& vp, float voltage,
+                                  float rangeOverride = -1.0f);
+    int   quantizeNoteToScale    (int midiNote, int rootNote, int scale);
+    float processCEnv            (const ComplexEnvParams& p, CEnvState& s,
+                                  bool gateOn, double bpm);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VoltageSeq2AudioProcessor)
 };
