@@ -203,8 +203,6 @@ static void addCenvDivItems (juce::ComboBox& box)
 VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2AudioProcessor& p)
     : AudioProcessorEditor (&p), audioProcessor (p)
 {
-    setSize (1350, 1800);
-
     // ── Load backplate SVG ────────────────────────────────────────────────────
     if (auto svgXml = juce::XmlDocument::parse (juce::String (kBackplateSVG)))
         backplate = juce::Drawable::createFromSVG (*svgXml);
@@ -297,6 +295,9 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     };
     addAndMakeVisible (loadPresetBtn);
 
+    // setSize MUST be last — it triggers resized() which dereferences all
+    // unique_ptr sub-components.  Moving it here ensures they are non-null.
+    setSize (1350, 1800);
     startTimerHz (30);
 }
 
