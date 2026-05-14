@@ -2,6 +2,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "BackplateData.h"
 
 //==============================================================================
 // Oscilloscope — live pre-filter OSC mix with zero-crossing trigger
@@ -71,9 +72,14 @@ private:
 
     // ── Sub-strip controls (below sequencer) ─────────────────────────────────
     juce::Slider     seqLengthSlider;
+    juce::Slider     swingSlider;
     juce::TextButton playFwdBtn, playRevBtn, playConvBtn, playRndBtn;
     juce::TextButton resetBtn;
     juce::TextButton bipolarBtn;
+
+    // ── Preset save / load ────────────────────────────────────────────────────
+    juce::TextButton savePresetBtn, loadPresetBtn;
+    std::unique_ptr<juce::FileChooser> fileChooser;
 
     // ── SEQ transport ─────────────────────────────────────────────────────────
     juce::Slider     bpmSlider;
@@ -143,9 +149,12 @@ private:
     OscScopeComponent         oscScope;
     WavetableDisplayComponent wavetableDisplay;
 
+    // ── Backplate ─────────────────────────────────────────────────────────────
+    std::unique_ptr<juce::Drawable> backplate;
+
     void setupKnob (juce::Slider& s, double min, double max, double val,
                     double skewMidpoint = 0.0);
-    void setupCEnvControls (int envIdx);   // shared wiring helper
+    void syncUIFromProcessor();   // refresh all widget values after preset load
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VoltageSeq2AudioProcessorEditor)
 };

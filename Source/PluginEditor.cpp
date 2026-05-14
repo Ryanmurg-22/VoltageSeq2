@@ -214,6 +214,10 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
 {
     setSize (1350, 900);
 
+    // ── Load backplate SVG ────────────────────────────────────────────────────
+    if (auto svgXml = juce::XmlDocument::parse (juce::String (kBackplateSVG)))
+        backplate = juce::Drawable::createFromSVG (*svgXml);
+
     //==========================================================================
     // STEP SLIDERS + GATE + SLIDE BUTTONS
     //==========================================================================
@@ -346,6 +350,79 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
         };
         addAndMakeVisible (bipolarBtn);
     }
+
+    //==========================================================================
+    // SUB-STRIP: Swing / shuffle
+    //==========================================================================
+    swingSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+    swingSlider.setRange (0.5, 0.75, 0.001);
+    swingSlider.setValue (audioProcessor.swingAmount, juce::dontSendNotification);
+    swingSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    swingSlider.setColour (juce::Slider::trackColourId,      knobColour);
+    swingSlider.setColour (juce::Slider::backgroundColourId, juce::Colour (0xff252540));
+    swingSlider.onValueChange = [this]() {
+        audioProcessor.swingAmount = (float)swingSlider.getValue();
+    };
+    addAndMakeVisible (swingSlider);
+
+    //==========================================================================
+    // HEADER: Preset Save / Load
+    //==========================================================================
+    savePresetBtn.setButtonText ("SAVE");
+    savePresetBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff1a2840));
+    savePresetBtn.onClick = [this]()
+    {
+        auto presetDir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                            .getChildFile ("Murgatroyd Instruments/VoltageSeq2/Presets");
+        presetDir.createDirectory();
+
+        fileChooser = std::make_unique<juce::FileChooser> (
+            "Save Preset", presetDir, "*.vs2");
+
+        fileChooser->launchAsync (
+            juce::FileBrowserComponent::saveMode
+            | juce::FileBrowserComponent::canSelectFiles,
+            [this](const juce::FileChooser& fc)
+            {
+                auto result = fc.getResult();
+                if (result != juce::File{})
+                {
+                    auto file = result.withFileExtension (".vs2");
+                    juce::MemoryBlock state;
+                    audioProcessor.getStateInformation (state);
+                    file.replaceWithData (state.getData(), state.getSize());
+                }
+            });
+    };
+    addAndMakeVisible (savePresetBtn);
+
+    loadPresetBtn.setButtonText ("LOAD");
+    loadPresetBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff1a2840));
+    loadPresetBtn.onClick = [this]()
+    {
+        auto presetDir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                            .getChildFile ("Murgatroyd Instruments/VoltageSeq2/Presets");
+        presetDir.createDirectory();
+
+        fileChooser = std::make_unique<juce::FileChooser> (
+            "Load Preset", presetDir, "*.vs2");
+
+        fileChooser->launchAsync (
+            juce::FileBrowserComponent::openMode
+            | juce::FileBrowserComponent::canSelectFiles,
+            [this](const juce::FileChooser& fc)
+            {
+                auto result = fc.getResult();
+                if (result.existsAsFile())
+                {
+                    juce::MemoryBlock state;
+                    result.loadFileAsData (state);
+                    audioProcessor.setStateInformation (state.getData(), (int)state.getSize());
+                    syncUIFromProcessor();
+                }
+            });
+    };
+    addAndMakeVisible (loadPresetBtn);
 
     //==========================================================================
     // SEQ TRANSPORT
@@ -676,18 +753,22 @@ void VoltageSeq2AudioProcessorEditor::setupKnob (juce::Slider& s, double min, do
 //==============================================================================
 void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
 {
+    // ── Opaque background (required for plugin windows) ───────────────────────
     g.fillAll (bgColour);
 
-    // ── Header ────────────────────────────────────────────────────────────────
-    g.setColour (accentColour);
-    g.setFont (juce::Font (13.0f, juce::Font::bold));
-    g.drawText ("MURGATROYD INSTRUMENTS", 10, 4, 380, 18, juce::Justification::centredLeft);
-    g.setColour (textColour);
-    g.setFont (juce::Font (16.0f, juce::Font::bold));
-    g.drawText ("VOLTAGE SEQ 2", 0, 4, getWidth(), 18, juce::Justification::centred);
+    // ── Backplate SVG (drawn at ~85% opacity so panels overlay cleanly) ───────
+    if (backplate != nullptr)
+        backplate->drawWithin (g, getLocalBounds().toFloat(),
+                               juce::RectanglePlacement::stretchToFit, 0.88f);
+
+    // ── Header overlaid text (backplate draws the wordmark; we keep labels) ──
+    // Save/Load buttons are widgets; add a subtle label next to them
+    g.setColour (dimColour.withAlpha (0.8f));
+    g.setFont (juce::Font (8.5f, juce::Font::bold));
+    g.drawText ("PRESET", 1072, 4, 42, 10, juce::Justification::centredLeft);
 
     // ── Sequencer panel ───────────────────────────────────────────────────────
-    g.setColour (sectionColour);
+    g.setColour (sectionColour.withAlpha (0.78f));
     g.fillRoundedRectangle ((float)seqX, 28.0f, (float)seqW, (float)seqH, 5.0f);
 
     // 0 V reference line
@@ -707,18 +788,19 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     g.drawText ("SLIDE", 1288, 174, 53, 17, juce::Justification::centredLeft);
 
     // ── Sub-strip (below sequencer) ───────────────────────────────────────────
-    g.setColour (subStripColour);
+    g.setColour (subStripColour.withAlpha (0.82f));
     g.fillRoundedRectangle (5.0f, (float)stripY, (float)seqW, (float)stripH, 4.0f);
 
     g.setColour (dimColour);
     g.setFont (juce::Font (9.0f, juce::Font::bold));
     g.drawText ("SEQ LEN",    12,  stripY + 2, 100, 12, juce::Justification::centredLeft);
     g.drawText ("PLAY ORDER", 130, stripY + 2, 180, 12, juce::Justification::centredLeft);
+    g.drawText ("SWING",      560, stripY + 2,  80, 12, juce::Justification::centredLeft);
 
     // ── Control panels row ────────────────────────────────────────────────────
     auto drawPanel = [&](int x, int w, const juce::String& title)
     {
-        g.setColour (sectionColour);
+        g.setColour (sectionColour.withAlpha (0.80f));
         g.fillRoundedRectangle ((float)x, (float)ctrlY, (float)w, (float)ctrlH, 5.0f);
         g.setColour (dimColour);
         g.setFont (juce::Font (9.5f, juce::Font::bold));
@@ -801,7 +883,7 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     // ── Complex envelope panels ───────────────────────────────────────────────
     auto drawEnvPanel = [&](int pX, const juce::String& title)
     {
-        g.setColour (envPanelColour);
+        g.setColour (envPanelColour.withAlpha (0.80f));
         g.fillRoundedRectangle ((float)pX, (float)envY, (float)envPW, (float)envH, 5.0f);
         g.setColour (dimColour);
         g.setFont (juce::Font (9.5f, juce::Font::bold));
@@ -848,6 +930,11 @@ void VoltageSeq2AudioProcessorEditor::resized()
     playRndBtn     .setBounds (275, sY,  44, 22);
     resetBtn       .setBounds (335, sY,  80, 22);
     bipolarBtn     .setBounds (425, sY, 110, 22);
+    swingSlider    .setBounds (560, sY, 130, 22);
+
+    // ── Preset buttons (top-right of header) ─────────────────────────────────
+    savePresetBtn.setBounds (1100, 5, 60, 22);
+    loadPresetBtn.setBounds (1168, 5, 60, 22);
 
     // ── SEQ transport ─────────────────────────────────────────────────────────
     bpmSlider  .setBounds (10, cy1,          52, 62);
@@ -901,7 +988,7 @@ void VoltageSeq2AudioProcessorEditor::resized()
     lfo2DepthSlider.setBounds (1306, cy1, 38, 38);
     lfo2TargetBox  .setBounds (1261, cy3, 83, 24);
 
-    // ── Complex Envelope panels ───────────────────────────────────────────────
+    // ── Complex Envelope panels ─────────────────────────────────────────────
     // ENV 1 (panel at x=5)
     const int e1 = 5;
     cenv1AtkSlider  .setBounds (e1 + 15,  envY + 33, 48, 48);
@@ -927,4 +1014,129 @@ void VoltageSeq2AudioProcessorEditor::resized()
     cenv2SyncBtn    .setBounds (e2 +215,  envY +100,  80, 22);
     cenv2DivBox     .setBounds (e2 +305,  envY +100,  75, 22);
     cenv2Display    .setBounds (e2 +390,  envY + 25, 265, 188);
+}
+
+//==============================================================================
+// syncUIFromProcessor — refresh all widget values from processor state.
+// Call this after loading a preset so the UI matches the new parameter values.
+//==============================================================================
+void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
+{
+    auto& p = audioProcessor;
+
+    // ── Step controls ─────────────────────────────────────────────────────────
+    for (int i = 0; i < 16; ++i)
+    {
+        stepKnob[i].setValue (p.stepVoltages[i], juce::dontSendNotification);
+        gateBtn [i].setToggleState (p.stepGates [i], juce::dontSendNotification);
+        slideBtn[i].setToggleState (p.stepGlides[i], juce::dontSendNotification);
+    }
+
+    // ── Sub-strip ─────────────────────────────────────────────────────────────
+    seqLengthSlider.setValue (p.sequenceLength, juce::dontSendNotification);
+    swingSlider    .setValue (p.swingAmount,    juce::dontSendNotification);
+
+    // Play order button highlight
+    juce::TextButton* pBtns[4] = { &playFwdBtn, &playRevBtn, &playConvBtn, &playRndBtn };
+    for (int i = 0; i < 4; ++i)
+        pBtns[i]->setColour (juce::TextButton::buttonColourId,
+                              p.playOrder == i ? playBtnOn : playBtnOff);
+
+    // Bipolar/Unipolar
+    bipolarBtn.setToggleState (p.unipolar, juce::dontSendNotification);
+    bipolarBtn.setButtonText  (p.unipolar ? "UNIPOLAR" : "BIPOLAR");
+    bipolarBtn.setColour (juce::TextButton::buttonColourId,
+                          p.unipolar ? juce::Colour (0xff305050) : juce::Colour (0xff2a2050));
+    for (int i = 0; i < 16; ++i)
+    {
+        if (p.unipolar) stepKnob[i].setRange (0.0, 5.0, 0.01);
+        else            stepKnob[i].setRange (-5.0, 5.0, 0.01);
+        stepKnob[i].setValue (p.stepVoltages[i], juce::dontSendNotification);
+    }
+
+    // ── SEQ transport ─────────────────────────────────────────────────────────
+    bpmSlider  .setValue (p.internalBPM,    juce::dontSendNotification);
+    rangeSlider.setValue (p.rangeVCA,        juce::dontSendNotification);
+    portaSlider.setValue (p.portamentoTime,  juce::dontSendNotification);
+    clockDivBox.setSelectedItemIndex (p.clockDivision, juce::dontSendNotification);
+
+    const bool isRunning = p.sequencerRunning.load();
+    runStopBtn.setButtonText (isRunning ? "STOP" : "RUN");
+    runStopBtn.setColour (juce::TextButton::buttonColourId, isRunning ? stopColour : runColour);
+
+    const bool isAuto = p.autoRun.load();
+    autoBtn.setToggleState (isAuto, juce::dontSendNotification);
+    autoBtn.setColour (juce::TextButton::buttonColourId, isAuto ? gateOnColour : gateOffColour);
+
+    // ── Quantizer ─────────────────────────────────────────────────────────────
+    rootBox .setSelectedItemIndex (p.rootNote,     juce::dontSendNotification);
+    scaleBox.setSelectedItemIndex (p.currentScale, juce::dontSendNotification);
+
+    // ── OSC 1 ─────────────────────────────────────────────────────────────────
+    osc1WaveBox    .setSelectedItemIndex (p.osc1Waveform,   juce::dontSendNotification);
+    osc1LevelSlider.setValue (p.osc1Level,                   juce::dontSendNotification);
+    osc1OctaveBox  .setSelectedItemIndex (p.osc1Octave + 2, juce::dontSendNotification);
+    osc1PWMSlider  .setValue (p.osc1PulseWidth,              juce::dontSendNotification);
+
+    // ── OSC 2 ─────────────────────────────────────────────────────────────────
+    osc2PosSlider  .setValue (p.osc2Position,               juce::dontSendNotification);
+    osc2LevelSlider.setValue (p.osc2Level,                   juce::dontSendNotification);
+    osc2OctaveBox  .setSelectedItemIndex (p.osc2Octave + 2, juce::dontSendNotification);
+
+    // ── Filter ────────────────────────────────────────────────────────────────
+    cutoffSlider      .setValue (p.filterCutoff,           juce::dontSendNotification);
+    resonanceSlider   .setValue (p.filterResonance,        juce::dontSendNotification);
+    filterEnvAmtSlider.setValue (p.filterEnvAmount,        juce::dontSendNotification);
+    fAttackSlider     .setValue (p.filterEnvParams.attack, juce::dontSendNotification);
+    fDecaySlider      .setValue (p.filterEnvParams.decay,  juce::dontSendNotification);
+    fSustainSlider    .setValue (p.filterEnvParams.sustain,juce::dontSendNotification);
+    fReleaseSlider    .setValue (p.filterEnvParams.release,juce::dontSendNotification);
+
+    // ── Amp Envelope ──────────────────────────────────────────────────────────
+    attackSlider .setValue (p.adsrParams.attack,  juce::dontSendNotification);
+    decaySlider  .setValue (p.adsrParams.decay,   juce::dontSendNotification);
+    sustainSlider.setValue (p.adsrParams.sustain, juce::dontSendNotification);
+    releaseSlider.setValue (p.adsrParams.release, juce::dontSendNotification);
+
+    // ── LFO 1 ─────────────────────────────────────────────────────────────────
+    lfoRateSlider .setValue (p.lfoRate,  juce::dontSendNotification);
+    lfoDepthSlider.setValue (p.lfoDepth, juce::dontSendNotification);
+    lfoTargetBox  .setSelectedItemIndex (p.lfoTarget, juce::dontSendNotification);
+
+    // ── LFO 2 ─────────────────────────────────────────────────────────────────
+    lfo2RateSlider .setValue (p.lfo2Rate,  juce::dontSendNotification);
+    lfo2DepthSlider.setValue (p.lfo2Depth, juce::dontSendNotification);
+    lfo2TargetBox  .setSelectedItemIndex (p.lfo2Target, juce::dontSendNotification);
+
+    // ── Complex Envelope 1 ────────────────────────────────────────────────────
+    cenv1AtkSlider  .setValue (p.cenv1.attack,  juce::dontSendNotification);
+    cenv1DecSlider  .setValue (p.cenv1.decay,   juce::dontSendNotification);
+    cenv1SusSlider  .setValue (p.cenv1.sustain, juce::dontSendNotification);
+    cenv1RelSlider  .setValue (p.cenv1.release, juce::dontSendNotification);
+    cenv1DepthSlider.setValue (p.cenv1.depth,   juce::dontSendNotification);
+    cenv1DestBox.setSelectedItemIndex (p.cenv1.dest,     juce::dontSendNotification);
+    cenv1DivBox .setSelectedItemIndex (p.cenv1.clockDiv, juce::dontSendNotification);
+    cenv1LoopBtn.setToggleState (p.cenv1.looping,   juce::dontSendNotification);
+    cenv1LoopBtn.setColour (juce::TextButton::buttonColourId,
+                            p.cenv1.looping   ? gateOnColour : gateOffColour);
+    cenv1SyncBtn.setToggleState (p.cenv1.clockSync, juce::dontSendNotification);
+    cenv1SyncBtn.setColour (juce::TextButton::buttonColourId,
+                            p.cenv1.clockSync ? knobColour   : gateOffColour);
+
+    // ── Complex Envelope 2 ────────────────────────────────────────────────────
+    cenv2AtkSlider  .setValue (p.cenv2.attack,  juce::dontSendNotification);
+    cenv2DecSlider  .setValue (p.cenv2.decay,   juce::dontSendNotification);
+    cenv2SusSlider  .setValue (p.cenv2.sustain, juce::dontSendNotification);
+    cenv2RelSlider  .setValue (p.cenv2.release, juce::dontSendNotification);
+    cenv2DepthSlider.setValue (p.cenv2.depth,   juce::dontSendNotification);
+    cenv2DestBox.setSelectedItemIndex (p.cenv2.dest,     juce::dontSendNotification);
+    cenv2DivBox .setSelectedItemIndex (p.cenv2.clockDiv, juce::dontSendNotification);
+    cenv2LoopBtn.setToggleState (p.cenv2.looping,   juce::dontSendNotification);
+    cenv2LoopBtn.setColour (juce::TextButton::buttonColourId,
+                            p.cenv2.looping   ? gateOnColour : gateOffColour);
+    cenv2SyncBtn.setToggleState (p.cenv2.clockSync, juce::dontSendNotification);
+    cenv2SyncBtn.setColour (juce::TextButton::buttonColourId,
+                            p.cenv2.clockSync ? knobColour   : gateOffColour);
+
+    repaint();
 }

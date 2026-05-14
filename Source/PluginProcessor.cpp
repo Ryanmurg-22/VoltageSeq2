@@ -149,10 +149,30 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // PPQ per step from the clock-division table
-    const double ppqStep      = ppqDivTable[juce::jlimit (0, 6, clockDivision)];
+    const double ppqStep        = ppqDivTable[juce::jlimit (0, 6, clockDivision)];
     const double samplesPerBeat = currentSampleRate * 60.0 / effectiveBPM;
     const double samplesPerStep = ppqStep * samplesPerBeat;
     const double ppqPerSample   = effectiveBPM / 60.0 / currentSampleRate;
+
+    // ── Swing / shuffle ───────────────────────────────────────────────────────
+    // Each step pair (even/odd) shares a combined duration of 2 × nominal step.
+    // swingAmount 0.5 = straight; 0.75 = heavy swing (3:1 ratio).
+    // swingBounds[i] = cumulative sample count to start of step i (internal clock).
+    // swingPPQBounds[i] = same in PPQ (host sync).
+    double swingBounds[17];
+    double swingPPQBounds[17];
+    swingBounds   [0] = 0.0;
+    swingPPQBounds[0] = 0.0;
+    for (int i = 0; i < sequenceLength; ++i)
+    {
+        const double factor = (i % 2 == 0)
+            ? (2.0 * (double)swingAmount)
+            : (2.0 * (1.0 - (double)swingAmount));
+        swingBounds   [i + 1] = swingBounds   [i] + samplesPerStep * factor;
+        swingPPQBounds[i + 1] = swingPPQBounds[i] + ppqStep        * factor;
+    }
+    const double totalSwingCycle = swingBounds   [sequenceLength];
+    const double totalSwingPPQ   = swingPPQBounds[sequenceLength];
 
     // Pre-compute glide coefficient once per block
     float glideCoeff = 0.0f;
@@ -197,13 +217,20 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             int pos;
             if (useHostSync)
             {
-                double samplePPQ = startPPQ + (double)sample * ppqPerSample;
-                pos = (int)(samplePPQ / ppqStep) % sequenceLength;
-                if (pos < 0) pos = 0;
+                // Wrap absolute PPQ into one swing cycle, then binary-search boundaries
+                double samplePPQ  = startPPQ + (double)sample * ppqPerSample;
+                double wrappedPPQ = std::fmod (samplePPQ, totalSwingPPQ);
+                if (wrappedPPQ < 0.0) wrappedPPQ += totalSwingPPQ;
+                pos = sequenceLength - 1;
+                for (int i = 0; i < sequenceLength; ++i)
+                    if (wrappedPPQ < swingPPQBounds[i + 1]) { pos = i; break; }
             }
             else
             {
-                pos = (int)(sampleCounter / samplesPerStep) % sequenceLength;
+                double wrappedCtr = std::fmod (sampleCounter, totalSwingCycle);
+                pos = sequenceLength - 1;
+                for (int i = 0; i < sequenceLength; ++i)
+                    if (wrappedCtr < swingBounds[i + 1]) { pos = i; break; }
             }
 
             if (pos != lastPos)
@@ -250,8 +277,8 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             }
 
             sampleCounter += 1.0;
-            if (sampleCounter >= samplesPerStep * sequenceLength)
-                sampleCounter -= samplesPerStep * sequenceLength;
+            if (sampleCounter >= totalSwingCycle)
+                sampleCounter -= totalSwingCycle;
         }
 
         //----------------------------------------------------------------------
@@ -574,8 +601,179 @@ int VoltageSeq2AudioProcessor::getCurrentProgram() { return 0; }
 void VoltageSeq2AudioProcessor::setCurrentProgram (int) {}
 const juce::String VoltageSeq2AudioProcessor::getProgramName (int) { return {}; }
 void VoltageSeq2AudioProcessor::changeProgramName (int, const juce::String&) {}
-void VoltageSeq2AudioProcessor::getStateInformation (juce::MemoryBlock&) {}
-void VoltageSeq2AudioProcessor::setStateInformation (const void*, int) {}
+void VoltageSeq2AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
+{
+    juce::XmlElement xml ("VoltageSeq2State");
+
+    // ── Sequencer steps ───────────────────────────────────────────────────────
+    for (int i = 0; i < numSteps; ++i)
+    {
+        xml.setAttribute ("v"  + juce::String (i), (double)stepVoltages[i]);
+        xml.setAttribute ("g"  + juce::String (i), stepGates [i]);
+        xml.setAttribute ("sl" + juce::String (i), stepGlides[i]);
+    }
+
+    // ── Global sequencer params ───────────────────────────────────────────────
+    xml.setAttribute ("bpm",      internalBPM);
+    xml.setAttribute ("porta",    (double)portamentoTime);
+    xml.setAttribute ("clkDiv",   clockDivision);
+    xml.setAttribute ("swing",    (double)swingAmount);
+    xml.setAttribute ("seqLen",   sequenceLength);
+    xml.setAttribute ("unipolar", unipolar);
+    xml.setAttribute ("playOrder",playOrder);
+    xml.setAttribute ("range",    (double)rangeVCA);
+    xml.setAttribute ("root",     rootNote);
+    xml.setAttribute ("scale",    currentScale);
+
+    // ── OSC 1 ─────────────────────────────────────────────────────────────────
+    xml.setAttribute ("osc1Wave", osc1Waveform);
+    xml.setAttribute ("osc1Lvl",  (double)osc1Level);
+    xml.setAttribute ("osc1Oct",  osc1Octave);
+    xml.setAttribute ("osc1PW",   (double)osc1PulseWidth);
+
+    // ── OSC 2 ─────────────────────────────────────────────────────────────────
+    xml.setAttribute ("osc2Pos",  (double)osc2Position);
+    xml.setAttribute ("osc2Lvl",  (double)osc2Level);
+    xml.setAttribute ("osc2Oct",  osc2Octave);
+
+    // ── Filter ────────────────────────────────────────────────────────────────
+    xml.setAttribute ("cut",    (double)filterCutoff);
+    xml.setAttribute ("res",    (double)filterResonance);
+    xml.setAttribute ("fEnvAmt",(double)filterEnvAmount);
+    xml.setAttribute ("fAtk",   (double)filterEnvParams.attack);
+    xml.setAttribute ("fDec",   (double)filterEnvParams.decay);
+    xml.setAttribute ("fSus",   (double)filterEnvParams.sustain);
+    xml.setAttribute ("fRel",   (double)filterEnvParams.release);
+
+    // ── Amp Envelope ──────────────────────────────────────────────────────────
+    xml.setAttribute ("aAtk",   (double)adsrParams.attack);
+    xml.setAttribute ("aDec",   (double)adsrParams.decay);
+    xml.setAttribute ("aSus",   (double)adsrParams.sustain);
+    xml.setAttribute ("aRel",   (double)adsrParams.release);
+
+    // ── LFO 1 ─────────────────────────────────────────────────────────────────
+    xml.setAttribute ("lfo1Rate", (double)lfoRate);
+    xml.setAttribute ("lfo1Dep",  (double)lfoDepth);
+    xml.setAttribute ("lfo1Tgt",  lfoTarget);
+
+    // ── LFO 2 ─────────────────────────────────────────────────────────────────
+    xml.setAttribute ("lfo2Rate", (double)lfo2Rate);
+    xml.setAttribute ("lfo2Dep",  (double)lfo2Depth);
+    xml.setAttribute ("lfo2Tgt",  lfo2Target);
+
+    // ── Complex Envelope 1 ────────────────────────────────────────────────────
+    xml.setAttribute ("c1Atk",  (double)cenv1.attack);
+    xml.setAttribute ("c1Dec",  (double)cenv1.decay);
+    xml.setAttribute ("c1Sus",  (double)cenv1.sustain);
+    xml.setAttribute ("c1Rel",  (double)cenv1.release);
+    xml.setAttribute ("c1Dep",  (double)cenv1.depth);
+    xml.setAttribute ("c1Dst",  cenv1.dest);
+    xml.setAttribute ("c1Loop", cenv1.looping);
+    xml.setAttribute ("c1Sync", cenv1.clockSync);
+    xml.setAttribute ("c1Div",  cenv1.clockDiv);
+
+    // ── Complex Envelope 2 ────────────────────────────────────────────────────
+    xml.setAttribute ("c2Atk",  (double)cenv2.attack);
+    xml.setAttribute ("c2Dec",  (double)cenv2.decay);
+    xml.setAttribute ("c2Sus",  (double)cenv2.sustain);
+    xml.setAttribute ("c2Rel",  (double)cenv2.release);
+    xml.setAttribute ("c2Dep",  (double)cenv2.depth);
+    xml.setAttribute ("c2Dst",  cenv2.dest);
+    xml.setAttribute ("c2Loop", cenv2.looping);
+    xml.setAttribute ("c2Sync", cenv2.clockSync);
+    xml.setAttribute ("c2Div",  cenv2.clockDiv);
+
+    copyXmlToBinary (xml, destData);
+}
+
+void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeInBytes)
+{
+    auto xml = getXmlFromBinary (data, sizeInBytes);
+    if (!xml || xml->getTagName() != "VoltageSeq2State") return;
+
+    auto getF = [&](const char* key, float def)
+        { return (float)xml->getDoubleAttribute (key, (double)def); };
+    auto getI = [&](const char* key, int def)
+        { return xml->getIntAttribute (key, def); };
+    auto getB = [&](const char* key, bool def)
+        { return xml->getBoolAttribute (key, def); };
+
+    // ── Sequencer steps ───────────────────────────────────────────────────────
+    for (int i = 0; i < numSteps; ++i)
+    {
+        stepVoltages[i] = getF (("v"  + juce::String (i)).toRawUTF8(), stepVoltages[i]);
+        stepGates   [i] = getB (("g"  + juce::String (i)).toRawUTF8(), stepGates   [i]);
+        stepGlides  [i] = getB (("sl" + juce::String (i)).toRawUTF8(), stepGlides  [i]);
+    }
+
+    internalBPM    = xml->getDoubleAttribute ("bpm",  internalBPM);
+    portamentoTime = getF ("porta",   portamentoTime);
+    clockDivision  = getI ("clkDiv",  clockDivision);
+    swingAmount    = getF ("swing",   swingAmount);
+    sequenceLength = getI ("seqLen",  sequenceLength);
+    unipolar       = getB ("unipolar",unipolar);
+    playOrder      = getI ("playOrder",playOrder);
+    rangeVCA       = getF ("range",   rangeVCA);
+    rootNote       = getI ("root",    rootNote);
+    currentScale   = getI ("scale",   currentScale);
+
+    osc1Waveform   = getI ("osc1Wave",osc1Waveform);
+    osc1Level      = getF ("osc1Lvl", osc1Level);
+    osc1Octave     = getI ("osc1Oct", osc1Octave);
+    osc1PulseWidth = getF ("osc1PW",  osc1PulseWidth);
+
+    osc2Position   = getF ("osc2Pos", osc2Position);
+    osc2Level      = getF ("osc2Lvl", osc2Level);
+    osc2Octave     = getI ("osc2Oct", osc2Octave);
+
+    filterCutoff      = getF ("cut",    filterCutoff);
+    filterResonance   = getF ("res",    filterResonance);
+    filterEnvAmount   = getF ("fEnvAmt",filterEnvAmount);
+    filterEnvParams.attack  = getF ("fAtk", filterEnvParams.attack);
+    filterEnvParams.decay   = getF ("fDec", filterEnvParams.decay);
+    filterEnvParams.sustain = getF ("fSus", filterEnvParams.sustain);
+    filterEnvParams.release = getF ("fRel", filterEnvParams.release);
+
+    adsrParams.attack  = getF ("aAtk", adsrParams.attack);
+    adsrParams.decay   = getF ("aDec", adsrParams.decay);
+    adsrParams.sustain = getF ("aSus", adsrParams.sustain);
+    adsrParams.release = getF ("aRel", adsrParams.release);
+
+    lfoRate   = getF ("lfo1Rate",lfoRate);
+    lfoDepth  = getF ("lfo1Dep", lfoDepth);
+    lfoTarget = getI ("lfo1Tgt", lfoTarget);
+
+    lfo2Rate   = getF ("lfo2Rate",lfo2Rate);
+    lfo2Depth  = getF ("lfo2Dep", lfo2Depth);
+    lfo2Target = getI ("lfo2Tgt", lfo2Target);
+
+    cenv1.attack    = getF ("c1Atk",  cenv1.attack);
+    cenv1.decay     = getF ("c1Dec",  cenv1.decay);
+    cenv1.sustain   = getF ("c1Sus",  cenv1.sustain);
+    cenv1.release   = getF ("c1Rel",  cenv1.release);
+    cenv1.depth     = getF ("c1Dep",  cenv1.depth);
+    cenv1.dest      = getI ("c1Dst",  cenv1.dest);
+    cenv1.looping   = getB ("c1Loop", cenv1.looping);
+    cenv1.clockSync = getB ("c1Sync", cenv1.clockSync);
+    cenv1.clockDiv  = getI ("c1Div",  cenv1.clockDiv);
+
+    cenv2.attack    = getF ("c2Atk",  cenv2.attack);
+    cenv2.decay     = getF ("c2Dec",  cenv2.decay);
+    cenv2.sustain   = getF ("c2Sus",  cenv2.sustain);
+    cenv2.release   = getF ("c2Rel",  cenv2.release);
+    cenv2.depth     = getF ("c2Dep",  cenv2.depth);
+    cenv2.dest      = getI ("c2Dst",  cenv2.dest);
+    cenv2.looping   = getB ("c2Loop", cenv2.looping);
+    cenv2.clockSync = getB ("c2Sync", cenv2.clockSync);
+    cenv2.clockDiv  = getI ("c2Div",  cenv2.clockDiv);
+
+    // Apply to live ADSR objects immediately
+    adsr.setParameters (adsrParams);
+    filterEnv.setParameters (filterEnvParams);
+
+    // Request sequencer reset so new length / swing takes effect cleanly
+    resetOnNextBlock.store (true);
+}
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {

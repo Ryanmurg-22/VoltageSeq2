@@ -49,6 +49,10 @@ public:
     //  0=1/4, 1=1/8, 2=1/16 (default), 3=1/8T, 4=1/16T, 5=1/8dot, 6=1/16dot
     int clockDivision = 2;
 
+    // Swing amount: 0.5 = perfectly straight, 0.75 = maximum swing
+    // Even steps are lengthened, odd steps shortened by the same amount.
+    float swingAmount = 0.5f;
+
     // Transport (atomic — written from UI thread, read on audio thread)
     std::atomic<bool> sequencerRunning { true };
     std::atomic<bool> autoRun          { true };
