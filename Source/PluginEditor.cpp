@@ -534,6 +534,22 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     osc2OctaveBox[v].onChange = [this, v]() { audioProcessor.voice[v].osc2Octave = osc2OctaveBox[v].getSelectedItemIndex() - 2; };
     addAndMakeVisible (osc2OctaveBox[v]);
 
+    // FM
+    setupKnob (fmDepthSlider[v], 0.0, 1.0, vp.fmDepth);
+    fmDepthSlider[v].onValueChange = [this, v]() { audioProcessor.voice[v].fmDepth = (float)fmDepthSlider[v].getValue(); };
+
+    fmRatioBox[v].addItem ("1/2x", 1); fmRatioBox[v].addItem ("1x", 2);
+    fmRatioBox[v].addItem ("2x",   3); fmRatioBox[v].addItem ("3x", 4);
+    fmRatioBox[v].addItem ("4x",   5); fmRatioBox[v].addItem ("5x", 6);
+    fmRatioBox[v].addItem ("6x",   7); fmRatioBox[v].addItem ("7x", 8);
+    fmRatioBox[v].setSelectedItemIndex (vp.fmRatio, juce::dontSendNotification);
+    fmRatioBox[v].onChange = [this, v]() { audioProcessor.voice[v].fmRatio = fmRatioBox[v].getSelectedItemIndex(); };
+    addAndMakeVisible (fmRatioBox[v]);
+
+    // OSC1 feedback
+    setupKnob (osc1FeedbackSlider[v], 0.0, 1.0, vp.osc1Feedback);
+    osc1FeedbackSlider[v].onValueChange = [this, v]() { audioProcessor.voice[v].osc1Feedback = (float)osc1FeedbackSlider[v].getValue(); };
+
     // Filter
     setupKnob (cutoffSlider[v], 20.0, 16000.0, vp.filterCutoff, 1000.0);
     cutoffSlider[v].onValueChange = [this, v]() { audioProcessor.voice[v].filterCutoff = (float)cutoffSlider[v].getValue(); };
@@ -609,7 +625,8 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
         cenvDepthSlider[v][e].onValueChange = [this,v,e]()
         { ((e==0)?audioProcessor.voice[v].cenv1:audioProcessor.voice[v].cenv2).depth   = (float)cenvDepthSlider[v][e].getValue(); };
 
-        cenvDestBox[v][e].addItem ("Amplitude",1); cenvDestBox[v][e].addItem ("Filter",2); cenvDestBox[v][e].addItem ("Pitch",3);
+        cenvDestBox[v][e].addItem ("Amplitude",1); cenvDestBox[v][e].addItem ("Filter",2);
+        cenvDestBox[v][e].addItem ("Pitch",3);     cenvDestBox[v][e].addItem ("FM Depth",4);
         cenvDestBox[v][e].setSelectedItemIndex (cep.dest, juce::dontSendNotification);
         cenvDestBox[v][e].onChange = [this,v,e]()
         { ((e==0)?audioProcessor.voice[v].cenv1:audioProcessor.voice[v].cenv2).dest = cenvDestBox[v][e].getSelectedItemIndex(); };
@@ -778,16 +795,19 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         g.drawText ("ROOT",     pQntX,  lY1, pQntW, 12, juce::Justification::centred);
         g.drawText ("SCALE",    pQntX,  lY2, pQntW, 12, juce::Justification::centred);
         // OSC 1
-        g.drawText ("WAVE",     pO1X,   lY1, pO1W,  12, juce::Justification::centred);
-        g.drawText ("LEVEL",    pO1X,   lY2,  50,   12, juce::Justification::centred);
-        g.drawText ("OCT",      pO1X+50,lY2, 115,   12, juce::Justification::centred);
-        g.drawText ("BASE PW",  pO1X,   lY3, pO1W,  12, juce::Justification::centred);
-        g.drawText ("SCOPE",    pO1X, cY+108, pO1W, 11, juce::Justification::centred);
+        g.drawText ("WAVE",    pO1X,    cY+14,  pO1W, 12, juce::Justification::centred);
+        g.drawText ("LEVEL",   pO1X,    cY+54,  46,   12, juce::Justification::centred);
+        g.drawText ("OCT",     pO1X+46, cY+54,  78,   12, juce::Justification::centred);
+        g.drawText ("FEEDBK",  pO1X+118,cY+54,  52,   12, juce::Justification::centred);
+        g.drawText ("PWM",     pO1X,    cY+108, 50,   12, juce::Justification::centredLeft);
+        g.drawText ("SCOPE",   pO1X+50, cY+108, pO1W-55, 11, juce::Justification::centred);
         // OSC 2
-        g.drawText ("WT POS",   pO2X,   lY1,  75,   12, juce::Justification::centred);
-        g.drawText ("LEVEL",    pO2X+75,lY1,  75,   12, juce::Justification::centred);
-        g.drawText ("OCTAVE",   pO2X,   lY2, pO2W,  12, juce::Justification::centred);
-        g.drawText ("WT VIEW",  pO2X, cY+108, pO2W, 11, juce::Justification::centred);
+        g.drawText ("WT POS",  pO2X,    cY+26,  50,   12, juce::Justification::centred);
+        g.drawText ("LEVEL",   pO2X+55, cY+26,  kSz,  12, juce::Justification::centred);
+        g.drawText ("FM DPT",  pO2X+100,cY+26,  55,   12, juce::Justification::centred);
+        g.drawText ("OCT",     pO2X,    cY+76,  70,   12, juce::Justification::centred);
+        g.drawText ("RATIO",   pO2X+75, cY+76,  75,   12, juce::Justification::centred);
+        g.drawText ("WT VIEW", pO2X,    cY+108, pO2W, 11, juce::Justification::centred);
         // Filter
         g.drawText ("CUTOFF",   pFltX,  lY1,  72,   12, juce::Justification::centred);
         g.drawText ("RES",      pFltX+72,lY1,  78,  12, juce::Justification::centred);
@@ -923,17 +943,20 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     scaleBox[v].setBounds (pQntX + 8, cy2, pQntW - 16, 22);
 
     // ── OSC 1 ─────────────────────────────────────────────────────────────────
-    osc1WaveBox    [v].setBounds (pO1X + 8, ctrlTopY + 18, pO1W - 16, 20);
-    osc1LevelSlider[v].setBounds (pO1X + 6, cy2,           kSz, kSz);
-    osc1OctaveBox  [v].setBounds (pO1X + 50, cy2 + 6,      pO1W - 58, 22);
-    osc1PWMSlider  [v].setBounds (pO1X + 67, cy3,          kSz, kSz);
-    oscScope       [v]->setBounds(pO1X + 5, ctrlTopY + 120, pO1W - 10, 50);
+    osc1WaveBox        [v].setBounds (pO1X + 8,   ctrlTopY + 26, pO1W - 16, 20);
+    osc1LevelSlider    [v].setBounds (pO1X + 6,   ctrlTopY + 66, kSz, kSz);
+    osc1OctaveBox      [v].setBounds (pO1X + 46,  ctrlTopY + 72, 78,  22);
+    osc1FeedbackSlider [v].setBounds (pO1X + 130, ctrlTopY + 66, kSz, kSz);
+    osc1PWMSlider      [v].setBounds (pO1X + 6,   ctrlTopY + 120, kSz, kSz);
+    oscScope           [v]->setBounds(pO1X + 50,  ctrlTopY + 120, pO1W - 55, 50);
 
     // ── OSC 2 ─────────────────────────────────────────────────────────────────
-    osc2PosSlider   [v].setBounds (pO2X + 5,  cy1, kSz, kSz);
-    osc2LevelSlider [v].setBounds (pO2X + 80, cy1, kSz, kSz);
-    osc2OctaveBox   [v].setBounds (pO2X + 5,  cy2, pO2W - 10, 22);
-    wavetableDisplay[v]->setBounds(pO2X + 5, ctrlTopY + 120, pO2W - 10, 50);
+    osc2PosSlider   [v].setBounds (pO2X + 5,   ctrlTopY + 38, kSz, kSz);
+    osc2LevelSlider [v].setBounds (pO2X + 55,  ctrlTopY + 38, kSz, kSz);
+    fmDepthSlider   [v].setBounds (pO2X + 105, ctrlTopY + 38, kSz, kSz);
+    osc2OctaveBox   [v].setBounds (pO2X + 5,   ctrlTopY + 88, 65, 22);
+    fmRatioBox      [v].setBounds (pO2X + 75,  ctrlTopY + 88, 75, 22);
+    wavetableDisplay[v]->setBounds(pO2X + 5,   ctrlTopY + 120, pO2W - 10, 50);
 
     // ── Filter ────────────────────────────────────────────────────────────────
     cutoffSlider      [v].setBounds (pFltX + 5,  cy1, kSz, kSz);
@@ -1069,6 +1092,9 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
         osc1LevelSlider[v].setValue (vp.osc1Level,                   juce::dontSendNotification);
         osc1OctaveBox  [v].setSelectedItemIndex (vp.osc1Octave + 2, juce::dontSendNotification);
         osc1PWMSlider  [v].setValue (vp.osc1PulseWidth,              juce::dontSendNotification);
+        osc1FeedbackSlider[v].setValue (vp.osc1Feedback, juce::dontSendNotification);
+        fmDepthSlider     [v].setValue (vp.fmDepth,      juce::dontSendNotification);
+        fmRatioBox        [v].setSelectedItemIndex (vp.fmRatio, juce::dontSendNotification);
 
         osc2PosSlider  [v].setValue (vp.osc2Position,                juce::dontSendNotification);
         osc2LevelSlider[v].setValue (vp.osc2Level,                   juce::dontSendNotification);

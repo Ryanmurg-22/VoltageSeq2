@@ -102,6 +102,7 @@ void VoltageSeq2AudioProcessor::prepareToPlay (double sampleRate, int samplesPer
         vs.ic2eq        = 0.0f;
         vs.lfoPhase     = 0.0f;
         vs.lfo2Phase    = 0.0f;
+        vs.osc1FeedbackSample = 0.0f;
         vs.pulseWidth   = vp.osc1PulseWidth;
         vs.glideActive  = false;
         vs.sampleCounter = 0.0;
@@ -399,6 +400,7 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
     float cenvAmpMod    = 1.0f;
     float cenvCutoffMod = 1.0f;
     float cenvRangeMod  = 0.0f;
+    float cenvFMDepthMod = 0.0f;
 
     auto applyCEnv = [&](const ComplexEnvParams& p, float envOut)
     {
@@ -409,9 +411,13 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
             cenvCutoffMod *= std::pow (2.0f, v * 4.0f);
         else if (p.dest == 2)
             cenvRangeMod  += v;
+        else if (p.dest == 3)
+            cenvFMDepthMod += v;
     };
     applyCEnv (vp.cenv1, cenv1Out);
     applyCEnv (vp.cenv2, cenv2Out);
+
+    const float effectiveFMDepth = juce::jlimit (0.0f, 1.0f, vp.fmDepth + cenvFMDepthMod);
 
     if (cenvRangeMod > 0.001f && running)
     {
@@ -444,8 +450,22 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
     //--------------------------------------------------------------------------
     // OSCILLATORS → scope → filter → amp envelope
     //--------------------------------------------------------------------------
-    float osc1  = generateOsc1Sample (vs, vp, vs.osc1PhaseInc * pitchMod) * vp.osc1Level;
-    float osc2  = generateOsc2Sample (vs, vp, vs.osc2PhaseInc * pitchMod) * vp.osc2Level;
+    // FM: OSC2 runs at harmonic ratio of OSC1 when depth > 0
+    static const float fmRatioTable[] = { 0.5f, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f };
+    const float fmRatioVal = fmRatioTable[juce::jlimit (0, 7, vp.fmRatio)];
+    const double osc2Inc = (effectiveFMDepth > 0.001f)
+        ? (vs.currentFreq1 * (double)fmRatioVal * pitchMod) / currentSampleRate
+        : vs.osc2PhaseInc * pitchMod;
+    const float osc2Raw = generateOsc2Sample (vs, vp, osc2Inc);   // [-1..+1]
+
+    // OSC1 with FM deviation from OSC2 and self-feedback
+    const double fmDev = vs.osc1PhaseInc * (double)(effectiveFMDepth * osc2Raw * 3.0f);
+    const double fbDev = vs.osc1PhaseInc * (double)(vp.osc1Feedback  * vs.osc1FeedbackSample * 2.0f);
+    const float osc1Raw = generateOsc1Sample (vs, vp, vs.osc1PhaseInc * pitchMod + fmDev + fbDev);
+    vs.osc1FeedbackSample = juce::jlimit (-1.0f, 1.0f, osc1Raw);  // clamp to prevent blow-up
+
+    float osc1 = osc1Raw * vp.osc1Level;
+    float osc2 = osc2Raw * vp.osc2Level;
 
     // Scope ring-buffer (pre-filter, always shows raw waveform)
     oscScopeBuffer[vi][scopeWritePos[vi]] = osc1 + osc2;
@@ -703,6 +723,9 @@ static void saveVoiceToXml (juce::XmlElement& el,
     el.setAttribute ("osc1Lvl",  (double)vp.osc1Level);
     el.setAttribute ("osc1Oct",  vp.osc1Octave);
     el.setAttribute ("osc1PW",   (double)vp.osc1PulseWidth);
+    el.setAttribute ("osc1Feedbk", (double)vp.osc1Feedback);
+    el.setAttribute ("fmDepth",    (double)vp.fmDepth);
+    el.setAttribute ("fmRatio",    vp.fmRatio);
 
     el.setAttribute ("osc2Pos",  (double)vp.osc2Position);
     el.setAttribute ("osc2Lvl",  (double)vp.osc2Level);
@@ -783,6 +806,9 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
     vp.osc1Level        = getF ("osc1Lvl",  vp.osc1Level);
     vp.osc1Octave       = getI ("osc1Oct",  vp.osc1Octave);
     vp.osc1PulseWidth   = getF ("osc1PW",   vp.osc1PulseWidth);
+    vp.osc1Feedback  = getF ("osc1Feedbk", vp.osc1Feedback);
+    vp.fmDepth       = getF ("fmDepth",    vp.fmDepth);
+    vp.fmRatio       = getI ("fmRatio",    vp.fmRatio);
 
     vp.osc2Position     = getF ("osc2Pos",  vp.osc2Position);
     vp.osc2Level        = getF ("osc2Lvl",  vp.osc2Level);

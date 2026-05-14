@@ -94,11 +94,16 @@ private:
     juce::Slider   osc1LevelSlider [2];
     juce::ComboBox osc1OctaveBox [2];
     juce::Slider   osc1PWMSlider [2];
+    juce::Slider   osc1FeedbackSlider [2];
 
     // ── OSC 2 ─────────────────────────────────────────────────────────────────
     juce::Slider   osc2PosSlider   [2];
     juce::Slider   osc2LevelSlider [2];
     juce::ComboBox osc2OctaveBox   [2];
+
+    // ── FM ─────────────────────────────────────────────────────────────────────
+    juce::Slider   fmDepthSlider [2];
+    juce::ComboBox fmRatioBox    [2];
 
     // ── Filter ────────────────────────────────────────────────────────────────
     juce::Slider   cutoffSlider       [2];

@@ -77,11 +77,16 @@ public:
         float osc1Level      = 0.7f;
         int   osc1Octave     = 0;
         float osc1PulseWidth = 0.5f;
+        float osc1Feedback   = 0.0f;    // self-FM feedback [0..1]
 
         // ── OSC 2 ────────────────────────────────────────────────────────────
         float osc2Position = 0.0f;
         float osc2Level    = 0.5f;
         int   osc2Octave   = 0;
+
+        // ── FM ───────────────────────────────────────────────────────────────────
+        float fmDepth = 0.0f;    // OSC2 → OSC1 FM depth [0..1]
+        int   fmRatio = 1;       // FM ratio index: 0=0.5x 1=1x 2=2x … 7=7x
 
         // ── Filter ───────────────────────────────────────────────────────────
         float filterCutoff    = 2000.0f;
@@ -165,6 +170,7 @@ private:
         float  ic1eq = 0.0f, ic2eq = 0.0f;
         juce::ADSR adsr, filterEnv;
         float  lfoPhase  = 0.0f, lfo2Phase  = 0.0f;
+        float  osc1FeedbackSample = 0.0f;
         float  pulseWidth = 0.5f;
         int    lastPos = -1, randomStep = 0;
         double sampleCounter = 0.0;
