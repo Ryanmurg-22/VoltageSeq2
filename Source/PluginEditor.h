@@ -155,8 +155,8 @@ private:
     std::unique_ptr<juce::Drawable> backplate;
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-    void setupVoice (int v);           // wire up all controls for one voice
-    void layoutVoice (int v, int yOff); // position all controls for one voice
+    void setupVoice (int v);                          // wire up all controls for one voice
+    void layoutVoice (int v, int seqTopY, int ctrlTopY); // position all controls for one voice
     void setupKnob (juce::Slider& s, double min, double max, double val,
                     double skewMidpoint = 0.0);
     void syncUIFromProcessor();        // refresh all widget values after preset load
