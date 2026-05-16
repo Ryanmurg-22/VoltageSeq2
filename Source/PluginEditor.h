@@ -39,6 +39,131 @@ private:
 };
 
 //==============================================================================
+// Pattern slot — one clickable tile in the pattern bank page
+//==============================================================================
+class PatternSlotView : public juce::Component
+{
+public:
+    PatternSlotView (VoltageSeq2AudioProcessor& p, int voiceIdx, int slotIdx)
+        : proc (p), vi (voiceIdx), slot (slotIdx) {}
+
+    // Called after a successful load (so editor can update active highlight + sync UI)
+    std::function<void()> onLoaded;
+
+    void setActive (bool a) { active = a; repaint(); }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto& ps = proc.patternBank[vi][slot];
+
+        // Background
+        auto bgCol = ps.used ? juce::Colour (0xff141420) : juce::Colour (0xff0c0c14);
+        if (active) bgCol = juce::Colour (0xff0e1e10);
+        g.fillAll (bgCol);
+
+        // Border
+        auto border = active           ? juce::Colour (0xff33cc55)
+                    : ps.used          ? juce::Colour (0xff2a3a88)
+                                       : juce::Colour (0xff1a1a2a);
+        g.setColour (border);
+        g.drawRect (getLocalBounds(), active ? 2 : 1);
+
+        // Slot number
+        g.setFont (juce::Font (9.0f, juce::Font::bold));
+        g.setColour (active ? juce::Colour (0xff33cc55) : juce::Colour (0xff444466));
+        g.drawText (juce::String (slot + 1), 5, 4, 22, 12, juce::Justification::centredLeft);
+
+        if (!ps.used)
+        {
+            g.setFont (juce::Font (11.0f));
+            g.setColour (juce::Colour (0xff252535));
+            g.drawText ("EMPTY", getLocalBounds(), juce::Justification::centred);
+            return;
+        }
+
+        // Root + scale name
+        static const char* noteNames[]  = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        static const char* scaleNames[] = { "Maj","Min","Dor","Phr","Lyd","Mix","PMaj","PMin","Chr" };
+        juce::String label = noteNames[juce::jlimit (0, 11, ps.rootNote)];
+        label += " ";
+        label += scaleNames[juce::jlimit (0, 8, ps.currentScale)];
+        g.setFont (juce::Font (11.0f, juce::Font::bold));
+        g.setColour (juce::Colour (0xffe09040));
+        g.drawText (label, 0, 18, getWidth(), 14, juce::Justification::centred);
+
+        // Mini 16-step gate grid
+        const int gridX = 5, gridY = 38;
+        const int gridW = getWidth() - 10;
+        const int gridH = 32;
+        const int sw    = gridW / 16;
+        for (int i = 0; i < 16; ++i)
+        {
+            bool inLen = (i < ps.sequenceLength);
+            bool gate  = ps.stepGates[i];
+            auto col   = !inLen ? juce::Colour (0xff0a0a12)
+                       : gate   ? juce::Colour (0xff2255cc)
+                                : juce::Colour (0xff1a1a2c);
+            g.setColour (col);
+            g.fillRect (gridX + i * sw, gridY, sw - 1, gridH);
+            // Glide marker
+            if (inLen && ps.stepGlides[i]) {
+                g.setColour (juce::Colour (0xffe94560));
+                g.fillRect (gridX + i * sw, gridY + gridH - 3, sw - 1, 3);
+            }
+        }
+
+        // Length + div info at bottom
+        static const char* divNames[] = { "1/4","1/8","1/16","1/8T","1/16T","1/8.","1/16." };
+        juce::String info = "LEN:" + juce::String (ps.sequenceLength)
+                          + "  " + divNames[juce::jlimit (0, 6, ps.clockDivision)];
+        g.setFont (juce::Font (8.5f));
+        g.setColour (juce::Colour (0xff445566));
+        g.drawText (info, 0, gridY + gridH + 5, getWidth(), 12, juce::Justification::centred);
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (e.mods.isRightButtonDown())
+        {
+            juce::PopupMenu menu;
+            menu.addItem (1, "Save current pattern here");
+            if (proc.patternBank[vi][slot].used)
+                menu.addItem (2, "Clear this slot");
+            menu.showMenuAsync (juce::PopupMenu::Options{}.withTargetComponent (this),
+                [this](int result)
+                {
+                    if (result == 1)
+                    {
+                        proc.savePattern (vi, slot);
+                        if (onLoaded) onLoaded();
+                        repaint();
+                    }
+                    else if (result == 2)
+                    {
+                        proc.clearPattern (vi, slot);
+                        if (active) { active = false; }
+                        repaint();
+                    }
+                });
+        }
+        else if (proc.patternBank[vi][slot].used)
+        {
+            proc.loadPattern (vi, slot);
+            if (onLoaded) onLoaded();
+        }
+    }
+
+    void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+    void mouseExit  (const juce::MouseEvent&) override { repaint(); }
+
+private:
+    VoltageSeq2AudioProcessor& proc;
+    int vi, slot;
+    bool active = false;
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PatternSlotView)
+};
+
+//==============================================================================
 class VoltageSeq2AudioProcessorEditor : public juce::AudioProcessorEditor,
                                         public juce::Timer
 {
@@ -163,15 +288,29 @@ private:
     juce::TextButton savePresetBtn, loadPresetBtn;
     std::unique_ptr<juce::FileChooser> fileChooser;
 
+    // ── Page navigation ───────────────────────────────────────────────────────
+    juce::TextButton synthPageBtn, patternPageBtn;
+    bool showPatternPage = false;
+
+    // ── Pattern bank page ─────────────────────────────────────────────────────
+    std::unique_ptr<PatternSlotView> patternSlot[2][16];
+    int activePatternSlot[2] = { -1, -1 };
+
+    // Component lists for bulk show/hide
+    std::vector<juce::Component*> synthPageComponents;
+    std::vector<juce::Component*> patternPageComponents;
+
     // ── Backplate SVG ─────────────────────────────────────────────────────────
     std::unique_ptr<juce::Drawable> backplate;
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     void setupVoice (int v);                          // wire up all controls for one voice
     void layoutVoice (int v, int seqTopY, int ctrlTopY); // position all controls for one voice
+    void layoutPatternPage();                         // position pattern bank tiles
     void setupKnob (juce::Slider& s, double min, double max, double val,
                     double skewMidpoint = 0.0);
     void syncUIFromProcessor();        // refresh all widget values after preset load
+    void showPage (bool showPattern);  // toggle between synth and pattern pages
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VoltageSeq2AudioProcessorEditor)
 };

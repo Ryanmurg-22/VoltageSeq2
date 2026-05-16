@@ -145,6 +145,36 @@ public:
     };
 
     //==========================================================================
+    // PATTERN BANK
+    //==========================================================================
+
+    // A pattern snapshot — sequencer & quantizer fields only, no synth voice settings
+    struct PatternSlot
+    {
+        bool  used           = false;
+        float stepVoltages[16] = {};
+        bool  stepGates   [16] = {};
+        bool  stepGlides  [16] = {};
+        int   sequenceLength   = 16;
+        int   clockDivision    = 2;
+        float swingAmount      = 0.5f;
+        float portamentoTime   = 0.0f;
+        int   playOrder        = 0;
+        bool  unipolar         = false;
+        int   rootNote         = 0;
+        int   currentScale     = 0;
+        float rangeVCA         = 1.0f;
+    };
+
+    static const int numPatternSlots = 16;
+    PatternSlot patternBank[2][numPatternSlots];   // [voice][slot]
+
+    // Save current voice state → a slot; load slot → live voice; clear a slot
+    void savePattern  (int voiceIdx, int slotIdx);
+    void loadPattern  (int voiceIdx, int slotIdx);
+    void clearPattern (int voiceIdx, int slotIdx);
+
+    //==========================================================================
     // PUBLIC DATA
     //==========================================================================
     static const int numVoices = 2;

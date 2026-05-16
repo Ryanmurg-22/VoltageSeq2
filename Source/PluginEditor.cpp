@@ -254,6 +254,41 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     };
     addAndMakeVisible (loadPresetBtn);
 
+    // ── Page navigation buttons ───────────────────────────────────────────────
+    synthPageBtn.setButtonText ("SYNTH");
+    synthPageBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2255aa));
+    synthPageBtn.onClick = [this]() { showPage (false); };
+    addAndMakeVisible (synthPageBtn);
+
+    patternPageBtn.setButtonText ("PATTERNS");
+    patternPageBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff161630));
+    patternPageBtn.onClick = [this]() { showPage (true); };
+    addAndMakeVisible (patternPageBtn);
+
+    // ── Capture all synth-page components (everything added so far except nav btns)
+    for (auto* c : getChildren())
+        if (c != &synthPageBtn && c != &patternPageBtn)
+            synthPageComponents.push_back (c);
+
+    // ── Pattern bank tiles (added invisible by default) ───────────────────────
+    for (int vi = 0; vi < 2; ++vi)
+    {
+        for (int s = 0; s < 16; ++s)
+        {
+            patternSlot[vi][s] = std::make_unique<PatternSlotView> (audioProcessor, vi, s);
+            // Capture vi and s by value to avoid loop-variable bug
+            patternSlot[vi][s]->onLoaded = [this, vi, s]()
+            {
+                activePatternSlot[vi] = s;
+                for (int i = 0; i < 16; ++i)
+                    patternSlot[vi][i]->setActive (i == s);
+                syncUIFromProcessor();
+            };
+            addChildComponent (*patternSlot[vi][s]);   // invisible until pattern page shown
+            patternPageComponents.push_back (patternSlot[vi][s].get());
+        }
+    }
+
     // setSize LAST — triggers resized() which calls layoutVoice()
     setSize (1350, winH);
     startTimerHz (30);
@@ -728,6 +763,59 @@ void VoltageSeq2AudioProcessorEditor::setupKnob (juce::Slider& s, double mn, dou
 }
 
 //==============================================================================
+// showPage — toggle between synth and pattern views
+//==============================================================================
+void VoltageSeq2AudioProcessorEditor::showPage (bool showPattern)
+{
+    showPatternPage = showPattern;
+    for (auto* c : synthPageComponents)
+        c->setVisible (!showPattern);
+    for (auto* c : patternPageComponents)
+        c->setVisible (showPattern);
+    synthPageBtn  .setColour (juce::TextButton::buttonColourId,
+                               showPattern ? juce::Colour (0xff161630) : juce::Colour (0xff2255aa));
+    patternPageBtn.setColour (juce::TextButton::buttonColourId,
+                               showPattern ? juce::Colour (0xff2255aa) : juce::Colour (0xff161630));
+    repaint();
+}
+
+//==============================================================================
+// layoutPatternPage — size and position all 32 pattern slot tiles
+//==============================================================================
+void VoltageSeq2AudioProcessorEditor::layoutPatternPage()
+{
+    constexpr int margin   = 8;
+    constexpr int slotGap  = 4;
+    const int     totalW   = 1350 - margin * 2;          // 1334px usable
+    const int     slotW    = (totalW - slotGap * 7) / 8; // 8 columns
+    const int     slotH    = 125;
+    const int     rowGap   = 6;
+
+    // Voice A: two rows starting at y=72
+    const int rowA0 = 72;
+    const int rowA1 = rowA0 + slotH + rowGap;
+
+    // Voice B: two rows starting below a divider
+    const int rowB0 = rowA1 + slotH + 26;   // 26px for divider + label
+    const int rowB1 = rowB0 + slotH + rowGap;
+
+    for (int vi = 0; vi < 2; ++vi)
+    {
+        const int row0 = (vi == 0) ? rowA0 : rowB0;
+        const int row1 = (vi == 0) ? rowA1 : rowB1;
+
+        for (int s = 0; s < 16; ++s)
+        {
+            const int col = s % 8;
+            const int row = s / 8;
+            const int x   = margin + col * (slotW + slotGap);
+            const int y   = (row == 0) ? row0 : row1;
+            patternSlot[vi][s]->setBounds (x, y, slotW, slotH);
+        }
+    }
+}
+
+//==============================================================================
 // PAINT
 //==============================================================================
 void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
@@ -751,6 +839,36 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     g.setColour (dimColour.withAlpha (0.6f));
     g.drawText ("BPM", 502, 4, 28, 20, juce::Justification::centredRight);
     g.drawText ("PRESET", 1090, 4, 42, 20, juce::Justification::centredLeft);
+
+    // ── Pattern page overlay ──────────────────────────────────────────────────
+    if (showPatternPage)
+    {
+        g.setColour (juce::Colour (0xff040410));
+        g.fillRect (0, headerH, 1350, winH - headerH);
+
+        // Voice A label
+        g.setFont (juce::Font (9.0f, juce::Font::bold));
+        g.setColour (voiceAColour);
+        g.drawText ("VOICE A — PATTERN BANK", 8, 55, 400, 14, juce::Justification::centredLeft);
+
+        // Voice B label — sits above the B rows (rowB0 - 17)
+        // rowA1 = 72 + 125 + 6 = 203; rowB0 = 203 + 26 = 229 → label at 229-17=212
+        g.setColour (voiceBColour);
+        g.drawText ("VOICE B — PATTERN BANK", 8, 212, 400, 14, juce::Justification::centredLeft);
+
+        // Divider between A and B blocks
+        g.setColour (voiceAColour.withAlpha (0.2f));
+        g.fillRect (0, 209, 1350, 1);
+        g.setColour (voiceBColour.withAlpha (0.2f));
+        g.fillRect (0, 211, 1350, 1);
+
+        // Right-click hint
+        g.setFont (juce::Font (8.5f));
+        g.setColour (juce::Colour (0xff333355));
+        g.drawText ("Left-click to load  ·  Right-click to save or clear",
+                    0, winH - 14, 1350, 12, juce::Justification::centred);
+        return;
+    }
 
     // Backplate drawn once for the full content area
     if (backplate != nullptr)
@@ -921,7 +1039,9 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
 //==============================================================================
 void VoltageSeq2AudioProcessorEditor::resized()
 {
-    // Global header
+    // Global header (always present)
+    synthPageBtn .setBounds (220,  3,  65, 22);
+    patternPageBtn.setBounds(290,  3,  80, 22);
     bpmSlider    .setBounds (530,  4, 190, 20);
     autoBtn      .setBounds (730,  3,  55, 22);
     savePresetBtn.setBounds (1155, 3,  60, 22);
@@ -929,6 +1049,7 @@ void VoltageSeq2AudioProcessorEditor::resized()
 
     layoutVoice (0, seqAY, ctrlAY);
     layoutVoice (1, seqBY, ctrlBY);
+    layoutPatternPage();
 }
 
 //==============================================================================

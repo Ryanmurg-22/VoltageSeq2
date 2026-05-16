@@ -909,11 +909,65 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
     vp.modEnv.clockDiv  = getI ("mEnvDiv",  vp.modEnv.clockDiv);
 }
 
+//==============================================================================
+// PATTERN BANK
+//==============================================================================
+void VoltageSeq2AudioProcessor::savePattern (int vi, int slot)
+{
+    if (vi < 0 || vi >= numVoices || slot < 0 || slot >= numPatternSlots) return;
+    auto& p       = patternBank[vi][slot];
+    const auto& v = voice[vi];
+    p.used = true;
+    for (int i = 0; i < numSteps; ++i) {
+        p.stepVoltages[i] = v.stepVoltages[i];
+        p.stepGates   [i] = v.stepGates   [i];
+        p.stepGlides  [i] = v.stepGlides  [i];
+    }
+    p.sequenceLength = v.sequenceLength;
+    p.clockDivision  = v.clockDivision;
+    p.swingAmount    = v.swingAmount;
+    p.portamentoTime = v.portamentoTime;
+    p.playOrder      = v.playOrder;
+    p.unipolar       = v.unipolar;
+    p.rootNote       = v.rootNote;
+    p.currentScale   = v.currentScale;
+    p.rangeVCA       = v.rangeVCA;
+}
+
+void VoltageSeq2AudioProcessor::loadPattern (int vi, int slot)
+{
+    if (vi < 0 || vi >= numVoices || slot < 0 || slot >= numPatternSlots) return;
+    const auto& p = patternBank[vi][slot];
+    if (!p.used) return;
+    auto& v = voice[vi];
+    for (int i = 0; i < numSteps; ++i) {
+        v.stepVoltages[i] = p.stepVoltages[i];
+        v.stepGates   [i] = p.stepGates   [i];
+        v.stepGlides  [i] = p.stepGlides  [i];
+    }
+    v.sequenceLength = p.sequenceLength;
+    v.clockDivision  = p.clockDivision;
+    v.swingAmount    = p.swingAmount;
+    v.portamentoTime = p.portamentoTime;
+    v.playOrder      = p.playOrder;
+    v.unipolar       = p.unipolar;
+    v.rootNote       = p.rootNote;
+    v.currentScale   = p.currentScale;
+    v.rangeVCA       = p.rangeVCA;
+    v.resetOnNextBlock.store (true);
+}
+
+void VoltageSeq2AudioProcessor::clearPattern (int vi, int slot)
+{
+    if (vi < 0 || vi >= numVoices || slot < 0 || slot >= numPatternSlots) return;
+    patternBank[vi][slot] = PatternSlot{};
+}
+
 //------------------------------------------------------------------------------
 void VoltageSeq2AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     juce::XmlElement xml ("VoltageSeq2State");
-    xml.setAttribute ("version", 2);
+    xml.setAttribute ("version", 3);
     xml.setAttribute ("bpm", internalBPM);
 
     for (int vi = 0; vi < numVoices; ++vi)
@@ -921,6 +975,40 @@ void VoltageSeq2AudioProcessor::getStateInformation (juce::MemoryBlock& destData
         auto* voiceEl = xml.createNewChildElement ("Voice");
         voiceEl->setAttribute ("index", vi);
         saveVoiceToXml (*voiceEl, voice[vi], numSteps);
+    }
+
+    // Pattern bank
+    for (int vi = 0; vi < numVoices; ++vi)
+    {
+        auto* bankEl = xml.createNewChildElement ("PatternBank");
+        bankEl->setAttribute ("voice", vi);
+        for (int s = 0; s < numPatternSlots; ++s)
+        {
+            const auto& p = patternBank[vi][s];
+            if (!p.used) continue;
+            auto* slotEl = bankEl->createNewChildElement ("Slot");
+            slotEl->setAttribute ("index",  s);
+            slotEl->setAttribute ("root",   p.rootNote);
+            slotEl->setAttribute ("scale",  p.currentScale);
+            slotEl->setAttribute ("length", p.sequenceLength);
+            slotEl->setAttribute ("clock",  p.clockDivision);
+            slotEl->setAttribute ("swing",  p.swingAmount);
+            slotEl->setAttribute ("porta",  p.portamentoTime);
+            slotEl->setAttribute ("order",  p.playOrder);
+            slotEl->setAttribute ("uni",    (int)p.unipolar);
+            slotEl->setAttribute ("range",  p.rangeVCA);
+            // Step data as comma-separated strings
+            juce::String volts, gates, glides;
+            for (int i = 0; i < numSteps; ++i)
+            {
+                volts  += juce::String (p.stepVoltages[i], 4) + (i < 15 ? "," : "");
+                gates  += juce::String ((int)p.stepGates[i])  + (i < 15 ? "," : "");
+                glides += juce::String ((int)p.stepGlides[i]) + (i < 15 ? "," : "");
+            }
+            slotEl->setAttribute ("volts",  volts);
+            slotEl->setAttribute ("gates",  gates);
+            slotEl->setAttribute ("glides", glides);
+        }
     }
 
     copyXmlToBinary (xml, destData);
@@ -937,7 +1025,6 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
 
     if (version >= 2)
     {
-        // v2: load each <Voice index="n"> child
         for (auto* child : xml->getChildIterator())
         {
             if (child->getTagName() == "Voice")
@@ -945,6 +1032,42 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
                 int vi = child->getIntAttribute ("index", -1);
                 if (vi >= 0 && vi < numVoices)
                     loadVoiceFromXml (*child, voice[vi], numSteps);
+            }
+            else if (child->getTagName() == "PatternBank" && version >= 3)
+            {
+                int vi = child->getIntAttribute ("voice", -1);
+                if (vi < 0 || vi >= numVoices) continue;
+                for (auto* slotEl : child->getChildIterator())
+                {
+                    if (slotEl->getTagName() != "Slot") continue;
+                    int s = slotEl->getIntAttribute ("index", -1);
+                    if (s < 0 || s >= numPatternSlots) continue;
+                    auto& p          = patternBank[vi][s];
+                    p.used           = true;
+                    p.rootNote       = slotEl->getIntAttribute    ("root",   0);
+                    p.currentScale   = slotEl->getIntAttribute    ("scale",  0);
+                    p.sequenceLength = slotEl->getIntAttribute    ("length", 16);
+                    p.clockDivision  = slotEl->getIntAttribute    ("clock",  2);
+                    p.swingAmount    = (float)slotEl->getDoubleAttribute ("swing", 0.5);
+                    p.portamentoTime = (float)slotEl->getDoubleAttribute ("porta", 0.0);
+                    p.playOrder      = slotEl->getIntAttribute    ("order",  0);
+                    p.unipolar       = slotEl->getIntAttribute    ("uni",    0) != 0;
+                    p.rangeVCA       = (float)slotEl->getDoubleAttribute ("range", 1.0);
+                    // Parse step arrays
+                    auto parseFloats = [](const juce::String& s, float* arr, int n) {
+                        juce::StringArray tok; tok.addTokens (s, ",", "");
+                        for (int i = 0; i < juce::jmin (n, tok.size()); ++i)
+                            arr[i] = tok[i].getFloatValue();
+                    };
+                    auto parseBools = [](const juce::String& s, bool* arr, int n) {
+                        juce::StringArray tok; tok.addTokens (s, ",", "");
+                        for (int i = 0; i < juce::jmin (n, tok.size()); ++i)
+                            arr[i] = tok[i].getIntValue() != 0;
+                    };
+                    parseFloats (slotEl->getStringAttribute ("volts"),  p.stepVoltages, numSteps);
+                    parseBools  (slotEl->getStringAttribute ("gates"),  p.stepGates,    numSteps);
+                    parseBools  (slotEl->getStringAttribute ("glides"), p.stepGlides,   numSteps);
+                }
             }
         }
     }
