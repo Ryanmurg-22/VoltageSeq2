@@ -491,12 +491,19 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     setupKnob (fmDepthSlider[v], 0.0, 1.0, vp.fmDepth);
     fmDepthSlider[v].onValueChange = [this, v]() { audioProcessor.voice[v].fmDepth = (float)fmDepthSlider[v].getValue(); };
 
-    setupKnob (fmRatioSlider[v], 0.25, 8.0, vp.fmRatio, 2.0);
-    fmRatioSlider[v].setTextBoxStyle (juce::Slider::TextBoxBelow, false, 40, 14);
-    fmRatioSlider[v].setColour (juce::Slider::textBoxTextColourId,       juce::Colour(0xffe0e0e0));
-    fmRatioSlider[v].setColour (juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff000000));
-    fmRatioSlider[v].setColour (juce::Slider::textBoxOutlineColourId,    juce::Colour(0xff000000));
+    // FM Ratio — full-width LinearHorizontal, -8 to +8, shows exact value
+    fmRatioSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
+    fmRatioSlider[v].setRange (-8.0, 8.0, 0.01);
+    fmRatioSlider[v].setValue (vp.fmRatio, juce::dontSendNotification);
+    fmRatioSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 42, 20);
+    fmRatioSlider[v].setNumDecimalPlacesToDisplay (2);
+    fmRatioSlider[v].setColour (juce::Slider::trackColourId,             knobColour);
+    fmRatioSlider[v].setColour (juce::Slider::backgroundColourId,        juce::Colour (0xff252540));
+    fmRatioSlider[v].setColour (juce::Slider::textBoxTextColourId,       textColour);
+    fmRatioSlider[v].setColour (juce::Slider::textBoxBackgroundColourId, bgColour);
+    fmRatioSlider[v].setColour (juce::Slider::textBoxOutlineColourId,    bgColour);
     fmRatioSlider[v].onValueChange = [this, v]() { audioProcessor.voice[v].fmRatio = (float)fmRatioSlider[v].getValue(); };
+    addAndMakeVisible (fmRatioSlider[v]);
 
     // Cross-mod
     setupKnob (crossModSlider[v], 0.0, 1.0, vp.crossModDepth);
@@ -594,17 +601,19 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     modEnvDestBox[v].onChange = [this,v]() { audioProcessor.voice[v].modEnv.dest = modEnvDestBox[v].getSelectedItemIndex(); };
     addAndMakeVisible (modEnvDestBox[v]);
 
-    modEnvSyncBtn[v].setButtonText ("FREE");
+    // Default = GATE (retriggers on every sequencer gate, same as amp/filter envs)
+    // Toggled  = SYNC (free-runs on a clock division)
+    modEnvSyncBtn[v].setButtonText (vp.modEnv.clockSync ? "SYNC" : "GATE");
     modEnvSyncBtn[v].setClickingTogglesState (true);
     modEnvSyncBtn[v].setToggleState (vp.modEnv.clockSync, juce::dontSendNotification);
-    modEnvSyncBtn[v].setColour (juce::TextButton::buttonColourId,   vp.modEnv.clockSync ? juce::Colour(0xffe09040) : juce::Colour(0xff161622));
+    modEnvSyncBtn[v].setColour (juce::TextButton::buttonColourId,   vp.modEnv.clockSync ? juce::Colour(0xffe09040) : gateOnColour);
     modEnvSyncBtn[v].setColour (juce::TextButton::buttonOnColourId, juce::Colour(0xffe09040));
     modEnvSyncBtn[v].onClick = [this,v]()
     {
         bool s = modEnvSyncBtn[v].getToggleState();
         audioProcessor.voice[v].modEnv.clockSync = s;
-        modEnvSyncBtn[v].setButtonText (s ? "SYNC" : "FREE");
-        modEnvSyncBtn[v].setColour (juce::TextButton::buttonColourId, s ? juce::Colour(0xffe09040) : juce::Colour(0xff161622));
+        modEnvSyncBtn[v].setButtonText (s ? "SYNC" : "GATE");
+        modEnvSyncBtn[v].setColour (juce::TextButton::buttonColourId, s ? juce::Colour(0xffe09040) : gateOnColour);
     };
     addAndMakeVisible (modEnvSyncBtn[v]);
 
@@ -749,13 +758,13 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         g.drawText ("DRIFT", pO1X+46, cY+108, kSz, 12, juce::Justification::centred);
         g.drawText ("SCOPE", pO1X+88, cY+108, pO1W-93, 11, juce::Justification::centred);
         // OSC 2
-        g.drawText ("WT POS",  pO2X,    cY+26,  50,   12, juce::Justification::centred);
-        g.drawText ("LEVEL",   pO2X+55, cY+26,  kSz,  12, juce::Justification::centred);
-        g.drawText ("FM DPT",  pO2X+100,cY+26,  55,   12, juce::Justification::centred);
-        g.drawText ("OCT",     pO2X,    cY+76,  70,   12, juce::Justification::centred);
-        g.drawText ("XMOD",    pO2X,    cY+76,  kSz,  12, juce::Justification::centred);
-        g.drawText ("RATIO",   pO2X+90, cY+70,  kSz+6,12, juce::Justification::centred);
-        g.drawText ("WT VIEW", pO2X,    cY+108, pO2W, 11, juce::Justification::centred);
+        g.drawText ("WT POS",  pO2X,    cY+14,  50,   12, juce::Justification::centred);
+        g.drawText ("LEVEL",   pO2X+55, cY+14,  kSz,  12, juce::Justification::centred);
+        g.drawText ("FM DPT",  pO2X+100,cY+14,  55,   12, juce::Justification::centred);
+        g.drawText ("RATIO",   pO2X,    cY+68,  100,  12, juce::Justification::centredLeft);
+        g.drawText ("OCT",     pO2X,    cY+106, 65,   12, juce::Justification::centred);
+        g.drawText ("XMOD",    pO2X+80, cY+106, kSz,  12, juce::Justification::centred);
+        g.drawText ("WT",      pO2X,    cY+142, pO2W, 11, juce::Justification::centred);
         // Filter
         g.drawText ("CUTOFF",  pFltX+5,  lY1, kSz, 12, juce::Justification::centred);
         g.drawText ("RES",     pFltX+48, lY1, kSz, 12, juce::Justification::centred);
@@ -794,7 +803,7 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         g.drawText ("R",     pFEX + 134, cY + lOff3 + 10, kSz, 11, juce::Justification::centred);
         g.drawText ("DEPTH", pLfoX + 4,  cY + lOff3 + 10, kSz, 11, juce::Justification::centred);
         g.drawText ("DEST",  pLfoX + 46, cY + lOff3 + 10, 80,  11, juce::Justification::centred);
-        g.drawText ("SYNC",  pLfoX + 130,cY + lOff3 + 10, 40,  11, juce::Justification::centred);
+        g.drawText ("TRIG",  pLfoX + 130,cY + lOff3 + 10, 40,  11, juce::Justification::centred);
 
         // Accent stripe on control panel left edge
         g.setColour (accent.withAlpha (0.4f));
@@ -876,13 +885,17 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     oscScope           [v]->setBounds(pO1X + 88,  ctrlTopY + 120, pO1W - 93, 50);
 
     // ── OSC 2 ─────────────────────────────────────────────────────────────────
-    osc2PosSlider   [v].setBounds (pO2X + 5,   ctrlTopY + 38, kSz, kSz);
-    osc2LevelSlider [v].setBounds (pO2X + 55,  ctrlTopY + 38, kSz, kSz);
-    fmDepthSlider   [v].setBounds (pO2X + 105, ctrlTopY + 38, kSz, kSz);
-    osc2OctaveBox   [v].setBounds (pO2X + 5,   ctrlTopY + 88, 65, 22);
-    crossModSlider  [v].setBounds (pO2X + 5,   ctrlTopY + 88, kSz, kSz);
-    fmRatioSlider   [v].setBounds (pO2X + 90,  ctrlTopY + 82, kSz+6, kSz+14);
-    wavetableDisplay[v]->setBounds(pO2X + 5,   ctrlTopY + 120, pO2W - 10, 50);
+    // Row 1: WT Pos | Level | FM Depth
+    osc2PosSlider   [v].setBounds (pO2X + 5,   ctrlTopY + 26, kSz, kSz);
+    osc2LevelSlider [v].setBounds (pO2X + 55,  ctrlTopY + 26, kSz, kSz);
+    fmDepthSlider   [v].setBounds (pO2X + 105, ctrlTopY + 26, kSz, kSz);
+    // Row 2: FM Ratio linear slider (full width, shows value)
+    fmRatioSlider   [v].setBounds (pO2X + 5,   ctrlTopY + 80, 145, 22);
+    // Row 3: Octave | CrossMod (clearly separated)
+    osc2OctaveBox   [v].setBounds (pO2X + 5,   ctrlTopY + 118, 60, 22);
+    crossModSlider  [v].setBounds (pO2X + 80,  ctrlTopY + 114, kSz, kSz);
+    // Mini WT display at bottom
+    wavetableDisplay[v]->setBounds(pO2X + 5,   ctrlTopY + 152, pO2W - 10, 16);
 
     // ── Filter ────────────────────────────────────────────────────────────────
     cutoffSlider      [v].setBounds (pFltX + 5,  cy1, kSz, kSz);
@@ -1056,9 +1069,9 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
         modEnvDepthSlider[v].setValue (vp.modEnv.depth,   juce::dontSendNotification);
         modEnvDestBox    [v].setSelectedItemIndex (vp.modEnv.dest,     juce::dontSendNotification);
         modEnvSyncBtn    [v].setToggleState (vp.modEnv.clockSync,      juce::dontSendNotification);
-        modEnvSyncBtn    [v].setButtonText  (vp.modEnv.clockSync ? "SYNC" : "FREE");
+        modEnvSyncBtn    [v].setButtonText  (vp.modEnv.clockSync ? "SYNC" : "GATE");
         modEnvSyncBtn    [v].setColour (juce::TextButton::buttonColourId,
-                                         vp.modEnv.clockSync ? juce::Colour(0xffe09040) : juce::Colour(0xff161622));
+                                         vp.modEnv.clockSync ? juce::Colour(0xffe09040) : gateOnColour);
         modEnvDivBox     [v].setSelectedItemIndex (vp.modEnv.clockDiv, juce::dontSendNotification);
     }
     repaint();
