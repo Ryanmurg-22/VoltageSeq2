@@ -39,22 +39,6 @@ private:
 };
 
 //==============================================================================
-// Complex envelope display — draws ADSR shape from parameter values
-//==============================================================================
-class ComplexEnvDisplay : public juce::Component, public juce::Timer
-{
-public:
-    ComplexEnvDisplay (const VoltageSeq2AudioProcessor::ComplexEnvParams& p)
-        : params (p) { startTimerHz (15); }
-    ~ComplexEnvDisplay() override { stopTimer(); }
-    void paint (juce::Graphics& g) override;
-    void timerCallback() override { repaint(); }
-private:
-    const VoltageSeq2AudioProcessor::ComplexEnvParams& params;
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ComplexEnvDisplay)
-};
-
-//==============================================================================
 class VoltageSeq2AudioProcessorEditor : public juce::AudioProcessorEditor,
                                         public juce::Timer
 {
@@ -95,6 +79,7 @@ private:
     juce::ComboBox osc1OctaveBox [2];
     juce::Slider   osc1PWMSlider [2];
     juce::Slider   osc1FeedbackSlider [2];
+    juce::Slider   driftSlider [2];
 
     // ── OSC 2 ─────────────────────────────────────────────────────────────────
     juce::Slider   osc2PosSlider   [2];
@@ -102,13 +87,17 @@ private:
     juce::ComboBox osc2OctaveBox   [2];
 
     // ── FM ─────────────────────────────────────────────────────────────────────
-    juce::Slider   fmDepthSlider [2];
-    juce::ComboBox fmRatioBox    [2];
+    juce::Slider   fmDepthSlider  [2];
+    juce::Slider   fmRatioSlider  [2];
+    juce::Slider   crossModSlider [2];
 
     // ── Filter ────────────────────────────────────────────────────────────────
-    juce::Slider   cutoffSlider       [2];
-    juce::Slider   resonanceSlider    [2];
-    juce::Slider   filterEnvAmtSlider [2];
+    juce::Slider     cutoffSlider       [2];
+    juce::Slider     resonanceSlider    [2];
+    juce::Slider     filterEnvAmtSlider [2];
+    juce::Slider     filterDriveSlider  [2];
+    juce::ComboBox   filterModeBox      [2];
+    juce::TextButton filterSlopeBtn     [2];
 
     // ── Amp Envelope ──────────────────────────────────────────────────────────
     juce::Slider   attackSlider  [2];
@@ -132,19 +121,15 @@ private:
     juce::Slider   lfo2DepthSlider [2];
     juce::ComboBox lfo2TargetBox   [2];
 
-    // ── Complex Envelopes (2 envelopes × 2 voices) ────────────────────────────
-    juce::Slider     cenvAtkSlider  [2][2];
-    juce::Slider     cenvDecSlider  [2][2];
-    juce::Slider     cenvSusSlider  [2][2];
-    juce::Slider     cenvRelSlider  [2][2];
-    juce::Slider     cenvDepthSlider[2][2];
-    juce::ComboBox   cenvDestBox    [2][2];
-    juce::ComboBox   cenvDivBox     [2][2];
-    juce::TextButton cenvLoopBtn    [2][2];
-    juce::TextButton cenvSyncBtn    [2][2];
-
-    // ComplexEnvDisplay holds a const-reference — must be heap-allocated
-    std::unique_ptr<ComplexEnvDisplay> cenvDisplay[2][2];
+    // ── Mod Envelope (per voice) ───────────────────────────────────────────────
+    juce::Slider     modEnvAtkSlider  [2];
+    juce::Slider     modEnvDecSlider  [2];
+    juce::Slider     modEnvSusSlider  [2];
+    juce::Slider     modEnvRelSlider  [2];
+    juce::Slider     modEnvDepthSlider[2];
+    juce::ComboBox   modEnvDestBox    [2];
+    juce::TextButton modEnvSyncBtn    [2];
+    juce::ComboBox   modEnvDivBox     [2];
 
     // ── Per-voice scope / WT displays ─────────────────────────────────────────
     std::unique_ptr<OscScopeComponent>         oscScope       [2];

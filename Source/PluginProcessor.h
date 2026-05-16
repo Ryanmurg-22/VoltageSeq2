@@ -38,19 +38,17 @@ public:
     // TYPES
     //==========================================================================
 
-    // Complex envelope parameters — top-level nested type so ComplexEnvDisplay
-    // in the editor can reference it without knowing about VoiceParams.
-    struct ComplexEnvParams
+    // Mod envelope — ADSR envelope assignable to FM or Pitch, with optional clock sync
+    struct ModEnvParams
     {
-        float attack   = 0.05f;
-        float decay    = 0.3f;
-        float sustain  = 0.6f;
-        float release  = 0.2f;
-        float depth    = 0.5f;
-        int   dest     = 0;       // 0=Amplitude  1=Filter  2=Pitch
-        bool  looping  = false;
+        float attack  = 0.01f;
+        float decay   = 0.5f;
+        float sustain = 0.0f;
+        float release = 0.3f;
+        float depth   = 0.5f;
+        int   dest    = 0;      // 0=FM Depth  1=Pitch  2=Filter
         bool  clockSync = false;
-        int   clockDiv  = 3;      // index into cenvDivBars[]
+        int   clockDiv  = 3;    // index into cenvDivBars[]
     };
 
     // All per-voice parameters — written by the UI thread.
@@ -78,6 +76,7 @@ public:
         int   osc1Octave     = 0;
         float osc1PulseWidth = 0.5f;
         float osc1Feedback   = 0.0f;    // self-FM feedback [0..1]
+        float driftAmount    = 0.0f;    // analogue VCO drift [0..1]
 
         // ── OSC 2 ────────────────────────────────────────────────────────────
         float osc2Position = 0.0f;
@@ -86,12 +85,16 @@ public:
 
         // ── FM ───────────────────────────────────────────────────────────────────
         float fmDepth = 0.0f;    // OSC2 → OSC1 FM depth [0..1]
-        int   fmRatio = 1;       // FM ratio index: 0=0.5x 1=1x 2=2x … 7=7x
+        float fmRatio = 1.0f;    // FM ratio: 0.25 … 8.0 (continuous)
+        float crossModDepth = 0.0f;   // cross-mod from other voice [0..1]
 
         // ── Filter ───────────────────────────────────────────────────────────
         float filterCutoff    = 2000.0f;
         float filterResonance = 0.0f;
         float filterEnvAmount = 0.5f;
+        float filterDrive     = 0.0f;    // pre-filter saturation [0..1]
+        int   filterMode      = 0;       // 0=LP  1=BP  2=HP
+        int   filterSlope     = 0;       // 0=12dB  1=24dB
         juce::ADSR::Parameters filterEnvParams { 0.01f, 0.5f, 0.0f, 0.3f };
 
         // ── Amp envelope ─────────────────────────────────────────────────────
@@ -107,8 +110,8 @@ public:
         float lfo2Depth = 0.0f;
         int   lfo2Target = 1;
 
-        // ── Complex envelopes ────────────────────────────────────────────────
-        ComplexEnvParams cenv1, cenv2;
+        // ── Mod Envelope ─────────────────────────────────────────────────────
+        ModEnvParams modEnv;
 
         // ── Display / transport (written audio thread, read UI — harmless race)
         int currentStep = 0;
@@ -131,7 +134,7 @@ public:
     double            internalBPM = 120.0;
     std::atomic<bool> autoRun     { true };
 
-    // Clock divisions for complex envelopes (bars; 1 bar = 4 beats)
+    // Clock divisions for mod envelope (bars; 1 bar = 4 beats)
     static constexpr double cenvDivBars[8] = {
         8.0, 4.0, 2.0, 1.0, 0.5, 0.25, 0.125, 0.0625
     };
@@ -152,13 +155,8 @@ private:
     //==========================================================================
     double currentSampleRate = 44100.0;
 
-    struct CEnvState
-    {
-        enum Stage { Idle, Attack, Decay, Sustain, Release } stage = Idle;
-        float  level    = 0.0f;
-        double clockPos = 0.0;
-        bool   prevGate = false;
-    };
+    // Per-voice cross-mod sample storage
+    float crossModSample[numVoices] = {};
 
     struct VoiceState
     {
@@ -168,13 +166,19 @@ private:
         float  currentFreq2 = 261.63f, targetFreq2 = 261.63f;
         bool   glideActive  = false;
         float  ic1eq = 0.0f, ic2eq = 0.0f;
+        float  ic1eq2 = 0.0f, ic2eq2 = 0.0f;   // second SVF stage for 24dB
         juce::ADSR adsr, filterEnv;
         float  lfoPhase  = 0.0f, lfo2Phase  = 0.0f;
         float  osc1FeedbackSample = 0.0f;
+        // Per-oscillator independent drift (slow random-rate LFOs)
+        float osc1DriftPhase = 0.0f, osc1DriftRate = 0.13f, osc1DriftVal = 0.0f;
+        float osc2DriftPhase = 0.0f, osc2DriftRate = 0.19f, osc2DriftVal = 0.0f;
         float  pulseWidth = 0.5f;
         int    lastPos = -1, randomStep = 0;
         double sampleCounter = 0.0;
-        CEnvState cenv1State, cenv2State;
+        juce::ADSR modEnvAdsr;
+        double     modEnvClockPos = 0.0;
+        bool       modEnvPrevGate = false;
     };
 
     VoiceState vstate[numVoices];
@@ -204,7 +208,8 @@ private:
                                     double totalSwingCycle,
                                     double totalSwingPPQ,
                                     const int*   stepOrder,
-                                    float        glideCoeff);
+                                    float        glideCoeff,
+                                    float        crossModIn = 0.0f);
 
     float generateOsc1Sample (VoiceState& vs, const VoiceParams& vp, double phaseInc);
     float generateOsc2Sample (VoiceState& vs, const VoiceParams& vp, double phaseInc);
@@ -213,7 +218,7 @@ private:
     float voltageToQuantizedFreq (const VoiceParams& vp, float voltage,
                                   float rangeOverride = -1.0f);
     int   quantizeNoteToScale    (int midiNote, int rootNote, int scale);
-    float processCEnv            (const ComplexEnvParams& p, CEnvState& s,
+    float processModEnv          (const ModEnvParams& p, VoiceState& vs,
                                   bool gateOn, double bpm);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VoltageSeq2AudioProcessor)

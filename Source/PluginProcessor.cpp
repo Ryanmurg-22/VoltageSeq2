@@ -100,17 +100,27 @@ void VoltageSeq2AudioProcessor::prepareToPlay (double sampleRate, int samplesPer
 
         vs.ic1eq        = 0.0f;
         vs.ic2eq        = 0.0f;
+        vs.ic1eq2       = 0.0f;
+        vs.ic2eq2       = 0.0f;
         vs.lfoPhase     = 0.0f;
         vs.lfo2Phase    = 0.0f;
         vs.osc1FeedbackSample = 0.0f;
+        vs.osc1DriftRate = 0.08f + juce::Random::getSystemRandom().nextFloat() * 0.18f;
+        vs.osc2DriftRate = 0.08f + juce::Random::getSystemRandom().nextFloat() * 0.18f;
+        vs.osc1DriftPhase = juce::Random::getSystemRandom().nextFloat();
+        vs.osc2DriftPhase = juce::Random::getSystemRandom().nextFloat();
         vs.pulseWidth   = vp.osc1PulseWidth;
         vs.glideActive  = false;
         vs.sampleCounter = 0.0;
         vs.lastPos      = -1;
         vp.currentStep  = 0;
         vs.randomStep   = 0;
-        vs.cenv1State   = {};
-        vs.cenv2State   = {};
+        vs.modEnvAdsr.setSampleRate (sampleRate);
+        juce::ADSR::Parameters mep { vp.modEnv.attack, vp.modEnv.decay,
+                                     vp.modEnv.sustain, vp.modEnv.release };
+        vs.modEnvAdsr.setParameters (mep);
+        vs.modEnvClockPos = 0.0;
+        vs.modEnvPrevGate = false;
 
         if (autoRun.load())
             vp.sequencerRunning.store (true);
@@ -190,6 +200,9 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // Sync ADSR parameters written by UI thread
         vstate[vi].adsr.setParameters      (vp.adsrParams);
         vstate[vi].filterEnv.setParameters  (vp.filterEnvParams);
+        juce::ADSR::Parameters mep2 { voice[vi].modEnv.attack, voice[vi].modEnv.decay,
+                                      voice[vi].modEnv.sustain, voice[vi].modEnv.release };
+        vstate[vi].modEnvAdsr.setParameters (mep2);
 
         // Swing boundaries
         const double ppqStep        = ppqDivTable[juce::jlimit (0, 6, vp.clockDivision)];
@@ -251,13 +264,15 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             voice[0].sequencerRunning.load(), useHostSync, samplePPQ, effectiveBPM,
             swingBounds[0], swingPPQBounds[0],
             totalSwingCycle[0], totalSwingPPQ[0],
-            stepOrder[0], glideCoeff[0]);
+            stepOrder[0], glideCoeff[0],
+            crossModSample[1]);   // voice B modulates voice A
 
         float outB = processSingleVoiceSample (1,
             voice[1].sequencerRunning.load(), useHostSync, samplePPQ, effectiveBPM,
             swingBounds[1], swingPPQBounds[1],
             totalSwingCycle[1], totalSwingPPQ[1],
-            stepOrder[1], glideCoeff[1]);
+            stepOrder[1], glideCoeff[1],
+            crossModSample[0]);   // voice A modulates voice B
 
         const float mixed   = (outA + outB) * 0.5f;
         leftCh[s]  = mixed;
@@ -278,7 +293,8 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
     double totalSwingCycle,
     double totalSwingPPQ,
     const int* stepOrder,
-    float glideCoeff)
+    float glideCoeff,
+    float crossModIn)
 {
     VoiceState& vs = vstate[vi];
     VoiceParams& vp = voice[vi];
@@ -391,31 +407,20 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
     vs.pulseWidth = juce::jlimit (0.05f, 0.95f, vp.osc1PulseWidth + pwmMod);
 
     //--------------------------------------------------------------------------
-    // COMPLEX ENVELOPES
+    // MOD ENVELOPE
     //--------------------------------------------------------------------------
-    const bool gateOn    = running && vp.stepGates[vp.currentStep];
-    const float cenv1Out = processCEnv (vp.cenv1, vs.cenv1State, gateOn, effectiveBPM);
-    const float cenv2Out = processCEnv (vp.cenv2, vs.cenv2State, gateOn, effectiveBPM);
+    const bool gateOn   = running && vp.stepGates[vp.currentStep];
+    const float modEnvOut = processModEnv (vp.modEnv, vs, gateOn, effectiveBPM)
+                            * vp.modEnv.depth;
 
     float cenvAmpMod    = 1.0f;
     float cenvCutoffMod = 1.0f;
     float cenvRangeMod  = 0.0f;
     float cenvFMDepthMod = 0.0f;
 
-    auto applyCEnv = [&](const ComplexEnvParams& p, float envOut)
-    {
-        const float v = envOut * p.depth;
-        if (p.dest == 0)
-            cenvAmpMod    *= (1.0f - p.depth + v);
-        else if (p.dest == 1)
-            cenvCutoffMod *= std::pow (2.0f, v * 4.0f);
-        else if (p.dest == 2)
-            cenvRangeMod  += v;
-        else if (p.dest == 3)
-            cenvFMDepthMod += v;
-    };
-    applyCEnv (vp.cenv1, cenv1Out);
-    applyCEnv (vp.cenv2, cenv2Out);
+    if (vp.modEnv.dest == 0) cenvFMDepthMod = modEnvOut;
+    if (vp.modEnv.dest == 1) cenvRangeMod   = modEnvOut;
+    if (vp.modEnv.dest == 2) cenvCutoffMod  = std::pow (2.0f, modEnvOut * 4.0f);
 
     const float effectiveFMDepth = juce::jlimit (0.0f, 1.0f, vp.fmDepth + cenvFMDepthMod);
 
@@ -450,19 +455,35 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
     //--------------------------------------------------------------------------
     // OSCILLATORS → scope → filter → amp envelope
     //--------------------------------------------------------------------------
+    //--------------------------------------------------------------------------
+    // OSCILLATOR DRIFT — independent slow random-walk per VCO
+    //--------------------------------------------------------------------------
+    const float maxDriftCents = 4.0f;
+    vs.osc1DriftVal = std::sin (vs.osc1DriftPhase * juce::MathConstants<float>::twoPi)
+                      * vp.driftAmount * maxDriftCents;
+    vs.osc2DriftVal = std::sin (vs.osc2DriftPhase * juce::MathConstants<float>::twoPi)
+                      * vp.driftAmount * maxDriftCents;
+    vs.osc1DriftPhase += vs.osc1DriftRate / (float)currentSampleRate;
+    if (vs.osc1DriftPhase >= 1.0f) vs.osc1DriftPhase -= 1.0f;
+    vs.osc2DriftPhase += vs.osc2DriftRate / (float)currentSampleRate;
+    if (vs.osc2DriftPhase >= 1.0f) vs.osc2DriftPhase -= 1.0f;
+    const float drift1Ratio = std::pow (2.0f, vs.osc1DriftVal / 1200.0f);
+    const float drift2Ratio = std::pow (2.0f, vs.osc2DriftVal / 1200.0f);
+
     // FM: OSC2 runs at harmonic ratio of OSC1 when depth > 0
-    static const float fmRatioTable[] = { 0.5f, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f };
-    const float fmRatioVal = fmRatioTable[juce::jlimit (0, 7, vp.fmRatio)];
+    const float fmRatioVal = juce::jlimit (0.25f, 8.0f, vp.fmRatio);
     const double osc2Inc = (effectiveFMDepth > 0.001f)
-        ? (vs.currentFreq1 * (double)fmRatioVal * pitchMod) / currentSampleRate
-        : vs.osc2PhaseInc * pitchMod;
+        ? (vs.currentFreq1 * (double)fmRatioVal * pitchMod * (double)drift2Ratio) / currentSampleRate
+        : vs.osc2PhaseInc * pitchMod * (double)drift2Ratio;
     const float osc2Raw = generateOsc2Sample (vs, vp, osc2Inc);   // [-1..+1]
 
     // OSC1 with FM deviation from OSC2 and self-feedback
-    const double fmDev = vs.osc1PhaseInc * (double)(effectiveFMDepth * osc2Raw * 3.0f);
+    const double fmDev = vs.osc1PhaseInc * (double)(effectiveFMDepth * osc2Raw * 3.0f
+                         + vp.crossModDepth * crossModIn * 3.0f);
     const double fbDev = vs.osc1PhaseInc * (double)(vp.osc1Feedback  * vs.osc1FeedbackSample * 2.0f);
-    const float osc1Raw = generateOsc1Sample (vs, vp, vs.osc1PhaseInc * pitchMod + fmDev + fbDev);
+    const float osc1Raw = generateOsc1Sample (vs, vp, vs.osc1PhaseInc * pitchMod * (double)drift1Ratio + fmDev + fbDev);
     vs.osc1FeedbackSample = juce::jlimit (-1.0f, 1.0f, osc1Raw);  // clamp to prevent blow-up
+    crossModSample[vi] = osc1Raw;   // expose raw output for cross-mod next sample
 
     float osc1 = osc1Raw * vp.osc1Level;
     float osc2 = osc2Raw * vp.osc2Level;
@@ -531,23 +552,71 @@ float VoltageSeq2AudioProcessor::generateOsc2Sample (VoiceState& vs, const Voice
 }
 
 //==============================================================================
-// TPT State Variable Filter (low-pass)
+// TPT State Variable Filter with drive, mode, and slope
 //==============================================================================
 float VoltageSeq2AudioProcessor::applyFilter (VoiceState& vs, const VoiceParams& vp,
                                                float input, float effectiveCutoff)
 {
-    float cut = juce::jlimit (20.0f, (float)currentSampleRate * 0.45f, effectiveCutoff);
-    float g   = std::tan (juce::MathConstants<float>::pi * cut / (float)currentSampleRate);
-    float k   = juce::jlimit (0.01f, 2.0f, 2.0f - 1.99f * vp.filterResonance);
-    float a1  = 1.0f / (1.0f + g * (g + k));
-    float a2  = g * a1;
-    float a3  = g * a2;
-    float v3  = input - vs.ic2eq;
-    float v1  = a1 * vs.ic1eq + a2 * v3;
-    float v2  = vs.ic2eq + a2 * vs.ic1eq + a3 * v3;
-    vs.ic1eq  = 2.0f * v1 - vs.ic1eq;
-    vs.ic2eq  = 2.0f * v2 - vs.ic2eq;
-    return v2;
+    // Pre-filter drive (tanh saturation)
+    const float drive = 1.0f + vp.filterDrive * 7.0f;   // 1x … 8x gain into clipper
+    float driven = std::tanh (input * drive) / drive;    // normalised so unity gain at drive=0
+
+    // TPT SVF — first stage
+    auto runSVF = [](float in, float& ic1, float& ic2, float g, float k, int mode) -> float
+    {
+        float a1 = 1.0f / (1.0f + g * (g + k));
+        float a2 = g * a1;
+        float a3 = g * a2;
+        float v3 = in   - ic2;
+        float v1 = a1 * ic1 + a2 * v3;
+        float v2 = ic2 + a2 * ic1 + a3 * v3;
+        ic1      = 2.0f * v1 - ic1;
+        ic2      = 2.0f * v2 - ic2;
+        if (mode == 1) return v1;                        // BP
+        if (mode == 2) return in - k * v1 - v2;         // HP
+        return v2;                                       // LP (default)
+    };
+
+    float cut = juce::jlimit (20.0f, (float)(currentSampleRate * 0.45), effectiveCutoff);
+    float g = std::tan (juce::MathConstants<float>::pi * cut / (float)currentSampleRate);
+    float k = juce::jlimit (0.01f, 2.0f, 2.0f - 1.99f * vp.filterResonance);
+
+    float out = runSVF (driven, vs.ic1eq, vs.ic2eq, g, k, vp.filterMode);
+
+    // Second stage for 24 dB/oct
+    if (vp.filterSlope == 1)
+        out = runSVF (out, vs.ic1eq2, vs.ic2eq2, g, k, vp.filterMode);
+
+    return out;
+}
+
+//==============================================================================
+// Mod Envelope processor
+//==============================================================================
+float VoltageSeq2AudioProcessor::processModEnv (const ModEnvParams& p, VoiceState& vs,
+                                                  bool gateOn, double bpm)
+{
+    if (p.clockSync)
+    {
+        const double cycleSeconds = cenvDivBars[juce::jlimit (0, 7, p.clockDiv)] * 4.0 * 60.0 / bpm;
+        const double cycleSamples = cycleSeconds * currentSampleRate;
+        vs.modEnvClockPos += 1.0;
+        if (vs.modEnvClockPos >= cycleSamples)
+        {
+            vs.modEnvClockPos -= cycleSamples;
+            vs.modEnvAdsr.noteOff();
+            vs.modEnvAdsr.noteOn();
+        }
+    }
+    else
+    {
+        const bool rise = gateOn  && !vs.modEnvPrevGate;
+        const bool fall = !gateOn && vs.modEnvPrevGate;
+        if (rise) { vs.modEnvAdsr.noteOff(); vs.modEnvAdsr.noteOn(); }
+        if (fall)   vs.modEnvAdsr.noteOff();
+    }
+    vs.modEnvPrevGate = gateOn;
+    return vs.modEnvAdsr.getNextSample();
 }
 
 //==============================================================================
@@ -590,88 +659,6 @@ int VoltageSeq2AudioProcessor::quantizeNoteToScale (int midiNote, int rootNote, 
 }
 
 //==============================================================================
-// Complex envelope processor
-//==============================================================================
-float VoltageSeq2AudioProcessor::processCEnv (const ComplexEnvParams& p, CEnvState& s,
-                                               bool gateOn, double bpm)
-{
-    if (p.clockSync)
-    {
-        const double cycleSeconds = cenvDivBars[juce::jlimit (0, 7, p.clockDiv)]
-                                    * 4.0 * 60.0 / bpm;
-        const double cycleSamples = cycleSeconds * currentSampleRate;
-
-        const float  weightTotal  = p.attack + p.decay + p.release + 0.3f;
-        const double aSamp = (p.attack  / weightTotal) * cycleSamples;
-        const double dSamp = (p.decay   / weightTotal) * cycleSamples;
-        const double sSamp = (0.3f      / weightTotal) * cycleSamples;
-        const double rSamp = (p.release / weightTotal) * cycleSamples;
-
-        s.clockPos += 1.0;
-        if (s.clockPos >= cycleSamples) s.clockPos -= cycleSamples;
-
-        const double cp = s.clockPos;
-        if (cp < aSamp)
-        {
-            s.level = (float)(cp / aSamp);
-        }
-        else if (cp < aSamp + dSamp)
-        {
-            float t = (float)((cp - aSamp) / dSamp);
-            s.level = 1.0f - t * (1.0f - p.sustain);
-        }
-        else if (cp < aSamp + dSamp + sSamp)
-        {
-            s.level = p.sustain;
-        }
-        else
-        {
-            float t = (float)((cp - aSamp - dSamp - sSamp) / juce::jmax (1.0, rSamp));
-            s.level = p.sustain * (1.0f - juce::jmin (1.0f, t));
-        }
-    }
-    else
-    {
-        const float sr    = (float)currentSampleRate;
-        const float aSamp = juce::jmax (1.0f, p.attack  * sr);
-        const float dSamp = juce::jmax (1.0f, p.decay   * sr);
-        const float rSamp = juce::jmax (1.0f, p.release * sr);
-
-        const bool rise = gateOn  && !s.prevGate;
-        const bool fall = !gateOn && s.prevGate;
-        s.prevGate = gateOn;
-
-        if (rise) s.stage = CEnvState::Attack;
-        else if (fall && s.stage != CEnvState::Idle) s.stage = CEnvState::Release;
-
-        switch (s.stage)
-        {
-            case CEnvState::Idle: break;
-            case CEnvState::Attack:
-                s.level += 1.0f / aSamp;
-                if (s.level >= 1.0f) { s.level = 1.0f; s.stage = CEnvState::Decay; }
-                break;
-            case CEnvState::Decay:
-                s.level -= (1.0f - p.sustain) / dSamp;
-                if (s.level <= p.sustain) { s.level = p.sustain; s.stage = CEnvState::Sustain; }
-                break;
-            case CEnvState::Sustain:
-                s.level = p.sustain;
-                break;
-            case CEnvState::Release:
-                s.level -= p.sustain / rSamp;
-                if (s.level <= 0.0f)
-                {
-                    s.level = 0.0f;
-                    s.stage = p.looping ? CEnvState::Attack : CEnvState::Idle;
-                }
-                break;
-        }
-    }
-    return s.level;
-}
-
-//==============================================================================
 // STANDARD JUCE BOILERPLATE
 //==============================================================================
 bool VoltageSeq2AudioProcessor::hasEditor() const { return true; }
@@ -693,13 +680,6 @@ void VoltageSeq2AudioProcessor::changeProgramName (int, const juce::String&) {}
 
 //==============================================================================
 // STATE SERIALISATION — v2 format
-// <VoltageSeq2State version="2">
-//   <Voice index="0"> ... </Voice>
-//   <Voice index="1"> ... </Voice>
-// </VoltageSeq2State>
-//
-// Backward compat: if version attribute is absent we treat it as v1 (single-voice)
-// and load all attributes into voice[0], leaving voice[1] at defaults.
 //==============================================================================
 static void saveVoiceToXml (juce::XmlElement& el,
                              const VoltageSeq2AudioProcessor::VoiceParams& vp,
@@ -726,8 +706,10 @@ static void saveVoiceToXml (juce::XmlElement& el,
     el.setAttribute ("osc1Oct",  vp.osc1Octave);
     el.setAttribute ("osc1PW",   (double)vp.osc1PulseWidth);
     el.setAttribute ("osc1Feedbk", (double)vp.osc1Feedback);
+    el.setAttribute ("drift",      (double)vp.driftAmount);
     el.setAttribute ("fmDepth",    (double)vp.fmDepth);
-    el.setAttribute ("fmRatio",    vp.fmRatio);
+    el.setAttribute ("fmRatio",    (double)vp.fmRatio);
+    el.setAttribute ("crossMod",   (double)vp.crossModDepth);
 
     el.setAttribute ("osc2Pos",  (double)vp.osc2Position);
     el.setAttribute ("osc2Lvl",  (double)vp.osc2Level);
@@ -736,6 +718,9 @@ static void saveVoiceToXml (juce::XmlElement& el,
     el.setAttribute ("cut",     (double)vp.filterCutoff);
     el.setAttribute ("res",     (double)vp.filterResonance);
     el.setAttribute ("fEnvAmt", (double)vp.filterEnvAmount);
+    el.setAttribute ("fDrive",   (double)vp.filterDrive);
+    el.setAttribute ("fMode",    vp.filterMode);
+    el.setAttribute ("fSlope",   vp.filterSlope);
     el.setAttribute ("fAtk",    (double)vp.filterEnvParams.attack);
     el.setAttribute ("fDec",    (double)vp.filterEnvParams.decay);
     el.setAttribute ("fSus",    (double)vp.filterEnvParams.sustain);
@@ -754,27 +739,14 @@ static void saveVoiceToXml (juce::XmlElement& el,
     el.setAttribute ("lfo2Dep",  (double)vp.lfo2Depth);
     el.setAttribute ("lfo2Tgt",  vp.lfo2Target);
 
-    // Complex envelope 1
-    el.setAttribute ("c1Atk",  (double)vp.cenv1.attack);
-    el.setAttribute ("c1Dec",  (double)vp.cenv1.decay);
-    el.setAttribute ("c1Sus",  (double)vp.cenv1.sustain);
-    el.setAttribute ("c1Rel",  (double)vp.cenv1.release);
-    el.setAttribute ("c1Dep",  (double)vp.cenv1.depth);
-    el.setAttribute ("c1Dst",  vp.cenv1.dest);
-    el.setAttribute ("c1Loop", vp.cenv1.looping);
-    el.setAttribute ("c1Sync", vp.cenv1.clockSync);
-    el.setAttribute ("c1Div",  vp.cenv1.clockDiv);
-
-    // Complex envelope 2
-    el.setAttribute ("c2Atk",  (double)vp.cenv2.attack);
-    el.setAttribute ("c2Dec",  (double)vp.cenv2.decay);
-    el.setAttribute ("c2Sus",  (double)vp.cenv2.sustain);
-    el.setAttribute ("c2Rel",  (double)vp.cenv2.release);
-    el.setAttribute ("c2Dep",  (double)vp.cenv2.depth);
-    el.setAttribute ("c2Dst",  vp.cenv2.dest);
-    el.setAttribute ("c2Loop", vp.cenv2.looping);
-    el.setAttribute ("c2Sync", vp.cenv2.clockSync);
-    el.setAttribute ("c2Div",  vp.cenv2.clockDiv);
+    el.setAttribute ("mEnvAtk",  (double)vp.modEnv.attack);
+    el.setAttribute ("mEnvDec",  (double)vp.modEnv.decay);
+    el.setAttribute ("mEnvSus",  (double)vp.modEnv.sustain);
+    el.setAttribute ("mEnvRel",  (double)vp.modEnv.release);
+    el.setAttribute ("mEnvDep",  (double)vp.modEnv.depth);
+    el.setAttribute ("mEnvDst",  vp.modEnv.dest);
+    el.setAttribute ("mEnvSync", vp.modEnv.clockSync);
+    el.setAttribute ("mEnvDiv",  vp.modEnv.clockDiv);
 }
 
 static void loadVoiceFromXml (const juce::XmlElement& el,
@@ -808,9 +780,11 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
     vp.osc1Level        = getF ("osc1Lvl",  vp.osc1Level);
     vp.osc1Octave       = getI ("osc1Oct",  vp.osc1Octave);
     vp.osc1PulseWidth   = getF ("osc1PW",   vp.osc1PulseWidth);
-    vp.osc1Feedback  = getF ("osc1Feedbk", vp.osc1Feedback);
-    vp.fmDepth       = getF ("fmDepth",    vp.fmDepth);
-    vp.fmRatio       = getI ("fmRatio",    vp.fmRatio);
+    vp.osc1Feedback     = getF ("osc1Feedbk", vp.osc1Feedback);
+    vp.driftAmount      = getF ("drift",      vp.driftAmount);
+    vp.fmDepth          = getF ("fmDepth",    vp.fmDepth);
+    vp.fmRatio          = getF ("fmRatio",    vp.fmRatio);
+    vp.crossModDepth    = getF ("crossMod",   vp.crossModDepth);
 
     vp.osc2Position     = getF ("osc2Pos",  vp.osc2Position);
     vp.osc2Level        = getF ("osc2Lvl",  vp.osc2Level);
@@ -819,6 +793,9 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
     vp.filterCutoff     = getF ("cut",      vp.filterCutoff);
     vp.filterResonance  = getF ("res",      vp.filterResonance);
     vp.filterEnvAmount  = getF ("fEnvAmt",  vp.filterEnvAmount);
+    vp.filterDrive      = getF ("fDrive",   vp.filterDrive);
+    vp.filterMode       = getI ("fMode",    vp.filterMode);
+    vp.filterSlope      = getI ("fSlope",   vp.filterSlope);
     vp.filterEnvParams.attack  = getF ("fAtk", vp.filterEnvParams.attack);
     vp.filterEnvParams.decay   = getF ("fDec", vp.filterEnvParams.decay);
     vp.filterEnvParams.sustain = getF ("fSus", vp.filterEnvParams.sustain);
@@ -837,25 +814,14 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
     vp.lfo2Depth  = getF ("lfo2Dep",  vp.lfo2Depth);
     vp.lfo2Target = getI ("lfo2Tgt",  vp.lfo2Target);
 
-    vp.cenv1.attack    = getF ("c1Atk",  vp.cenv1.attack);
-    vp.cenv1.decay     = getF ("c1Dec",  vp.cenv1.decay);
-    vp.cenv1.sustain   = getF ("c1Sus",  vp.cenv1.sustain);
-    vp.cenv1.release   = getF ("c1Rel",  vp.cenv1.release);
-    vp.cenv1.depth     = getF ("c1Dep",  vp.cenv1.depth);
-    vp.cenv1.dest      = getI ("c1Dst",  vp.cenv1.dest);
-    vp.cenv1.looping   = getB ("c1Loop", vp.cenv1.looping);
-    vp.cenv1.clockSync = getB ("c1Sync", vp.cenv1.clockSync);
-    vp.cenv1.clockDiv  = getI ("c1Div",  vp.cenv1.clockDiv);
-
-    vp.cenv2.attack    = getF ("c2Atk",  vp.cenv2.attack);
-    vp.cenv2.decay     = getF ("c2Dec",  vp.cenv2.decay);
-    vp.cenv2.sustain   = getF ("c2Sus",  vp.cenv2.sustain);
-    vp.cenv2.release   = getF ("c2Rel",  vp.cenv2.release);
-    vp.cenv2.depth     = getF ("c2Dep",  vp.cenv2.depth);
-    vp.cenv2.dest      = getI ("c2Dst",  vp.cenv2.dest);
-    vp.cenv2.looping   = getB ("c2Loop", vp.cenv2.looping);
-    vp.cenv2.clockSync = getB ("c2Sync", vp.cenv2.clockSync);
-    vp.cenv2.clockDiv  = getI ("c2Div",  vp.cenv2.clockDiv);
+    vp.modEnv.attack    = getF ("mEnvAtk",  vp.modEnv.attack);
+    vp.modEnv.decay     = getF ("mEnvDec",  vp.modEnv.decay);
+    vp.modEnv.sustain   = getF ("mEnvSus",  vp.modEnv.sustain);
+    vp.modEnv.release   = getF ("mEnvRel",  vp.modEnv.release);
+    vp.modEnv.depth     = getF ("mEnvDep",  vp.modEnv.depth);
+    vp.modEnv.dest      = getI ("mEnvDst",  vp.modEnv.dest);
+    vp.modEnv.clockSync = getB ("mEnvSync", vp.modEnv.clockSync);
+    vp.modEnv.clockDiv  = getI ("mEnvDiv",  vp.modEnv.clockDiv);
 }
 
 //------------------------------------------------------------------------------
@@ -908,6 +874,9 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
     {
         vstate[vi].adsr.setParameters      (voice[vi].adsrParams);
         vstate[vi].filterEnv.setParameters  (voice[vi].filterEnvParams);
+        juce::ADSR::Parameters mep3 { voice[vi].modEnv.attack, voice[vi].modEnv.decay,
+                                      voice[vi].modEnv.sustain, voice[vi].modEnv.release };
+        vstate[vi].modEnvAdsr.setParameters (mep3);
         voice[vi].resetOnNextBlock.store (true);
     }
 }
