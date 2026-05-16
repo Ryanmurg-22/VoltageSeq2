@@ -558,7 +558,9 @@ float VoltageSeq2AudioProcessor::voltageToQuantizedFreq (const VoiceParams& vp, 
 {
     float range       = (rangeOverride >= 0.0f) ? rangeOverride : vp.rangeVCA;
     float scaledV     = voltage * range;
-    float rawMidi     = juce::jlimit (0.0f, 127.0f, 60.0f + scaledV * 5.0f);
+    // Anchor zero-voltage to the root note so the sequencer is always
+    // tonally grounded in the selected key (rootNote: 0=C … 11=B).
+    float rawMidi     = juce::jlimit (0.0f, 127.0f, 60.0f + (float)vp.rootNote + scaledV * 5.0f);
     int   quantized   = quantizeNoteToScale ((int)std::round (rawMidi), vp.rootNote, vp.currentScale);
     return 440.0f * std::pow (2.0f, (quantized - 69.0f) / 12.0f);
 }
