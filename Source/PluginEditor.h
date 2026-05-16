@@ -295,6 +295,8 @@ private:
     // ── Pattern bank page ─────────────────────────────────────────────────────
     std::unique_ptr<PatternSlotView> patternSlot[2][16];
     int activePatternSlot[2] = { -1, -1 };
+    juce::ComboBox   saveToBox[2];   // slot picker 1-16
+    juce::TextButton saveBtn  [2];   // "SAVE" — saves current voice to chosen slot
 
     // Component lists for bulk show/hide
     std::vector<juce::Component*> synthPageComponents;

@@ -31,40 +31,18 @@ VoltageSeq2AudioProcessor::VoltageSeq2AudioProcessor()
 {
     buildWavetables();
 
-    // ── Voice A defaults (current) ─────────────────────────────────────────────
-    static const float defaultVoltages[16] = {
-         0.0f,  1.0f,  2.5f,  1.5f,
-        -1.0f,  0.5f,  2.0f,  3.5f,
-         0.0f, -1.0f,  1.0f,  2.0f,
-        -2.0f,  0.5f,  1.5f, -0.5f
-    };
-    for (int i = 0; i < numSteps; ++i)
+    // ── Default patch — blank slate, both voices identical ────────────────────
+    for (int vi = 0; vi < numVoices; ++vi)
     {
-        voice[0].stepVoltages[i] = defaultVoltages[i];
-        voice[0].stepGates[i]    = true;
-        voice[0].stepGlides[i]   = false;
+        for (int i = 0; i < numSteps; ++i)
+        {
+            voice[vi].stepVoltages[i] = 0.0f;
+            voice[vi].stepGates[i]    = true;   // all gates on → hear root note on play
+            voice[vi].stepGlides[i]   = false;
+        }
+        voice[vi].unipolar      = true;   // unipolar (0..5 V range)
+        voice[vi].currentScale  = 8;      // Chromatic = effectively unquantized
     }
-
-    // ── Voice B defaults (polyrhythmic counterpoint) ───────────────────────────
-    // Different clock division and sequence length for immediate polyrhythm
-    static const float defaultVoltagesB[16] = {
-         0.0f, -1.5f,  1.0f,  3.0f,
-         2.0f,  0.0f, -0.5f,  2.5f,
-         1.0f,  0.5f, -1.0f,  0.0f,
-         2.0f, -2.0f,  1.5f,  0.5f
-    };
-    for (int i = 0; i < numSteps; ++i)
-    {
-        voice[1].stepVoltages[i] = defaultVoltagesB[i];
-        voice[1].stepGates[i]    = true;
-        voice[1].stepGlides[i]   = false;
-    }
-
-    voice[1].clockDivision  = 1;     // 1/8  (creates polyrhythm with Voice A's 1/16)
-    voice[1].sequenceLength = 12;    // 12-step pattern (3:4 polyrhythm with 16-step A)
-    voice[1].osc1Waveform   = 0;     // Sine (contrasts with Voice A's Saw)
-    voice[1].filterCutoff   = 1200.0f;
-    voice[1].lfo2Target     = 1;     // LFO2 → filter for Voice B
 }
 
 VoltageSeq2AudioProcessor::~VoltageSeq2AudioProcessor() {}

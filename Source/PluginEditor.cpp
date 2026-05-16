@@ -289,6 +289,34 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
         }
     }
 
+    // ── Per-voice SAVE controls (pattern page) ────────────────────────────────
+    for (int vi = 0; vi < 2; ++vi)
+    {
+        for (int s = 1; s <= 16; ++s)
+            saveToBox[vi].addItem ("Slot " + juce::String (s), s);
+        saveToBox[vi].setSelectedItemIndex (0, juce::dontSendNotification);
+        saveToBox[vi].setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff0e1020));
+        saveToBox[vi].setColour (juce::ComboBox::textColourId,       juce::Colour (0xffe0e0e0));
+        addChildComponent (saveToBox[vi]);
+        patternPageComponents.push_back (&saveToBox[vi]);
+
+        saveBtn[vi].setButtonText ("SAVE");
+        saveBtn[vi].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff1a3a1a));
+        saveBtn[vi].setColour (juce::TextButton::textColourOffId, juce::Colour (0xff44cc44));
+        saveBtn[vi].onClick = [this, vi]()
+        {
+            const int slot = saveToBox[vi].getSelectedItemIndex();   // 0-based
+            audioProcessor.savePattern (vi, slot);
+            // Mark as active and refresh tiles
+            activePatternSlot[vi] = slot;
+            for (int i = 0; i < 16; ++i)
+                patternSlot[vi][i]->setActive (i == slot);
+            repaint();
+        };
+        addChildComponent (saveBtn[vi]);
+        patternPageComponents.push_back (&saveBtn[vi]);
+    }
+
     // setSize LAST — triggers resized() which calls layoutVoice()
     setSize (1350, winH);
     startTimerHz (30);
@@ -799,10 +827,20 @@ void VoltageSeq2AudioProcessorEditor::layoutPatternPage()
     const int rowB0 = rowA1 + slotH + 26;   // 26px for divider + label
     const int rowB1 = rowB0 + slotH + rowGap;
 
+    // Label row Y positions (match paint() comments)
+    // Voice A label at y=55, Voice B label at y=337
+    const int labelYA = 54;
+    const int labelYB = 336;
+
     for (int vi = 0; vi < 2; ++vi)
     {
-        const int row0 = (vi == 0) ? rowA0 : rowB0;
-        const int row1 = (vi == 0) ? rowA1 : rowB1;
+        const int row0   = (vi == 0) ? rowA0  : rowB0;
+        const int row1   = (vi == 0) ? rowA1  : rowB1;
+        const int labelY = (vi == 0) ? labelYA : labelYB;
+
+        // SAVE controls — right-aligned in the label row
+        saveToBox[vi].setBounds (1100, labelY, 130, 18);
+        saveBtn  [vi].setBounds (1238, labelY,  60, 18);
 
         for (int s = 0; s < 16; ++s)
         {
@@ -826,13 +864,13 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     g.setColour (juce::Colour (0xff0a0a1a));
     g.fillRect (0, 0, 1350, headerH);
 
-    // Branding — left side of header
+    // Branding
     g.setFont (juce::Font (15.0f, juce::Font::bold));
-    g.setColour (juce::Colour (0xffe09040));                      // amber — product name
+    g.setColour (juce::Colour (0xffe09040));
     g.drawText ("VoltageSEQ", 8, 3, 130, 22, juce::Justification::centredLeft);
-    g.setFont (juce::Font (9.0f, juce::Font::plain));
-    g.setColour (dimColour.withAlpha (0.7f));                     // dim — manufacturer
-    g.drawText ("MURGATROYD INSTRUMENTS", 8, 18, 200, 11, juce::Justification::centredLeft);
+    g.setFont (juce::Font (13.0f, juce::Font::bold));
+    g.setColour (dimColour.withAlpha (0.55f));
+    g.drawText ("MURGATROYD INSTRUMENTS", 0, 0, 1350, headerH, juce::Justification::centred);
 
     // BPM / Preset labels
     g.setFont (juce::Font (9.0f, juce::Font::bold));
@@ -846,26 +884,24 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         g.setColour (juce::Colour (0xff040410));
         g.fillRect (0, headerH, 1350, winH - headerH);
 
-        // Voice A label
+        // rowA0=72, slotH=125, rowGap=6 → rowA1=203, end-of-A=328, rowB0=354
+        // Voice A label row: y=55
         g.setFont (juce::Font (9.0f, juce::Font::bold));
         g.setColour (voiceAColour);
-        g.drawText ("VOICE A — PATTERN BANK", 8, 55, 400, 14, juce::Justification::centredLeft);
+        g.drawText ("VOICE A — PATTERN BANK", 8, 55, 600, 14, juce::Justification::centredLeft);
 
-        // Voice B label — sits above the B rows (rowB0 - 17)
-        // rowA1 = 72 + 125 + 6 = 203; rowB0 = 203 + 26 = 229 → label at 229-17=212
-        g.setColour (voiceBColour);
-        g.drawText ("VOICE B — PATTERN BANK", 8, 212, 400, 14, juce::Justification::centredLeft);
-
-        // Divider between A and B blocks
+        // Divider and Voice B label at y=332/336
         g.setColour (voiceAColour.withAlpha (0.2f));
-        g.fillRect (0, 209, 1350, 1);
+        g.fillRect (0, 332, 1350, 1);
         g.setColour (voiceBColour.withAlpha (0.2f));
-        g.fillRect (0, 211, 1350, 1);
+        g.fillRect (0, 334, 1350, 1);
+        g.setColour (voiceBColour);
+        g.drawText ("VOICE B — PATTERN BANK", 8, 337, 600, 14, juce::Justification::centredLeft);
 
-        // Right-click hint
+        // Bottom hint
         g.setFont (juce::Font (8.5f));
         g.setColour (juce::Colour (0xff333355));
-        g.drawText ("Left-click to load  ·  Right-click to save or clear",
+        g.drawText ("Left-click to load  ·  Right-click to clear  ·  Use SAVE button to store current pattern",
                     0, winH - 14, 1350, 12, juce::Justification::centred);
         return;
     }
