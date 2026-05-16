@@ -16,6 +16,8 @@ namespace {
     const juce::Colour stopColour         { 0xffe94560 };
     const juce::Colour activeGateOnColour { 0xffffffff };
     const juce::Colour activeGateOffColour{ 0xff505070 };
+    const juce::Colour tieColour          { 0xffe07020 };   // amber-orange for tied gates
+    const juce::Colour activeTieColour    { 0xffffc060 };   // bright amber when tied step is active
     const juce::Colour playBtnOn          { 0xff2255aa };
     const juce::Colour playBtnOff         { 0xff161630 };
     const juce::Colour voiceAColour       { 0xff00aaff };
@@ -334,15 +336,38 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
         { audioProcessor.voice[v].stepVoltages[i] = (float)stepKnob[v][i].getValue(); };
         addAndMakeVisible (stepKnob[v][i]);
 
-        bool gOn = vp.stepGates[i];
-        gateBtn[v][i].setButtonText ("");
-        gateBtn[v][i].setToggleState (gOn, juce::dontSendNotification);
-        gateBtn[v][i].setClickingTogglesState (true);
-        gateBtn[v][i].setColour (juce::TextButton::buttonColourId,   gOn ? gateOnColour : gateOffColour);
-        gateBtn[v][i].setColour (juce::TextButton::buttonOnColourId, gateOnColour);
-        gateBtn[v][i].onClick = [this, v, i]()
-        { audioProcessor.voice[v].stepGates[i] = gateBtn[v][i].getToggleState(); };
-        addAndMakeVisible (gateBtn[v][i]);
+        // Gate button cycles: OFF → ON → TIED(~) → OFF
+        {
+            const bool gOn  = vp.stepGates[i];
+            const bool tied = vp.stepTied [i];
+            gateBtn[v][i].setButtonText (tied ? "~" : "");
+            gateBtn[v][i].setClickingTogglesState (false);   // manual 3-state
+            gateBtn[v][i].setColour (juce::TextButton::buttonColourId,
+                                     !gOn ? gateOffColour : tied ? tieColour : gateOnColour);
+            gateBtn[v][i].onClick = [this, v, i]()
+            {
+                auto& vp2 = audioProcessor.voice[v];
+                if (!vp2.stepGates[i])
+                {
+                    vp2.stepGates[i] = true;   // OFF → ON
+                    vp2.stepTied [i] = false;
+                }
+                else if (!vp2.stepTied[i])
+                {
+                    vp2.stepTied[i] = true;    // ON → TIED
+                }
+                else
+                {
+                    vp2.stepGates[i] = false;  // TIED → OFF
+                    vp2.stepTied [i] = false;
+                }
+                const bool g = vp2.stepGates[i], t = vp2.stepTied[i];
+                gateBtn[v][i].setButtonText (t ? "~" : "");
+                gateBtn[v][i].setColour (juce::TextButton::buttonColourId,
+                                         !g ? gateOffColour : t ? tieColour : gateOnColour);
+            };
+            addAndMakeVisible (gateBtn[v][i]);
+        }
 
         bool sOn = vp.stepGlides[i];
         slideBtn[v][i].setButtonText ("");
@@ -1213,12 +1238,16 @@ void VoltageSeq2AudioProcessorEditor::timerCallback()
             const bool inRange  = (i < seqLen);
             const bool isActive = running && inRange && (i == active);
             const bool gOn      = vp.stepGates[i];
+            const bool tied     = vp.stepTied [i];
 
             juce::Colour col;
-            if      (isActive && gOn)  col = activeGateOnColour;
-            else if (isActive && !gOn) col = activeGateOffColour;
-            else if (gOn)              col = gateOnColour;
-            else                       col = gateOffColour;
+            if      (isActive && gOn && tied)  col = activeTieColour;
+            else if (isActive && gOn)          col = activeGateOnColour;
+            else if (isActive && !gOn)         col = activeGateOffColour;
+            else if (gOn && tied)              col = tieColour;
+            else if (gOn)                      col = gateOnColour;
+            else                               col = gateOffColour;
+            gateBtn[v][i].setButtonText (tied ? "~" : "");
             gateBtn[v][i].setColour (juce::TextButton::buttonColourId, col);
 
             const float alpha = inRange ? 1.0f : 0.25f;
@@ -1251,7 +1280,12 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
         for (int i = 0; i < 16; ++i)
         {
             stepKnob[v][i].setValue (vp.stepVoltages[i], juce::dontSendNotification);
-            gateBtn [v][i].setToggleState (vp.stepGates [i], juce::dontSendNotification);
+            {
+                const bool g = vp.stepGates[i], t = vp.stepTied[i];
+                gateBtn[v][i].setButtonText (t ? "~" : "");
+                gateBtn[v][i].setColour (juce::TextButton::buttonColourId,
+                                         !g ? gateOffColour : t ? tieColour : gateOnColour);
+            }
             slideBtn[v][i].setToggleState (vp.stepGlides[i], juce::dontSendNotification);
         }
 

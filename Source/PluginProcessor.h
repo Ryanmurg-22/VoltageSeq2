@@ -58,6 +58,7 @@ public:
         float stepVoltages[16] = {};
         bool  stepGates   [16] = {};
         bool  stepGlides  [16] = {};
+        bool  stepTied    [16] = {};   // true = sustain gate from prev step, no envelope retrigger
         float portamentoTime   = 0.0f;
         float swingAmount      = 0.5f;
         int   clockDivision    = 2;      // 1/16 default
@@ -155,6 +156,7 @@ public:
         float stepVoltages[16] = {};
         bool  stepGates   [16] = {};
         bool  stepGlides  [16] = {};
+        bool  stepTied    [16] = {};
         int   sequenceLength   = 16;
         int   clockDivision    = 2;
         float swingAmount      = 0.5f;
