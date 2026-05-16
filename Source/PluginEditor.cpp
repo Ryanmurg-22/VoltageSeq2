@@ -649,8 +649,18 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     // ── Global header ─────────────────────────────────────────────────────────
     g.setColour (juce::Colour (0xff0a0a1a));
     g.fillRect (0, 0, 1350, headerH);
-    g.setColour (dimColour.withAlpha (0.6f));
+
+    // Branding — left side of header
+    g.setFont (juce::Font (15.0f, juce::Font::bold));
+    g.setColour (juce::Colour (0xffe09040));                      // amber — product name
+    g.drawText ("VoltageSEQ", 8, 3, 130, 22, juce::Justification::centredLeft);
+    g.setFont (juce::Font (9.0f, juce::Font::plain));
+    g.setColour (dimColour.withAlpha (0.7f));                     // dim — manufacturer
+    g.drawText ("MURGATROYD INSTRUMENTS", 8, 18, 200, 11, juce::Justification::centredLeft);
+
+    // BPM / Preset labels
     g.setFont (juce::Font (9.0f, juce::Font::bold));
+    g.setColour (dimColour.withAlpha (0.6f));
     g.drawText ("BPM", 502, 4, 28, 20, juce::Justification::centredRight);
     g.drawText ("PRESET", 1090, 4, 42, 20, juce::Justification::centredLeft);
 
