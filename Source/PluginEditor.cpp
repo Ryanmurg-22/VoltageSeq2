@@ -62,8 +62,10 @@ namespace {
     constexpr int pO2X   =  490, pO2W   = 155;
     constexpr int pFltX  =  650, pFltW  = 155;
     constexpr int pAEX   =  810, pAEW   = 175;
-    constexpr int pFEX   =  990, pFEW   = 175;
-    constexpr int pLfoX  = 1170, pLfoW  = 175;
+    constexpr int pLfo1X =  990, pLfoW =  85;  // all 4 LFO panels same width
+    constexpr int pLfo2X = 1077;
+    constexpr int pLfo3X = 1164;
+    constexpr int pLfo4X = 1251;
 }
 
 //==============================================================================
@@ -564,25 +566,111 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     setupKnob (fReleaseSlider[v], 0.001, 4.0, vp.filterEnvParams.release, 0.3);
     fReleaseSlider[v].onValueChange = [this, v]() { audioProcessor.voice[v].filterEnvParams.release = (float)fReleaseSlider[v].getValue(); };
 
+    // Helper: build a standard LFO target combo
+    auto addLFOTargetItems = [](juce::ComboBox& box)
+    {
+        box.addItem ("PWM",    1); box.addItem ("Cutoff", 2);
+        box.addItem ("Pitch",  3); box.addItem ("Range",  4);
+        box.addItem ("FM Dpt", 5);
+    };
+
+    // Helper: build a waveform combo
+    auto addWaveItems = [](juce::ComboBox& box)
+    {
+        box.addItem ("Sine", 1); box.addItem ("Tri",  2);
+        box.addItem ("Saw",  3); box.addItem ("Sqr",  4);
+    };
+
+    // Helper: set up sync button + div box for one LFO
+    auto setupLFOSync = [&](juce::TextButton& btn, juce::ComboBox& divBox,
+                             bool syncState, int divIdx,
+                             std::function<void(bool)> onToggle)
+    {
+        btn.setButtonText (syncState ? "SYNC" : "FREE");
+        btn.setClickingTogglesState (true);
+        btn.setToggleState (syncState, juce::dontSendNotification);
+        btn.setColour (juce::TextButton::buttonColourId,   syncState ? knobColour : gateOffColour);
+        btn.setColour (juce::TextButton::buttonOnColourId, knobColour);
+        btn.onClick = [&btn, onToggle]()
+        {
+            bool s = btn.getToggleState();
+            onToggle (s);
+            btn.setButtonText (s ? "SYNC" : "FREE");
+            btn.setColour (juce::TextButton::buttonColourId, s ? knobColour : gateOffColour);
+        };
+        addAndMakeVisible (btn);
+        addCenvDivItems (divBox);
+        divBox.setSelectedItemIndex (divIdx, juce::dontSendNotification);
+        addAndMakeVisible (divBox);
+    };
+
     // LFO 1
-    setupKnob (lfoRateSlider[v],  0.1, 20.0, vp.lfoRate,  4.0);
-    lfoRateSlider[v].onValueChange  = [this, v]() { audioProcessor.voice[v].lfoRate  = (float)lfoRateSlider[v].getValue(); };
-    setupKnob (lfoDepthSlider[v], 0.0, 1.0,  vp.lfoDepth);
-    lfoDepthSlider[v].onValueChange = [this, v]() { audioProcessor.voice[v].lfoDepth = (float)lfoDepthSlider[v].getValue(); };
-    lfoTargetBox[v].addItem ("PWM",1); lfoTargetBox[v].addItem ("Cutoff",2); lfoTargetBox[v].addItem ("Pitch",3);
+    setupKnob (lfoRateSlider[v], 0.1, 20.0, vp.lfoRate, 4.0);
+    lfoRateSlider[v].onValueChange = [this,v]() { audioProcessor.voice[v].lfoRate  = (float)lfoRateSlider[v].getValue(); };
+    setupKnob (lfoDepthSlider[v], 0.0, 1.0, vp.lfoDepth);
+    lfoDepthSlider[v].onValueChange = [this,v]() { audioProcessor.voice[v].lfoDepth = (float)lfoDepthSlider[v].getValue(); };
+    addWaveItems (lfoWaveBox[v]);
+    lfoWaveBox[v].setSelectedItemIndex (vp.lfoWaveform, juce::dontSendNotification);
+    lfoWaveBox[v].onChange = [this,v]() { audioProcessor.voice[v].lfoWaveform = lfoWaveBox[v].getSelectedItemIndex(); };
+    addAndMakeVisible (lfoWaveBox[v]);
+    addLFOTargetItems (lfoTargetBox[v]);
     lfoTargetBox[v].setSelectedItemIndex (vp.lfoTarget, juce::dontSendNotification);
-    lfoTargetBox[v].onChange = [this, v]() { audioProcessor.voice[v].lfoTarget = lfoTargetBox[v].getSelectedItemIndex(); };
+    lfoTargetBox[v].onChange = [this,v]() { audioProcessor.voice[v].lfoTarget = lfoTargetBox[v].getSelectedItemIndex(); };
     addAndMakeVisible (lfoTargetBox[v]);
+    setupLFOSync (lfoSyncBtn[v], lfoSyncDivBox[v], vp.lfoSync, vp.lfoSyncDiv,
+                  [this,v](bool s){ audioProcessor.voice[v].lfoSync = s; });
+    lfoSyncDivBox[v].onChange = [this,v]() { audioProcessor.voice[v].lfoSyncDiv = lfoSyncDivBox[v].getSelectedItemIndex(); };
 
     // LFO 2
-    setupKnob (lfo2RateSlider[v],  0.1, 20.0, vp.lfo2Rate,  4.0);
-    lfo2RateSlider[v].onValueChange  = [this, v]() { audioProcessor.voice[v].lfo2Rate  = (float)lfo2RateSlider[v].getValue(); };
-    setupKnob (lfo2DepthSlider[v], 0.0, 1.0,  vp.lfo2Depth);
-    lfo2DepthSlider[v].onValueChange = [this, v]() { audioProcessor.voice[v].lfo2Depth = (float)lfo2DepthSlider[v].getValue(); };
-    lfo2TargetBox[v].addItem ("PWM",1); lfo2TargetBox[v].addItem ("Cutoff",2); lfo2TargetBox[v].addItem ("Pitch",3);
+    setupKnob (lfo2RateSlider[v], 0.1, 20.0, vp.lfo2Rate, 4.0);
+    lfo2RateSlider[v].onValueChange = [this,v]() { audioProcessor.voice[v].lfo2Rate  = (float)lfo2RateSlider[v].getValue(); };
+    setupKnob (lfo2DepthSlider[v], 0.0, 1.0, vp.lfo2Depth);
+    lfo2DepthSlider[v].onValueChange = [this,v]() { audioProcessor.voice[v].lfo2Depth = (float)lfo2DepthSlider[v].getValue(); };
+    addWaveItems (lfo2WaveBox[v]);
+    lfo2WaveBox[v].setSelectedItemIndex (vp.lfo2Waveform, juce::dontSendNotification);
+    lfo2WaveBox[v].onChange = [this,v]() { audioProcessor.voice[v].lfo2Waveform = lfo2WaveBox[v].getSelectedItemIndex(); };
+    addAndMakeVisible (lfo2WaveBox[v]);
+    addLFOTargetItems (lfo2TargetBox[v]);
     lfo2TargetBox[v].setSelectedItemIndex (vp.lfo2Target, juce::dontSendNotification);
-    lfo2TargetBox[v].onChange = [this, v]() { audioProcessor.voice[v].lfo2Target = lfo2TargetBox[v].getSelectedItemIndex(); };
+    lfo2TargetBox[v].onChange = [this,v]() { audioProcessor.voice[v].lfo2Target = lfo2TargetBox[v].getSelectedItemIndex(); };
     addAndMakeVisible (lfo2TargetBox[v]);
+    setupLFOSync (lfo2SyncBtn[v], lfo2SyncDivBox[v], vp.lfo2Sync, vp.lfo2SyncDiv,
+                  [this,v](bool s){ audioProcessor.voice[v].lfo2Sync = s; });
+    lfo2SyncDivBox[v].onChange = [this,v]() { audioProcessor.voice[v].lfo2SyncDiv = lfo2SyncDivBox[v].getSelectedItemIndex(); };
+
+    // LFO 3
+    setupKnob (lfo3RateSlider[v], 0.1, 20.0, vp.lfo3Rate, 4.0);
+    lfo3RateSlider[v].onValueChange = [this,v]() { audioProcessor.voice[v].lfo3Rate  = (float)lfo3RateSlider[v].getValue(); };
+    setupKnob (lfo3DepthSlider[v], 0.0, 1.0, vp.lfo3Depth);
+    lfo3DepthSlider[v].onValueChange = [this,v]() { audioProcessor.voice[v].lfo3Depth = (float)lfo3DepthSlider[v].getValue(); };
+    addWaveItems (lfo3WaveBox[v]);
+    lfo3WaveBox[v].setSelectedItemIndex (vp.lfo3Waveform, juce::dontSendNotification);
+    lfo3WaveBox[v].onChange = [this,v]() { audioProcessor.voice[v].lfo3Waveform = lfo3WaveBox[v].getSelectedItemIndex(); };
+    addAndMakeVisible (lfo3WaveBox[v]);
+    addLFOTargetItems (lfo3TargetBox[v]);
+    lfo3TargetBox[v].setSelectedItemIndex (vp.lfo3Target, juce::dontSendNotification);
+    lfo3TargetBox[v].onChange = [this,v]() { audioProcessor.voice[v].lfo3Target = lfo3TargetBox[v].getSelectedItemIndex(); };
+    addAndMakeVisible (lfo3TargetBox[v]);
+    setupLFOSync (lfo3SyncBtn[v], lfo3SyncDivBox[v], vp.lfo3Sync, vp.lfo3SyncDiv,
+                  [this,v](bool s){ audioProcessor.voice[v].lfo3Sync = s; });
+    lfo3SyncDivBox[v].onChange = [this,v]() { audioProcessor.voice[v].lfo3SyncDiv = lfo3SyncDivBox[v].getSelectedItemIndex(); };
+
+    // LFO 4
+    setupKnob (lfo4RateSlider[v], 0.1, 20.0, vp.lfo4Rate, 4.0);
+    lfo4RateSlider[v].onValueChange = [this,v]() { audioProcessor.voice[v].lfo4Rate  = (float)lfo4RateSlider[v].getValue(); };
+    setupKnob (lfo4DepthSlider[v], 0.0, 1.0, vp.lfo4Depth);
+    lfo4DepthSlider[v].onValueChange = [this,v]() { audioProcessor.voice[v].lfo4Depth = (float)lfo4DepthSlider[v].getValue(); };
+    addWaveItems (lfo4WaveBox[v]);
+    lfo4WaveBox[v].setSelectedItemIndex (vp.lfo4Waveform, juce::dontSendNotification);
+    lfo4WaveBox[v].onChange = [this,v]() { audioProcessor.voice[v].lfo4Waveform = lfo4WaveBox[v].getSelectedItemIndex(); };
+    addAndMakeVisible (lfo4WaveBox[v]);
+    addLFOTargetItems (lfo4TargetBox[v]);
+    lfo4TargetBox[v].setSelectedItemIndex (vp.lfo4Target, juce::dontSendNotification);
+    lfo4TargetBox[v].onChange = [this,v]() { audioProcessor.voice[v].lfo4Target = lfo4TargetBox[v].getSelectedItemIndex(); };
+    addAndMakeVisible (lfo4TargetBox[v]);
+    setupLFOSync (lfo4SyncBtn[v], lfo4SyncDivBox[v], vp.lfo4Sync, vp.lfo4SyncDiv,
+                  [this,v](bool s){ audioProcessor.voice[v].lfo4Sync = s; });
+    lfo4SyncDivBox[v].onChange = [this,v]() { audioProcessor.voice[v].lfo4SyncDiv = lfo4SyncDivBox[v].getSelectedItemIndex(); };
 
     // Mod Envelope
     setupKnob (modEnvAtkSlider  [v], 0.001, 4.0, vp.modEnv.attack,  0.3);
@@ -737,16 +825,26 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         drawPanel (pO2X,   pO2W,   "OSC 2");
         drawPanel (pFltX,  pFltW,  "FILTER");
         drawPanel (pAEX,   pAEW,   "AMP ENV");
-        drawPanel (pFEX,   pFEW,   "FILTER ENV");
-        drawPanel (pLfoX,  pLfoW,  "LFO");
+        drawPanel (pLfo1X, pLfoW, "LFO 1");
+        drawPanel (pLfo2X, pLfoW, "LFO 2");
+        drawPanel (pLfo3X, pLfoW, "LFO 3");
+        drawPanel (pLfo4X, pLfoW, "LFO 4");
 
-        // LFO sub-divider
-        g.setColour (dimColour.withAlpha (0.4f));
-        g.drawLine (1259.0f, (float)(cY + 16), 1259.0f, (float)(cY + ctrlH - 8), 1.0f);
-        g.setFont (juce::Font (8.0f, juce::Font::bold));
+        // LFO panels — each has WAVE / RATE+DEPTH / TARGET / SYNC labels
+        g.setFont (juce::Font (8.5f, juce::Font::bold));
         g.setColour (dimColour);
-        g.drawText ("LFO 1", 1172, cY + 15, 84, 11, juce::Justification::centred);
-        g.drawText ("LFO 2", 1261, cY + 15, 82, 11, juce::Justification::centred);
+        for (int lfoIdx = 0; lfoIdx < 4; ++lfoIdx)
+        {
+            const int lx = (lfoIdx == 0) ? pLfo1X : (lfoIdx == 1) ? pLfo2X : (lfoIdx == 2) ? pLfo3X : pLfo4X;
+            g.setFont (juce::Font (8.0f));
+            g.setColour (textColour);
+            g.drawText ("WAVE",   lx, cY+14,  pLfoW, 11, juce::Justification::centred);
+            g.drawText ("RATE",   lx,    cY+50,  kSz+4, 11, juce::Justification::centred);
+            g.drawText ("DEPTH",  lx+42, cY+50,  kSz+4, 11, juce::Justification::centred);
+            g.drawText ("TARGET", lx, cY+102, pLfoW, 11, juce::Justification::centred);
+            g.drawText ("FREE",   lx,    cY+140, 38,    11, juce::Justification::centred);
+            g.drawText ("DIV",    lx+42, cY+140, 40,    11, juce::Justification::centred);
+        }
 
         // Control panel labels
         const int lY1 = cY + lOff1, lY2 = cY + lOff2, lY3 = cY + lOff3;
@@ -782,38 +880,29 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         g.drawText ("MODE",    pFltX+5,  lY2, 65,  12, juce::Justification::centred);
         g.drawText ("SLOPE",   pFltX+74, lY2, 32,  12, juce::Justification::centred);
         g.drawText ("ENV",     pFltX+110,lY2, kSz, 12, juce::Justification::centred);
+        g.drawText ("A",  pFltX+2,   lY3, kSz, 12, juce::Justification::centred);
+        g.drawText ("D",  pFltX+41,  lY3, kSz, 12, juce::Justification::centred);
+        g.drawText ("S",  pFltX+80,  lY3, kSz, 12, juce::Justification::centred);
+        g.drawText ("R",  pFltX+119, lY3, kSz, 12, juce::Justification::centred);
         // AMP ENV
-        g.drawText ("A", pAEX+2,  lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("D", pAEX+46, lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("S", pAEX+90, lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("R", pAEX+134,lY1, kSz, 12, juce::Justification::centred);
-        // FILTER ENV
-        g.drawText ("A", pFEX+2,  lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("D", pFEX+46, lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("S", pFEX+90, lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("R", pFEX+134,lY1, kSz, 12, juce::Justification::centred);
-        // LFO 1
-        g.drawText ("RATE",  1175, lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("DEPTH", 1218, lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("TGT",   1173, lY2, 82,  12, juce::Justification::centred);
-        // LFO 2
-        g.drawText ("RATE",  1263, lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("DEPTH", 1306, lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("TGT",   1261, lY2, 82,  12, juce::Justification::centred);
-
-        // Mod envelope labels (third row in filter env + LFO panels)
-        g.setColour (dimColour);
-        g.setFont (juce::Font (8.5f, juce::Font::bold));
-        g.drawText ("MOD ENV", pFEX, cY + lOff3 - 2, pFEW, 11, juce::Justification::centred);
-        g.setFont (juce::Font (9.0f));
-        g.setColour (textColour);
-        g.drawText ("A",     pFEX + 2,   cY + lOff3 + 10, kSz, 11, juce::Justification::centred);
-        g.drawText ("D",     pFEX + 46,  cY + lOff3 + 10, kSz, 11, juce::Justification::centred);
-        g.drawText ("S",     pFEX + 90,  cY + lOff3 + 10, kSz, 11, juce::Justification::centred);
-        g.drawText ("R",     pFEX + 134, cY + lOff3 + 10, kSz, 11, juce::Justification::centred);
-        g.drawText ("DEPTH", pLfoX + 4,  cY + lOff3 + 10, kSz, 11, juce::Justification::centred);
-        g.drawText ("DEST",  pLfoX + 46, cY + lOff3 + 10, 80,  11, juce::Justification::centred);
-        g.drawText ("TRIG",  pLfoX + 130,cY + lOff3 + 10, 40,  11, juce::Justification::centred);
+        g.setColour (dimColour); g.setFont (juce::Font (7.5f, juce::Font::bold));
+        g.drawText ("AMP",   pAEX, cY+14, pAEW, 10, juce::Justification::centred);
+        g.setColour (textColour); g.setFont (juce::Font (9.0f));
+        g.drawText ("A", pAEX+2,   lY1, kSz, 12, juce::Justification::centred);
+        g.drawText ("D", pAEX+46,  lY1, kSz, 12, juce::Justification::centred);
+        g.drawText ("S", pAEX+90,  lY1, kSz, 12, juce::Justification::centred);
+        g.drawText ("R", pAEX+134, lY1, kSz, 12, juce::Justification::centred);
+        // MOD ENV (in AMP panel rows 2+3)
+        g.setColour (dimColour); g.setFont (juce::Font (7.5f, juce::Font::bold));
+        g.drawText ("MOD ENV", pAEX, cY+lOff2-4, pAEW, 10, juce::Justification::centred);
+        g.setColour (textColour); g.setFont (juce::Font (9.0f));
+        g.drawText ("A", pAEX+2,   lY2, kSz, 12, juce::Justification::centred);
+        g.drawText ("D", pAEX+46,  lY2, kSz, 12, juce::Justification::centred);
+        g.drawText ("S", pAEX+90,  lY2, kSz, 12, juce::Justification::centred);
+        g.drawText ("R", pAEX+134, lY2, kSz, 12, juce::Justification::centred);
+        g.drawText ("DEPTH", pAEX+2,   lY3, kSz, 12, juce::Justification::centred);
+        g.drawText ("DEST",  pAEX+48,  lY3, 80,  12, juce::Justification::centred);
+        g.drawText ("TRIG",  pAEX+132, lY3, 40,  12, juce::Justification::centred);
 
         // Accent stripe on control panel left edge
         g.setColour (accent.withAlpha (0.4f));
@@ -922,31 +1011,47 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     sustainSlider[v].setBounds (pAEX + 2 + aeStride*2, cy1, kSz, kSz);
     releaseSlider[v].setBounds (pAEX + 2 + aeStride*3, cy1, kSz, kSz);
 
-    // ── Filter Envelope ───────────────────────────────────────────────────────
-    fAttackSlider [v].setBounds (pFEX + 2,            cy1, kSz, kSz);
-    fDecaySlider  [v].setBounds (pFEX + 2 + aeStride, cy1, kSz, kSz);
-    fSustainSlider[v].setBounds (pFEX + 2 + aeStride*2, cy1, kSz, kSz);
-    fReleaseSlider[v].setBounds (pFEX + 2 + aeStride*3, cy1, kSz, kSz);
+    // ── Filter Envelope (in Filter panel cy3) ─────────────────────────────────
+    const int feStride = 38;
+    fAttackSlider [v].setBounds (pFltX + 2,               cy3, kSz, kSz);
+    fDecaySlider  [v].setBounds (pFltX + 2 + feStride,    cy3, kSz, kSz);
+    fSustainSlider[v].setBounds (pFltX + 2 + feStride*2,  cy3, kSz, kSz);
+    fReleaseSlider[v].setBounds (pFltX + 2 + feStride*3,  cy3, kSz, kSz);
 
-    // ── LFO 1 ─────────────────────────────────────────────────────────────────
-    lfoRateSlider [v].setBounds (1175, cy1, kSz, kSz);
-    lfoDepthSlider[v].setBounds (1218, cy1, kSz, kSz);
-    lfoTargetBox  [v].setBounds (1173, cy2, 82,  20);
+    // ── 4 LFO panels ─────────────────────────────────────────────────────────
+    // Each panel is pLfoW=85px wide. Layout within each:
+    //   ctrlTopY+26 : wave combo
+    //   ctrlTopY+62 : rate knob | depth knob
+    //   ctrlTopY+116: target combo
+    //   ctrlTopY+150: sync btn | div combo
+    const int lfoXArr[4] = { pLfo1X, pLfo2X, pLfo3X, pLfo4X };
+    juce::Slider*    rateSliders[4]  = { &lfoRateSlider[v],  &lfo2RateSlider[v],  &lfo3RateSlider[v],  &lfo4RateSlider[v]  };
+    juce::Slider*    depSliders[4]   = { &lfoDepthSlider[v], &lfo2DepthSlider[v], &lfo3DepthSlider[v], &lfo4DepthSlider[v] };
+    juce::ComboBox*  waveBoxes[4]    = { &lfoWaveBox[v],     &lfo2WaveBox[v],     &lfo3WaveBox[v],     &lfo4WaveBox[v]     };
+    juce::ComboBox*  tgtBoxes[4]     = { &lfoTargetBox[v],   &lfo2TargetBox[v],   &lfo3TargetBox[v],   &lfo4TargetBox[v]   };
+    juce::TextButton* syncBtns[4]    = { &lfoSyncBtn[v],     &lfo2SyncBtn[v],     &lfo3SyncBtn[v],     &lfo4SyncBtn[v]     };
+    juce::ComboBox*  divBoxes[4]     = { &lfoSyncDivBox[v],  &lfo2SyncDivBox[v],  &lfo3SyncDivBox[v],  &lfo4SyncDivBox[v]  };
 
-    // ── LFO 2 ─────────────────────────────────────────────────────────────────
-    lfo2RateSlider [v].setBounds (1263, cy1, kSz, kSz);
-    lfo2DepthSlider[v].setBounds (1306, cy1, kSz, kSz);
-    lfo2TargetBox  [v].setBounds (1261, cy2, 82,  20);
+    for (int li = 0; li < 4; ++li)
+    {
+        const int lx = lfoXArr[li];
+        waveBoxes [li]->setBounds (lx + 3, ctrlTopY + 26, 79, 18);
+        rateSliders[li]->setBounds (lx + 3, ctrlTopY + 62, kSz, kSz);
+        depSliders [li]->setBounds (lx + 45, ctrlTopY + 62, kSz, kSz);
+        tgtBoxes  [li]->setBounds (lx + 3, ctrlTopY + 116, 79, 18);
+        syncBtns  [li]->setBounds (lx + 3, ctrlTopY + 150, 36, 18);
+        divBoxes  [li]->setBounds (lx + 43, ctrlTopY + 150, 39, 18);
+    }
 
-    // ── Mod Envelope (third row, spans filter-env + LFO columns)
-    modEnvAtkSlider  [v].setBounds (pFEX + 2,            cy3, kSz, kSz);
-    modEnvDecSlider  [v].setBounds (pFEX + 46,           cy3, kSz, kSz);
-    modEnvSusSlider  [v].setBounds (pFEX + 90,           cy3, kSz, kSz);
-    modEnvRelSlider  [v].setBounds (pFEX + 134,          cy3, kSz, kSz);
-    modEnvDepthSlider[v].setBounds (pLfoX + 4,           cy3, kSz, kSz);
-    modEnvDestBox    [v].setBounds (pLfoX + 46,          cy3 + 6, 80, 20);
-    modEnvSyncBtn    [v].setBounds (pLfoX + 130,         cy3 + 6, 40, 20);
-    modEnvDivBox     [v].setBounds (pLfoX + 130,         cy3 + 27, 40, 20);
+    // ── Mod Envelope (in AMP ENV panel cy2 + cy3) ─────────────────────────────
+    modEnvAtkSlider  [v].setBounds (pAEX + 2,            cy2, kSz, kSz);
+    modEnvDecSlider  [v].setBounds (pAEX + 46,           cy2, kSz, kSz);
+    modEnvSusSlider  [v].setBounds (pAEX + 90,           cy2, kSz, kSz);
+    modEnvRelSlider  [v].setBounds (pAEX + 134,          cy2, kSz, kSz);
+    modEnvDepthSlider[v].setBounds (pAEX + 2,            cy3, kSz, kSz);
+    modEnvDestBox    [v].setBounds (pAEX + 46,           cy3 + 6, 80, 20);
+    modEnvSyncBtn    [v].setBounds (pAEX + 132,          cy3 + 6, 40, 20);
+    modEnvDivBox     [v].setBounds (pAEX + 132,          cy3 + 27, 40, 20);
 }
 
 //==============================================================================
@@ -1065,12 +1170,41 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
         sustainSlider[v].setValue (vp.adsrParams.sustain, juce::dontSendNotification);
         releaseSlider[v].setValue (vp.adsrParams.release, juce::dontSendNotification);
 
-        lfoRateSlider [v].setValue (vp.lfoRate,  juce::dontSendNotification);
-        lfoDepthSlider[v].setValue (vp.lfoDepth, juce::dontSendNotification);
-        lfoTargetBox  [v].setSelectedItemIndex (vp.lfoTarget, juce::dontSendNotification);
+        lfoRateSlider  [v].setValue (vp.lfoRate,  juce::dontSendNotification);
+        lfoDepthSlider [v].setValue (vp.lfoDepth, juce::dontSendNotification);
+        lfoWaveBox     [v].setSelectedItemIndex (vp.lfoWaveform,  juce::dontSendNotification);
+        lfoTargetBox   [v].setSelectedItemIndex (vp.lfoTarget,    juce::dontSendNotification);
+        lfoSyncBtn     [v].setToggleState (vp.lfoSync, juce::dontSendNotification);
+        lfoSyncBtn     [v].setButtonText  (vp.lfoSync ? "SYNC" : "FREE");
+        lfoSyncBtn     [v].setColour (juce::TextButton::buttonColourId, vp.lfoSync ? knobColour : gateOffColour);
+        lfoSyncDivBox  [v].setSelectedItemIndex (vp.lfoSyncDiv,   juce::dontSendNotification);
+
         lfo2RateSlider [v].setValue (vp.lfo2Rate,  juce::dontSendNotification);
         lfo2DepthSlider[v].setValue (vp.lfo2Depth, juce::dontSendNotification);
-        lfo2TargetBox  [v].setSelectedItemIndex (vp.lfo2Target, juce::dontSendNotification);
+        lfo2WaveBox    [v].setSelectedItemIndex (vp.lfo2Waveform, juce::dontSendNotification);
+        lfo2TargetBox  [v].setSelectedItemIndex (vp.lfo2Target,   juce::dontSendNotification);
+        lfo2SyncBtn    [v].setToggleState (vp.lfo2Sync, juce::dontSendNotification);
+        lfo2SyncBtn    [v].setButtonText  (vp.lfo2Sync ? "SYNC" : "FREE");
+        lfo2SyncBtn    [v].setColour (juce::TextButton::buttonColourId, vp.lfo2Sync ? knobColour : gateOffColour);
+        lfo2SyncDivBox [v].setSelectedItemIndex (vp.lfo2SyncDiv,  juce::dontSendNotification);
+
+        lfo3RateSlider [v].setValue (vp.lfo3Rate,  juce::dontSendNotification);
+        lfo3DepthSlider[v].setValue (vp.lfo3Depth, juce::dontSendNotification);
+        lfo3WaveBox    [v].setSelectedItemIndex (vp.lfo3Waveform, juce::dontSendNotification);
+        lfo3TargetBox  [v].setSelectedItemIndex (vp.lfo3Target,   juce::dontSendNotification);
+        lfo3SyncBtn    [v].setToggleState (vp.lfo3Sync, juce::dontSendNotification);
+        lfo3SyncBtn    [v].setButtonText  (vp.lfo3Sync ? "SYNC" : "FREE");
+        lfo3SyncBtn    [v].setColour (juce::TextButton::buttonColourId, vp.lfo3Sync ? knobColour : gateOffColour);
+        lfo3SyncDivBox [v].setSelectedItemIndex (vp.lfo3SyncDiv,  juce::dontSendNotification);
+
+        lfo4RateSlider [v].setValue (vp.lfo4Rate,  juce::dontSendNotification);
+        lfo4DepthSlider[v].setValue (vp.lfo4Depth, juce::dontSendNotification);
+        lfo4WaveBox    [v].setSelectedItemIndex (vp.lfo4Waveform, juce::dontSendNotification);
+        lfo4TargetBox  [v].setSelectedItemIndex (vp.lfo4Target,   juce::dontSendNotification);
+        lfo4SyncBtn    [v].setToggleState (vp.lfo4Sync, juce::dontSendNotification);
+        lfo4SyncBtn    [v].setButtonText  (vp.lfo4Sync ? "SYNC" : "FREE");
+        lfo4SyncBtn    [v].setColour (juce::TextButton::buttonColourId, vp.lfo4Sync ? knobColour : gateOffColour);
+        lfo4SyncDivBox [v].setSelectedItemIndex (vp.lfo4SyncDiv,  juce::dontSendNotification);
 
         modEnvAtkSlider  [v].setValue (vp.modEnv.attack,  juce::dontSendNotification);
         modEnvDecSlider  [v].setValue (vp.modEnv.decay,   juce::dontSendNotification);

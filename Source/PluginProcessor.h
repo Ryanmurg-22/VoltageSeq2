@@ -104,11 +104,33 @@ public:
         float lfoRate  = 2.0f;
         float lfoDepth = 0.0f;
         int   lfoTarget = 0;
+        int   lfoWaveform  = 0;     // 0=Sine 1=Tri 2=Saw 3=Sqr
+        bool  lfoSync      = false;
+        int   lfoSyncDiv   = 5;     // index into cenvDivBars[]
 
         // ── LFO 2 ────────────────────────────────────────────────────────────
         float lfo2Rate  = 3.0f;
         float lfo2Depth = 0.0f;
         int   lfo2Target = 1;
+        int   lfo2Waveform = 0;
+        bool  lfo2Sync     = false;
+        int   lfo2SyncDiv  = 5;
+
+        // ── LFO 3 ────────────────────────────────────────────────────────────
+        float lfo3Rate     = 1.5f;
+        float lfo3Depth    = 0.0f;
+        int   lfo3Target   = 3;     // Range
+        int   lfo3Waveform = 1;     // Triangle
+        bool  lfo3Sync     = false;
+        int   lfo3SyncDiv  = 5;
+
+        // ── LFO 4 ────────────────────────────────────────────────────────────
+        float lfo4Rate     = 0.5f;
+        float lfo4Depth    = 0.0f;
+        int   lfo4Target   = 4;     // FM Depth
+        int   lfo4Waveform = 0;     // Sine
+        bool  lfo4Sync     = false;
+        int   lfo4SyncDiv  = 5;
 
         // ── Mod Envelope ─────────────────────────────────────────────────────
         ModEnvParams modEnv;
@@ -169,6 +191,7 @@ private:
         float  ic1eq2 = 0.0f, ic2eq2 = 0.0f;   // second SVF stage for 24dB
         juce::ADSR adsr, filterEnv;
         float  lfoPhase  = 0.0f, lfo2Phase  = 0.0f;
+        float lfo3Phase = 0.0f, lfo4Phase = 0.0f;
         float  osc1FeedbackSample = 0.0f;
         // Per-oscillator independent drift (slow random-rate LFOs)
         float osc1DriftPhase = 0.0f, osc1DriftRate = 0.13f, osc1DriftVal = 0.0f;

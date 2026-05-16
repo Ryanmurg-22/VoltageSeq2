@@ -104,6 +104,8 @@ void VoltageSeq2AudioProcessor::prepareToPlay (double sampleRate, int samplesPer
         vs.ic2eq2       = 0.0f;
         vs.lfoPhase     = 0.0f;
         vs.lfo2Phase    = 0.0f;
+        vs.lfo3Phase    = 0.0f;
+        vs.lfo4Phase    = 0.0f;
         vs.osc1FeedbackSample = 0.0f;
         vs.osc1DriftRate = 0.08f + juce::Random::getSystemRandom().nextFloat() * 0.18f;
         vs.osc2DriftRate = 0.08f + juce::Random::getSystemRandom().nextFloat() * 0.18f;
@@ -392,26 +394,60 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
     //--------------------------------------------------------------------------
     // LFOs
     //--------------------------------------------------------------------------
-    float lfo1Val = std::sin (vs.lfoPhase  * juce::MathConstants<float>::twoPi) * vp.lfoDepth;
-    float lfo2Val = std::sin (vs.lfo2Phase * juce::MathConstants<float>::twoPi) * vp.lfo2Depth;
+    // LFO waveform helper
+    auto lfoWave = [](float phase, int wave) -> float
+    {
+        switch (wave)
+        {
+            case 1: return (phase < 0.5f) ? (phase * 4.0f - 1.0f) : (3.0f - phase * 4.0f); // tri
+            case 2: return phase * 2.0f - 1.0f;                                               // saw
+            case 3: return (phase < 0.5f) ? 1.0f : -1.0f;                                    // sqr
+            default: return std::sin (phase * juce::MathConstants<float>::twoPi);             // sine
+        }
+    };
 
-    vs.lfoPhase  += (float)(vp.lfoRate  / currentSampleRate);
-    vs.lfo2Phase += (float)(vp.lfo2Rate / currentSampleRate);
-    if (vs.lfoPhase  >= 1.0f) vs.lfoPhase  -= 1.0f;
-    if (vs.lfo2Phase >= 1.0f) vs.lfo2Phase -= 1.0f;
+    // LFO sync rate helper (returns Hz from BPM + division index)
+    auto syncRate = [&](int divIdx) -> float
+    {
+        return (float)(effectiveBPM / 60.0 / (cenvDivBars[juce::jlimit (0, 7, divIdx)] * 4.0));
+    };
 
-    float pwmMod    = 0.0f;
-    float cutoffMod = 0.0f;
-    float pitchMod  = 1.0f;
+    // Advance LFO phases (synced or free)
+    auto advanceLFO = [&](float& phase, float freeRate, bool synced, int divIdx)
+    {
+        float rate = synced ? syncRate (divIdx) : freeRate;
+        phase += rate / (float)currentSampleRate;
+        if (phase >= 1.0f) phase -= 1.0f;
+    };
+
+    advanceLFO (vs.lfoPhase,  vp.lfoRate,  vp.lfoSync,  vp.lfoSyncDiv);
+    advanceLFO (vs.lfo2Phase, vp.lfo2Rate, vp.lfo2Sync, vp.lfo2SyncDiv);
+    advanceLFO (vs.lfo3Phase, vp.lfo3Rate, vp.lfo3Sync, vp.lfo3SyncDiv);
+    advanceLFO (vs.lfo4Phase, vp.lfo4Rate, vp.lfo4Sync, vp.lfo4SyncDiv);
+
+    float lfo1Val = lfoWave (vs.lfoPhase,  vp.lfoWaveform)  * vp.lfoDepth;
+    float lfo2Val = lfoWave (vs.lfo2Phase, vp.lfo2Waveform) * vp.lfo2Depth;
+    float lfo3Val = lfoWave (vs.lfo3Phase, vp.lfo3Waveform) * vp.lfo3Depth;
+    float lfo4Val = lfoWave (vs.lfo4Phase, vp.lfo4Waveform) * vp.lfo4Depth;
+
+    float pwmMod      = 0.0f;
+    float cutoffMod   = 0.0f;
+    float pitchMod    = 1.0f;
+    float lfoRangeMod = 0.0f;
+    float lfoFMMod    = 0.0f;
 
     auto accLFO = [&](float val, int target)
     {
-        if (target == 0) pwmMod    += val * 0.4f;
-        if (target == 1) cutoffMod += val * 4000.0f;
-        if (target == 2) pitchMod  *= std::pow (2.0f, val / 12.0f);
+        if (target == 0) pwmMod      += val * 0.4f;
+        if (target == 1) cutoffMod   += val * 4000.0f;
+        if (target == 2) pitchMod    *= std::pow (2.0f, val / 12.0f);
+        if (target == 3) lfoRangeMod += val;
+        if (target == 4) lfoFMMod    += val;
     };
     accLFO (lfo1Val, vp.lfoTarget);
     accLFO (lfo2Val, vp.lfo2Target);
+    accLFO (lfo3Val, vp.lfo3Target);
+    accLFO (lfo4Val, vp.lfo4Target);
 
     vs.pulseWidth = juce::jlimit (0.05f, 0.95f, vp.osc1PulseWidth + pwmMod);
 
@@ -431,11 +467,12 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
     if (vp.modEnv.dest == 1) cenvRangeMod   = modEnvOut;
     if (vp.modEnv.dest == 2) cenvCutoffMod  = std::pow (2.0f, modEnvOut * 4.0f);
 
-    const float effectiveFMDepth = juce::jlimit (0.0f, 1.0f, vp.fmDepth + cenvFMDepthMod);
+    const float effectiveFMDepth = juce::jlimit (0.0f, 1.0f, vp.fmDepth + cenvFMDepthMod + lfoFMMod);
 
-    if (cenvRangeMod > 0.001f && running)
+    const float totalRangeMod = cenvRangeMod + lfoRangeMod;
+    if (std::abs (totalRangeMod) > 0.001f && running)
     {
-        const float effRange = juce::jlimit (0.0f, 2.0f, vp.rangeVCA + cenvRangeMod);
+        const float effRange = juce::jlimit (0.0f, 2.0f, vp.rangeVCA + totalRangeMod);
         const float baseFreq = voltageToQuantizedFreq (vp, vp.stepVoltages[vp.currentStep], effRange);
         const float f1 = baseFreq * (float)std::pow (2.0, (double)vp.osc1Octave);
         const float f2 = baseFreq * (float)std::pow (2.0, (double)vp.osc2Octave);
@@ -749,6 +786,25 @@ static void saveVoiceToXml (juce::XmlElement& el,
     el.setAttribute ("lfo2Dep",  (double)vp.lfo2Depth);
     el.setAttribute ("lfo2Tgt",  vp.lfo2Target);
 
+    el.setAttribute ("lfo1Wave",  vp.lfoWaveform);
+    el.setAttribute ("lfo1Sync",  vp.lfoSync);
+    el.setAttribute ("lfo1SDiv",  vp.lfoSyncDiv);
+    el.setAttribute ("lfo2Wave",  vp.lfo2Waveform);
+    el.setAttribute ("lfo2Sync",  vp.lfo2Sync);
+    el.setAttribute ("lfo2SDiv",  vp.lfo2SyncDiv);
+    el.setAttribute ("lfo3Rate",  (double)vp.lfo3Rate);
+    el.setAttribute ("lfo3Dep",   (double)vp.lfo3Depth);
+    el.setAttribute ("lfo3Tgt",   vp.lfo3Target);
+    el.setAttribute ("lfo3Wave",  vp.lfo3Waveform);
+    el.setAttribute ("lfo3Sync",  vp.lfo3Sync);
+    el.setAttribute ("lfo3SDiv",  vp.lfo3SyncDiv);
+    el.setAttribute ("lfo4Rate",  (double)vp.lfo4Rate);
+    el.setAttribute ("lfo4Dep",   (double)vp.lfo4Depth);
+    el.setAttribute ("lfo4Tgt",   vp.lfo4Target);
+    el.setAttribute ("lfo4Wave",  vp.lfo4Waveform);
+    el.setAttribute ("lfo4Sync",  vp.lfo4Sync);
+    el.setAttribute ("lfo4SDiv",  vp.lfo4SyncDiv);
+
     el.setAttribute ("mEnvAtk",  (double)vp.modEnv.attack);
     el.setAttribute ("mEnvDec",  (double)vp.modEnv.decay);
     el.setAttribute ("mEnvSus",  (double)vp.modEnv.sustain);
@@ -823,6 +879,25 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
     vp.lfo2Rate   = getF ("lfo2Rate", vp.lfo2Rate);
     vp.lfo2Depth  = getF ("lfo2Dep",  vp.lfo2Depth);
     vp.lfo2Target = getI ("lfo2Tgt",  vp.lfo2Target);
+
+    vp.lfoWaveform   = getI ("lfo1Wave",  vp.lfoWaveform);
+    vp.lfoSync       = getB ("lfo1Sync",  vp.lfoSync);
+    vp.lfoSyncDiv    = getI ("lfo1SDiv",  vp.lfoSyncDiv);
+    vp.lfo2Waveform  = getI ("lfo2Wave",  vp.lfo2Waveform);
+    vp.lfo2Sync      = getB ("lfo2Sync",  vp.lfo2Sync);
+    vp.lfo2SyncDiv   = getI ("lfo2SDiv",  vp.lfo2SyncDiv);
+    vp.lfo3Rate      = getF ("lfo3Rate",  vp.lfo3Rate);
+    vp.lfo3Depth     = getF ("lfo3Dep",   vp.lfo3Depth);
+    vp.lfo3Target    = getI ("lfo3Tgt",   vp.lfo3Target);
+    vp.lfo3Waveform  = getI ("lfo3Wave",  vp.lfo3Waveform);
+    vp.lfo3Sync      = getB ("lfo3Sync",  vp.lfo3Sync);
+    vp.lfo3SyncDiv   = getI ("lfo3SDiv",  vp.lfo3SyncDiv);
+    vp.lfo4Rate      = getF ("lfo4Rate",  vp.lfo4Rate);
+    vp.lfo4Depth     = getF ("lfo4Dep",   vp.lfo4Depth);
+    vp.lfo4Target    = getI ("lfo4Tgt",   vp.lfo4Target);
+    vp.lfo4Waveform  = getI ("lfo4Wave",  vp.lfo4Waveform);
+    vp.lfo4Sync      = getB ("lfo4Sync",  vp.lfo4Sync);
+    vp.lfo4SyncDiv   = getI ("lfo4SDiv",  vp.lfo4SyncDiv);
 
     vp.modEnv.attack    = getF ("mEnvAtk",  vp.modEnv.attack);
     vp.modEnv.decay     = getF ("mEnvDec",  vp.modEnv.decay);

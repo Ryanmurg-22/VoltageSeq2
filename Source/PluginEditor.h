@@ -115,11 +115,33 @@ private:
     juce::Slider   lfoRateSlider  [2];
     juce::Slider   lfoDepthSlider [2];
     juce::ComboBox lfoTargetBox   [2];
+    juce::ComboBox lfoWaveBox     [2];
+    juce::TextButton lfoSyncBtn   [2];
+    juce::ComboBox lfoSyncDivBox  [2];
 
     // ── LFO 2 ─────────────────────────────────────────────────────────────────
     juce::Slider   lfo2RateSlider  [2];
     juce::Slider   lfo2DepthSlider [2];
     juce::ComboBox lfo2TargetBox   [2];
+    juce::ComboBox lfo2WaveBox     [2];
+    juce::TextButton lfo2SyncBtn   [2];
+    juce::ComboBox lfo2SyncDivBox  [2];
+
+    // ── LFO 3 ─────────────────────────────────────────────────────────────────
+    juce::Slider   lfo3RateSlider  [2];
+    juce::Slider   lfo3DepthSlider [2];
+    juce::ComboBox lfo3TargetBox   [2];
+    juce::ComboBox lfo3WaveBox     [2];
+    juce::TextButton lfo3SyncBtn   [2];
+    juce::ComboBox lfo3SyncDivBox  [2];
+
+    // ── LFO 4 ─────────────────────────────────────────────────────────────────
+    juce::Slider   lfo4RateSlider  [2];
+    juce::Slider   lfo4DepthSlider [2];
+    juce::ComboBox lfo4TargetBox   [2];
+    juce::ComboBox lfo4WaveBox     [2];
+    juce::TextButton lfo4SyncBtn   [2];
+    juce::ComboBox lfo4SyncDivBox  [2];
 
     // ── Mod Envelope (per voice) ───────────────────────────────────────────────
     juce::Slider     modEnvAtkSlider  [2];
