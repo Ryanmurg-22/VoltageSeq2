@@ -470,14 +470,12 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
     const float drift1Ratio = std::pow (2.0f, vs.osc1DriftVal / 1200.0f);
     const float drift2Ratio = std::pow (2.0f, vs.osc2DriftVal / 1200.0f);
 
-    // FM: OSC2 runs at harmonic ratio of OSC1 when depth > 0.
-    // Negative ratio inverts the modulator output, producing different harmonic content.
-    const float fmRatioAbs  = std::max (0.25f, std::abs (vp.fmRatio));
-    const float fmRatioSign = (vp.fmRatio >= 0.0f) ? 1.0f : -1.0f;
-    const double osc2Inc = (effectiveFMDepth > 0.001f)
-        ? (vs.currentFreq1 * (double)fmRatioAbs * pitchMod * (double)drift2Ratio) / currentSampleRate
+    // FM: OSC2 runs at harmonic ratio of OSC1 when depth > 0
+    const float fmRatioVal = std::max (0.0f, vp.fmRatio);
+    const double osc2Inc = (effectiveFMDepth > 0.001f && fmRatioVal > 0.0f)
+        ? (vs.currentFreq1 * (double)fmRatioVal * pitchMod * (double)drift2Ratio) / currentSampleRate
         : vs.osc2PhaseInc * pitchMod * (double)drift2Ratio;
-    const float osc2Raw = generateOsc2Sample (vs, vp, osc2Inc) * fmRatioSign;   // [-1..+1]
+    const float osc2Raw = generateOsc2Sample (vs, vp, osc2Inc);   // [-1..+1]
 
     // OSC1 with FM deviation from OSC2 and self-feedback
     const double fmDev = vs.osc1PhaseInc * (double)(effectiveFMDepth * osc2Raw * 3.0f

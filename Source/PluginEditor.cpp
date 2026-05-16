@@ -493,8 +493,8 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
 
     // FM Ratio — full-width LinearHorizontal, -8 to +8, shows exact value
     fmRatioSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
-    fmRatioSlider[v].setRange (-8.0, 8.0, 0.01);
-    fmRatioSlider[v].setValue (vp.fmRatio, juce::dontSendNotification);
+    fmRatioSlider[v].setRange (0.0, 6.0, 0.25);
+    fmRatioSlider[v].setValue (juce::jlimit (0.0f, 6.0f, vp.fmRatio), juce::dontSendNotification);
     fmRatioSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 42, 20);
     fmRatioSlider[v].setNumDecimalPlacesToDisplay (2);
     fmRatioSlider[v].setColour (juce::Slider::trackColourId,             knobColour);
