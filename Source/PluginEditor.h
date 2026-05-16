@@ -283,7 +283,6 @@ private:
     std::unique_ptr<WavetableDisplayComponent> wavetableDisplay [2];
 
     // ── Shared controls (single instance, sits in Voice A panel) ──────────────
-    juce::Slider     bpmSlider;
     juce::TextButton autoBtn;
     juce::TextButton savePresetBtn, loadPresetBtn;
     std::unique_ptr<juce::FileChooser> fileChooser;

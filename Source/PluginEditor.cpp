@@ -175,19 +175,6 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     // SHARED / GLOBAL CONTROLS
     //==========================================================================
 
-    // BPM slider — compact linear, lives in the global header
-    bpmSlider.setSliderStyle (juce::Slider::LinearHorizontal);
-    bpmSlider.setRange (40.0, 250.0);
-    bpmSlider.setValue (audioProcessor.internalBPM, juce::dontSendNotification);
-    bpmSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 48, 20);
-    bpmSlider.setColour (juce::Slider::trackColourId,             knobColour);
-    bpmSlider.setColour (juce::Slider::backgroundColourId,        juce::Colour (0xff252540));
-    bpmSlider.setColour (juce::Slider::textBoxTextColourId,        textColour);
-    bpmSlider.setColour (juce::Slider::textBoxBackgroundColourId,  bgColour);
-    bpmSlider.setColour (juce::Slider::textBoxOutlineColourId,     bgColour);
-    bpmSlider.onValueChange = [this]() { audioProcessor.internalBPM = bpmSlider.getValue(); };
-    addAndMakeVisible (bpmSlider);
-
     // AUTO button
     {
         bool isAuto = audioProcessor.autoRun.load();
@@ -872,10 +859,9 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     g.setColour (dimColour.withAlpha (0.55f));
     g.drawText ("MURGATROYD INSTRUMENTS", 0, 0, 1350, headerH, juce::Justification::centred);
 
-    // BPM / Preset labels
+    // Preset label
     g.setFont (juce::Font (9.0f, juce::Font::bold));
     g.setColour (dimColour.withAlpha (0.6f));
-    g.drawText ("BPM", 502, 4, 28, 20, juce::Justification::centredRight);
     g.drawText ("PRESET", 1090, 4, 42, 20, juce::Justification::centredLeft);
 
     // ── Pattern page overlay ──────────────────────────────────────────────────
@@ -1078,8 +1064,7 @@ void VoltageSeq2AudioProcessorEditor::resized()
     // Global header (always present)
     synthPageBtn .setBounds (220,  3,  65, 22);
     patternPageBtn.setBounds(290,  3,  80, 22);
-    bpmSlider    .setBounds (530,  4, 190, 20);
-    autoBtn      .setBounds (730,  3,  55, 22);
+    autoBtn      .setBounds (530,  3,  55, 22);
     savePresetBtn.setBounds (1155, 3,  60, 22);
     loadPresetBtn.setBounds (1220, 3,  60, 22);
 
@@ -1253,7 +1238,7 @@ void VoltageSeq2AudioProcessorEditor::timerCallback()
 //==============================================================================
 void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
 {
-    bpmSlider.setValue (audioProcessor.internalBPM, juce::dontSendNotification);
+
 
     const bool isAuto = audioProcessor.autoRun.load();
     autoBtn.setToggleState (isAuto, juce::dontSendNotification);
