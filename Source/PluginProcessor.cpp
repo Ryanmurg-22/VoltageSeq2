@@ -354,6 +354,13 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
                     vs.osc2PhaseInc  = vs.currentFreq2 / currentSampleRate;
                     vs.adsr.noteOff();      vs.adsr.noteOn();
                     vs.filterEnv.noteOff(); vs.filterEnv.noteOn();
+                    // Mod envelope: reset to zero then retrigger so attack
+                    // always starts from silence — even on consecutive gates.
+                    if (!vp.modEnv.clockSync)
+                    {
+                        vs.modEnvAdsr.reset();
+                        vs.modEnvAdsr.noteOn();
+                    }
                 }
             }
             else
@@ -361,6 +368,8 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
                 vs.glideActive = false;
                 vs.adsr.noteOff();
                 vs.filterEnv.noteOff();
+                if (!vp.modEnv.clockSync)
+                    vs.modEnvAdsr.noteOff();
             }
         }
 
@@ -610,10 +619,11 @@ float VoltageSeq2AudioProcessor::processModEnv (const ModEnvParams& p, VoiceStat
     }
     else
     {
-        const bool rise = gateOn  && !vs.modEnvPrevGate;
+        // Retrigger (reset + noteOn) is handled per-step in the sequencer block
+        // so consecutive gated steps always produce a fresh attack from zero.
+        // Here we only need to handle the gate falling edge → release.
         const bool fall = !gateOn && vs.modEnvPrevGate;
-        if (rise) { vs.modEnvAdsr.noteOff(); vs.modEnvAdsr.noteOn(); }
-        if (fall)   vs.modEnvAdsr.noteOff();
+        if (fall) vs.modEnvAdsr.noteOff();
     }
     vs.modEnvPrevGate = gateOn;
     return vs.modEnvAdsr.getNextSample();
