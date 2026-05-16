@@ -16,3 +16,12 @@ JuceLibraryCode/
 
 # Any local IDE settings
 *.xcuserstate
+
+# CMake build directories
+build/
+cmake-build-*/
+
+# Windows-specific
+*.user
+*.suo
+.vs/

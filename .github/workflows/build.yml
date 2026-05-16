@@ -1,0 +1,70 @@
+name: Build VoltageSeq2
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:   # lets you trigger a build manually from the GitHub UI
+
+jobs:
+  # ── macOS ────────────────────────────────────────────────────────────────────
+  build-macos:
+    name: macOS VST3
+    runs-on: macos-14   # Apple Silicon runner (M1)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache JUCE
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: juce-8.0.12-macos-${{ runner.arch }}
+
+      - name: Configure (CMake)
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Upload VST3
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoltageSeq2-macOS-VST3
+          path: build/VoltageSeq2_artefacts/Release/VST3/
+          if-no-files-found: error
+
+  # ── Windows ──────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Windows VST3
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache JUCE
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: juce-8.0.12-windows-${{ runner.arch }}
+
+      - name: Configure (CMake)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Upload VST3
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoltageSeq2-Windows-VST3
+          path: build/VoltageSeq2_artefacts/Release/VST3/
+          if-no-files-found: error
