@@ -91,10 +91,14 @@ void VoltageSeq2AudioProcessor::prepareToPlay (double sampleRate, int samplesPer
         vs.osc2DriftPhase = juce::Random::getSystemRandom().nextFloat();
         vs.pulseWidth   = vp.osc1PulseWidth;
         vs.glideActive  = false;
-        vs.sampleCounter = 0.0;
-        vs.lastPos      = -1;
-        vp.currentStep  = 0;
-        vs.randomStep   = 0;
+        vs.sampleCounter     = 0.0;
+        vs.lastPos           = -1;
+        vp.currentStep       = 0;
+        vs.randomStep        = 0;
+        vs.ratchetSubStep    = 0;
+        vs.ratchetSubStepDur = 0.0;
+        vs.ratchetStepPos    = 0.0;
+        vs.ratchetNoteOff    = false;
         vs.modEnvAdsr.setSampleRate (sampleRate);
         juce::ADSR::Parameters mep { vp.modEnv.attack, vp.modEnv.decay,
                                      vp.modEnv.sustain, vp.modEnv.release };
@@ -161,6 +165,30 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const double ppqPerSample = effectiveBPM / 60.0 / currentSampleRate;
 
     //--------------------------------------------------------------------------
+    // TRANSPORT RESET — whenever host start/stop is detected, snap both
+    // sequencers back to the beginning of their pattern.
+    //--------------------------------------------------------------------------
+    if (hostAvailable && hostPlaying != prevHostPlaying)
+    {
+        for (int vi = 0; vi < numVoices; ++vi)
+        {
+            vstate[vi].sampleCounter    = 0.0;
+            vstate[vi].lastPos          = -1;
+            voice [vi].currentStep      = 0;
+            vstate[vi].ratchetSubStep   = 0;
+            vstate[vi].ratchetSubStepDur= 0.0;
+            vstate[vi].ratchetStepPos   = 0.0;
+            vstate[vi].ratchetNoteOff   = false;
+            if (!hostPlaying)             // stopping: silence envelopes immediately
+            {
+                vstate[vi].adsr.noteOff();
+                vstate[vi].filterEnv.noteOff();
+            }
+        }
+    }
+    prevHostPlaying = hostPlaying;
+
+    //--------------------------------------------------------------------------
     // PER-VOICE PRE-COMPUTATION  (swing, step order, glide coeff)
     // Using stack-local arrays so no allocation inside the hot path.
     //--------------------------------------------------------------------------
@@ -225,6 +253,17 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 for (int i = 0; i < vp.sequenceLength; ++i)
                     stepOrder[vi][i] = i;
                 break;
+        }
+
+        // Nudge — rotate the step order so playback starts at nudgeOffset
+        if (vp.nudgeOffset != 0)
+        {
+            int tmp[16];
+            const int seqLen = vp.sequenceLength;
+            for (int i = 0; i < seqLen; ++i)
+                tmp[i] = stepOrder[vi][(i + vp.nudgeOffset) % seqLen];
+            for (int i = 0; i < seqLen; ++i)
+                stepOrder[vi][i] = tmp[i];
         }
 
         // Glide coefficient
@@ -355,6 +394,16 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
                         }
                     }
                 }
+
+                // ── Ratchet setup ──────────────────────────────────────────────
+                {
+                    const int repeats = juce::jlimit (1, 4, vp.stepRepeats[vp.currentStep] + 1);
+                    const double stepDur = swingBounds[pos + 1] - swingBounds[pos];
+                    vs.ratchetSubStepDur = (repeats > 1) ? (stepDur / repeats) : 0.0;
+                    vs.ratchetStepPos    = 0.0;
+                    vs.ratchetSubStep    = 0;
+                    vs.ratchetNoteOff    = false;
+                }
             }
             else
             {
@@ -363,6 +412,33 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
                 vs.filterEnv.noteOff();
                 if (!vp.modEnv.clockSync)
                     vs.modEnvAdsr.noteOff();
+            }
+        }
+
+        // ── Ratchet sub-step pulses ────────────────────────────────────────────
+        if (vp.stepGates[vp.currentStep] && !vp.stepTied[vp.currentStep]
+            && vs.ratchetSubStepDur > 0.0)
+        {
+            vs.ratchetStepPos += 1.0;
+            const double subPos = vs.ratchetStepPos
+                                  - vs.ratchetSubStep * vs.ratchetSubStepDur;
+
+            // Note-off at 50 % of sub-step
+            if (!vs.ratchetNoteOff && subPos >= vs.ratchetSubStepDur * 0.5)
+            {
+                vs.adsr.noteOff();
+                vs.filterEnv.noteOff();
+                vs.ratchetNoteOff = true;
+            }
+
+            // Advance to next sub-step
+            const int repeats = juce::jlimit (1, 4, vp.stepRepeats[vp.currentStep] + 1);
+            if (subPos >= vs.ratchetSubStepDur && vs.ratchetSubStep < repeats - 1)
+            {
+                ++vs.ratchetSubStep;
+                vs.adsr.noteOff(); vs.adsr.noteOn();
+                vs.filterEnv.noteOff(); vs.filterEnv.noteOn();
+                vs.ratchetNoteOff = false;
             }
         }
 
@@ -729,14 +805,16 @@ static void saveVoiceToXml (juce::XmlElement& el,
         el.setAttribute ("g"  + juce::String (i), vp.stepGates [i]);
         el.setAttribute ("sl" + juce::String (i), vp.stepGlides[i]);
         el.setAttribute ("ti" + juce::String (i), vp.stepTied  [i]);
+        el.setAttribute ("rt" + juce::String (i), vp.stepRepeats[i]);
     }
     el.setAttribute ("porta",    (double)vp.portamentoTime);
     el.setAttribute ("swing",    (double)vp.swingAmount);
     el.setAttribute ("clkDiv",   vp.clockDivision);
     el.setAttribute ("seqLen",   vp.sequenceLength);
-    el.setAttribute ("unipolar", vp.unipolar);
-    el.setAttribute ("playOrder",vp.playOrder);
-    el.setAttribute ("range",    (double)vp.rangeVCA);
+    el.setAttribute ("unipolar",   vp.unipolar);
+    el.setAttribute ("playOrder",  vp.playOrder);
+    el.setAttribute ("nudgeOffset",vp.nudgeOffset);
+    el.setAttribute ("range",      (double)vp.rangeVCA);
     el.setAttribute ("root",     vp.rootNote);
     el.setAttribute ("scale",    vp.currentScale);
 
@@ -824,14 +902,16 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
         vp.stepGates   [i] = getB (("g"  + juce::String (i)).toRawUTF8(), vp.stepGates   [i]);
         vp.stepGlides  [i] = getB (("sl" + juce::String (i)).toRawUTF8(), vp.stepGlides  [i]);
         vp.stepTied    [i] = getB (("ti" + juce::String (i)).toRawUTF8(), false);
+        vp.stepRepeats [i] = getI (("rt" + juce::String (i)).toRawUTF8(), 0);
     }
     vp.portamentoTime   = getF ("porta",    vp.portamentoTime);
     vp.swingAmount      = getF ("swing",    vp.swingAmount);
     vp.clockDivision    = getI ("clkDiv",   vp.clockDivision);
     vp.sequenceLength   = getI ("seqLen",   vp.sequenceLength);
-    vp.unipolar         = getB ("unipolar", vp.unipolar);
-    vp.playOrder        = getI ("playOrder",vp.playOrder);
-    vp.rangeVCA         = getF ("range",    vp.rangeVCA);
+    vp.unipolar         = getB ("unipolar",   vp.unipolar);
+    vp.playOrder        = getI ("playOrder",  vp.playOrder);
+    vp.nudgeOffset      = getI ("nudgeOffset",0);
+    vp.rangeVCA         = getF ("range",      vp.rangeVCA);
     vp.rootNote         = getI ("root",     vp.rootNote);
     vp.currentScale     = getI ("scale",    vp.currentScale);
 
@@ -916,6 +996,7 @@ void VoltageSeq2AudioProcessor::savePattern (int vi, int slot)
         p.stepGates   [i] = v.stepGates   [i];
         p.stepGlides  [i] = v.stepGlides  [i];
         p.stepTied    [i] = v.stepTied    [i];
+        p.stepRepeats [i] = v.stepRepeats [i];
     }
     p.sequenceLength = v.sequenceLength;
     p.clockDivision  = v.clockDivision;
@@ -939,6 +1020,7 @@ void VoltageSeq2AudioProcessor::loadPattern (int vi, int slot)
         v.stepGates   [i] = p.stepGates   [i];
         v.stepGlides  [i] = p.stepGlides  [i];
         v.stepTied    [i] = p.stepTied    [i];
+        v.stepRepeats [i] = p.stepRepeats [i];
     }
     v.sequenceLength = p.sequenceLength;
     v.clockDivision  = p.clockDivision;
@@ -993,18 +1075,20 @@ void VoltageSeq2AudioProcessor::getStateInformation (juce::MemoryBlock& destData
             slotEl->setAttribute ("uni",    (int)p.unipolar);
             slotEl->setAttribute ("range",  p.rangeVCA);
             // Step data as comma-separated strings
-            juce::String volts, gates, glides, ties;
+            juce::String volts, gates, glides, ties, repeats;
             for (int i = 0; i < numSteps; ++i)
             {
-                volts  += juce::String (p.stepVoltages[i], 4) + (i < 15 ? "," : "");
-                gates  += juce::String ((int)p.stepGates[i])  + (i < 15 ? "," : "");
-                glides += juce::String ((int)p.stepGlides[i]) + (i < 15 ? "," : "");
-                ties   += juce::String ((int)p.stepTied[i])   + (i < 15 ? "," : "");
+                volts   += juce::String (p.stepVoltages[i], 4) + (i < 15 ? "," : "");
+                gates   += juce::String ((int)p.stepGates[i])  + (i < 15 ? "," : "");
+                glides  += juce::String ((int)p.stepGlides[i]) + (i < 15 ? "," : "");
+                ties    += juce::String ((int)p.stepTied[i])   + (i < 15 ? "," : "");
+                repeats += juce::String (p.stepRepeats[i])     + (i < 15 ? "," : "");
             }
-            slotEl->setAttribute ("volts",  volts);
-            slotEl->setAttribute ("gates",  gates);
-            slotEl->setAttribute ("glides", glides);
-            slotEl->setAttribute ("ties",   ties);
+            slotEl->setAttribute ("volts",   volts);
+            slotEl->setAttribute ("gates",   gates);
+            slotEl->setAttribute ("glides",  glides);
+            slotEl->setAttribute ("ties",    ties);
+            slotEl->setAttribute ("repeats", repeats);
         }
     }
 
@@ -1061,10 +1145,16 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
                         for (int i = 0; i < juce::jmin (n, tok.size()); ++i)
                             arr[i] = tok[i].getIntValue() != 0;
                     };
-                    parseFloats (slotEl->getStringAttribute ("volts"),  p.stepVoltages, numSteps);
-                    parseBools  (slotEl->getStringAttribute ("gates"),  p.stepGates,    numSteps);
-                    parseBools  (slotEl->getStringAttribute ("glides"), p.stepGlides,   numSteps);
-                    parseBools  (slotEl->getStringAttribute ("ties"),   p.stepTied,     numSteps);
+                    auto parseInts = [](const juce::String& s, int* arr, int n) {
+                        juce::StringArray tok; tok.addTokens (s, ",", "");
+                        for (int i = 0; i < juce::jmin (n, tok.size()); ++i)
+                            arr[i] = tok[i].getIntValue();
+                    };
+                    parseFloats (slotEl->getStringAttribute ("volts"),   p.stepVoltages, numSteps);
+                    parseBools  (slotEl->getStringAttribute ("gates"),   p.stepGates,    numSteps);
+                    parseBools  (slotEl->getStringAttribute ("glides"),  p.stepGlides,   numSteps);
+                    parseBools  (slotEl->getStringAttribute ("ties"),    p.stepTied,     numSteps);
+                    parseInts   (slotEl->getStringAttribute ("repeats"), p.stepRepeats,  numSteps);
                 }
             }
         }

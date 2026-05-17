@@ -100,15 +100,27 @@ public:
         {
             bool inLen = (i < ps.sequenceLength);
             bool gate  = ps.stepGates[i];
+            bool tied  = inLen && ps.stepTied[i];
+            int  rep   = inLen ? ps.stepRepeats[i] : 0;
             auto col   = !inLen ? juce::Colour (0xff0a0a12)
-                       : gate   ? juce::Colour (0xff2255cc)
-                                : juce::Colour (0xff1a1a2c);
+                       : !gate  ? juce::Colour (0xff1a1a2c)
+                       : tied   ? juce::Colour (0xff704010)
+                       : rep > 0? juce::Colour (0xff2233aa)
+                                : juce::Colour (0xff2255cc);
             g.setColour (col);
             g.fillRect (gridX + i * sw, gridY, sw - 1, gridH);
             // Glide marker
             if (inLen && ps.stepGlides[i]) {
                 g.setColour (juce::Colour (0xffe94560));
                 g.fillRect (gridX + i * sw, gridY + gridH - 3, sw - 1, 3);
+            }
+            // Ratchet count label (2/3/4)
+            if (inLen && gate && rep > 0) {
+                g.setFont (juce::Font (7.0f, juce::Font::bold));
+                g.setColour (juce::Colour (0xffaabbff));
+                g.drawText (juce::String (rep + 1),
+                            gridX + i * sw, gridY + 2, sw - 1, 10,
+                            juce::Justification::centred);
             }
         }
 
@@ -189,6 +201,7 @@ private:
     juce::TextButton playConvBtn [2], playRndBtn  [2];
     juce::TextButton resetBtn    [2];
     juce::TextButton bipolarBtn  [2];
+    juce::TextButton nudgeLeftBtn[2], nudgeRightBtn[2];
     juce::TextButton runStopBtn  [2];
 
     juce::Slider     portaSlider     [2];
@@ -304,12 +317,26 @@ private:
     // ── Backplate SVG ─────────────────────────────────────────────────────────
     std::unique_ptr<juce::Drawable> backplate;
 
+    // ── Gate button right-click listener (ratchet selection) ──────────────────
+    struct GateBtnListener : public juce::MouseListener
+    {
+        GateBtnListener (VoltageSeq2AudioProcessorEditor& e, int v, int s)
+            : ed (e), vi (v), step (s) {}
+        void mouseDown (const juce::MouseEvent& ev) override;
+        VoltageSeq2AudioProcessorEditor& ed;
+        int vi, step;
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GateBtnListener)
+    };
+    std::unique_ptr<GateBtnListener> gateMouseListener[2][16];
+    bool suppressNextGateClick = false;  // set by GateBtnListener to block onClick cycling
+
     // ── Helpers ───────────────────────────────────────────────────────────────
     void setupVoice (int v);                          // wire up all controls for one voice
     void layoutVoice (int v, int seqTopY, int ctrlTopY); // position all controls for one voice
     void layoutPatternPage();                         // position pattern bank tiles
     void setupKnob (juce::Slider& s, double min, double max, double val,
                     double skewMidpoint = 0.0);
+    void refreshGateBtn (int v, int i);   // sync one gate button's text + colour
     void syncUIFromProcessor();        // refresh all widget values after preset load
     void showPage (bool showPattern);  // toggle between synth and pattern pages
 
