@@ -136,18 +136,23 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     //--------------------------------------------------------------------------
     // HOST SYNC — common to both voices (same timeline)
     //--------------------------------------------------------------------------
-    double effectiveBPM = internalBPM;
-    double startPPQ     = -1.0;
-    bool   useHostSync  = false;
+    double effectiveBPM  = internalBPM;
+    double startPPQ      = -1.0;
+    bool   useHostSync   = false;
+    bool   hostAvailable = false;   // true = running inside a DAW with a playhead
+    bool   hostPlaying   = false;   // true = DAW transport is rolling
 
     if (auto* ph = getPlayHead())
     {
         if (auto pos = ph->getPosition())
         {
+            hostAvailable = true;
+
             if (auto bpm = pos->getBpm())
                 effectiveBPM = *bpm;
 
-            if (pos->getIsPlaying())
+            hostPlaying = pos->getIsPlaying();
+            if (hostPlaying)
                 if (auto ppq = pos->getPpqPosition())
                 { startPPQ = *ppq; useHostSync = (startPPQ >= 0.0); }
         }
@@ -240,15 +245,20 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     {
         const double samplePPQ = startPPQ + (double)s * ppqPerSample;
 
+        // In a DAW: follow host transport exclusively.
+        // Standalone (no host): use the per-voice RUN/STOP button.
+        const bool runA = hostAvailable ? hostPlaying : voice[0].sequencerRunning.load();
+        const bool runB = hostAvailable ? hostPlaying : voice[1].sequencerRunning.load();
+
         float outA = processSingleVoiceSample (0,
-            voice[0].sequencerRunning.load(), useHostSync, samplePPQ, effectiveBPM,
+            runA, useHostSync, samplePPQ, effectiveBPM,
             swingBounds[0], swingPPQBounds[0],
             totalSwingCycle[0], totalSwingPPQ[0],
             stepOrder[0], glideCoeff[0],
             crossModSample[1]);   // voice B modulates voice A
 
         float outB = processSingleVoiceSample (1,
-            voice[1].sequencerRunning.load(), useHostSync, samplePPQ, effectiveBPM,
+            runB, useHostSync, samplePPQ, effectiveBPM,
             swingBounds[1], swingPPQBounds[1],
             totalSwingCycle[1], totalSwingPPQ[1],
             stepOrder[1], glideCoeff[1],

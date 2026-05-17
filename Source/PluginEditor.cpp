@@ -492,9 +492,18 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
         addAndMakeVisible (runStopBtn[v]);
     }
 
-    // SEQ transport knobs
-    setupKnob (rangeSlider[v], 0.0, 1.0, vp.rangeVCA);
+    // RANGE — full-width linear slider (most important sequencer parameter)
+    rangeSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
+    rangeSlider[v].setRange (0.0, 1.0, 0.01);
+    rangeSlider[v].setValue (vp.rangeVCA, juce::dontSendNotification);
+    rangeSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 38, 18);
+    rangeSlider[v].setColour (juce::Slider::trackColourId,            knobColour);
+    rangeSlider[v].setColour (juce::Slider::backgroundColourId,       juce::Colour (0xff252540));
+    rangeSlider[v].setColour (juce::Slider::textBoxTextColourId,      textColour);
+    rangeSlider[v].setColour (juce::Slider::textBoxBackgroundColourId,bgColour);
+    rangeSlider[v].setColour (juce::Slider::textBoxOutlineColourId,   bgColour);
     rangeSlider[v].onValueChange = [this, v]() { audioProcessor.voice[v].rangeVCA = (float)rangeSlider[v].getValue(); };
+    addAndMakeVisible (rangeSlider[v]);
 
     setupKnob (portaSlider[v], 0.0, 2.0, vp.portamentoTime);
     portaSlider[v].onValueChange = [this, v]() { audioProcessor.voice[v].portamentoTime = (float)portaSlider[v].getValue(); };
@@ -1133,9 +1142,9 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
         autoBtn.setBounds (665, sbCY, 50, 18);   // shared — only show in Voice A sub-strip
 
     // ── SEQ panel ─────────────────────────────────────────────────────────────
-    rangeSlider[v]  .setBounds (pSeqX + 52, cy1, kSz, kSz);
-    clockDivBox[v]  .setBounds (pSeqX + 8,  cy2, pSeqW - 16, 20);
-    portaSlider[v]  .setBounds (pSeqX + 52, cy3, kSz, kSz);
+    rangeSlider[v]  .setBounds (pSeqX + 5,  cy1 - 2, pSeqW - 10, 22);
+    clockDivBox[v]  .setBounds (pSeqX + 8,  cy2,     pSeqW - 16, 20);
+    portaSlider[v]  .setBounds (pSeqX + 52, cy3,     kSz, kSz);
 
     // ── Quantizer ─────────────────────────────────────────────────────────────
     rootBox [v].setBounds (pQntX + 8, cy1, pQntW - 16, 22);
