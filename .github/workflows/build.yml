@@ -1,60 +1,21 @@
-name: Build VoltageSeq2
+name: Build and Release
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  release:
-    types: [published]
-  workflow_dispatch:   # lets you trigger a build manually from the GitHub UI
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
-  # ── macOS ────────────────────────────────────────────────────────────────────
-  build-macos:
-    name: macOS VST3
-    runs-on: macos-14   # Apple Silicon runner (M1)
-
+  # ── macOS ARM64 ─────────────────────────────────────────────────────────────
+  build-mac:
+    name: macOS (Apple Silicon)
+    runs-on: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Cache JUCE
-        uses: actions/cache@v4
-        with:
-          path: build/_deps
-          key: juce-8.0.12-macos-${{ runner.arch }}
-
-      - name: Configure (CMake)
-        run: |
-          cmake -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
-
-      - name: Build
-        run: cmake --build build --config Release --parallel
-
-      - name: Upload VST3
-        uses: actions/upload-artifact@v4
-        with:
-          name: VoltageSeq2-macOS-VST3
-          path: build/VoltageSeq2_artefacts/Release/VST3/
-          if-no-files-found: error
-
-  # ── Windows ──────────────────────────────────────────────────────────────────
-  build-windows:
-    name: Windows VST3
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Cache JUCE
-        uses: actions/cache@v4
-        with:
-          path: build/_deps
-          key: juce-8.0.12-windows-${{ runner.arch }}
 
       - name: Configure (CMake)
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -62,9 +23,68 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      - name: Upload VST3
+      - name: Package as .pkg
+        run: |
+          VST3=$(find build -name "VoltageSeq2.vst3" -type d | head -1)
+          echo "Found VST3 at: $VST3"
+          mkdir -p pkg_root
+          cp -r "$VST3" pkg_root/
+          pkgbuild --root pkg_root \
+                   --install-location "/Library/Audio/Plug-Ins/VST3" \
+                   --identifier "com.MurgatroydInstruments.VoltageSeq2.vst3" \
+                   --version "${{ github.ref_name }}" \
+                   VoltageSeq2_macOS_ARM64.pkg
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VoltageSeq2-Windows-VST3
-          path: build/VoltageSeq2_artefacts/Release/VST3/
-          if-no-files-found: error
+          name: mac-pkg
+          path: VoltageSeq2_macOS_ARM64.pkg
+
+  # ── Windows x64 ─────────────────────────────────────────────────────────────
+  build-windows:
+    name: Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure (CMake)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package as .zip
+        shell: pwsh
+        run: |
+          $vst3 = Get-ChildItem -Path build -Recurse -Filter "VoltageSeq2.vst3" -Directory | Select-Object -First 1
+          Write-Host "Found VST3 at: $($vst3.FullName)"
+          Compress-Archive -Path $vst3.FullName -DestinationPath VoltageSeq2_Windows_x64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: VoltageSeq2_Windows_x64.zip
+
+  # ── GitHub Release ───────────────────────────────────────────────────────────
+  release:
+    name: Publish Release
+    needs: [build-mac, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Rename with version tag
+        run: |
+          mv mac-pkg/VoltageSeq2_macOS_ARM64.pkg     VoltageSeq2_${{ github.ref_name }}_macOS_ARM64.pkg
+          mv windows-zip/VoltageSeq2_Windows_x64.zip VoltageSeq2_${{ github.ref_name }}_Windows_x64.zip
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            VoltageSeq2_${{ github.ref_name }}_macOS_ARM64.pkg
+            VoltageSeq2_${{ github.ref_name }}_Windows_x64.zip
