@@ -41,50 +41,25 @@ jobs:
           name: mac-pkg
           path: VoltageSeq2_macOS_ARM64.pkg
 
-  # ── Windows x64 ─────────────────────────────────────────────────────────────
-  build-windows:
-    name: Windows (x64)
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure (CMake)
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -G "Visual Studio 17 2022" -A x64
-
-      - name: Build
-        run: cmake --build build --config Release --parallel
-
-      - name: Package as .zip
-        shell: pwsh
-        run: |
-          $vst3 = Get-ChildItem -Path build -Recurse -Filter "VoltageSeq2.vst3" -Directory | Select-Object -First 1
-          Write-Host "Found VST3 at: $($vst3.FullName)"
-          Compress-Archive -Path $vst3.FullName -DestinationPath VoltageSeq2_Windows_x64.zip
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-zip
-          path: VoltageSeq2_Windows_x64.zip
-
   # ── GitHub Release ───────────────────────────────────────────────────────────
   release:
     name: Publish Release
-    needs: [build-mac, build-windows]
+    needs: [build-mac]
     runs-on: ubuntu-latest
     steps:
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
 
       - name: Rename with version tag
-        run: |
-          mv mac-pkg/VoltageSeq2_macOS_ARM64.pkg     VoltageSeq2_${{ github.ref_name }}_macOS_ARM64.pkg
-          mv windows-zip/VoltageSeq2_Windows_x64.zip VoltageSeq2_${{ github.ref_name }}_Windows_x64.zip
+        run: mv mac-pkg/VoltageSeq2_macOS_ARM64.pkg VoltageSeq2_${{ github.ref_name }}_macOS_ARM64.pkg
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            VoltageSeq2_${{ github.ref_name }}_macOS_ARM64.pkg
-            VoltageSeq2_${{ github.ref_name }}_Windows_x64.zip
+          files: VoltageSeq2_${{ github.ref_name }}_macOS_ARM64.pkg
+
+  # ── Windows (disabled — coming soon) ────────────────────────────────────────
+  # build-windows:
+  #   name: Windows (x64)
+  #   runs-on: windows-latest
+  #   ...
