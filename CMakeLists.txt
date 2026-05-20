@@ -20,7 +20,7 @@ juce_add_plugin(VoltageSeq2
     COMPANY_EMAIL           "ryan@soulcandi.co.za"
     PLUGIN_MANUFACTURER_CODE Volt
     PLUGIN_CODE             VoS2
-    FORMATS                 VST3
+    FORMATS                 VST3 AU
     IS_SYNTH                TRUE
     NEEDS_MIDI_INPUT        TRUE
     PRODUCES_MIDI_OUTPUT    FALSE

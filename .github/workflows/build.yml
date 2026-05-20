@@ -26,14 +26,31 @@ jobs:
       - name: Package as .pkg
         run: |
           VST3=$(find build -name "VoltageSeq2.vst3" -type d | head -1)
+          AU=$(find build -name "VoltageSeq2.component" -type d | head -1)
           echo "Found VST3 at: $VST3"
-          mkdir -p pkg_root
-          cp -r "$VST3" pkg_root/
-          pkgbuild --root pkg_root \
+          echo "Found AU at:   $AU"
+
+          # VST3 component pkg
+          mkdir -p pkg_vst3
+          cp -r "$VST3" pkg_vst3/
+          pkgbuild --root pkg_vst3 \
                    --install-location "/Library/Audio/Plug-Ins/VST3" \
                    --identifier "com.MurgatroydInstruments.VoltageSeq2.vst3" \
                    --version "${{ github.ref_name }}" \
-                   VoltageSeq2_macOS_ARM64.pkg
+                   vst3.pkg
+
+          # AU component pkg
+          mkdir -p pkg_au
+          cp -r "$AU" pkg_au/
+          pkgbuild --root pkg_au \
+                   --install-location "/Library/Audio/Plug-Ins/Components" \
+                   --identifier "com.MurgatroydInstruments.VoltageSeq2.au" \
+                   --version "${{ github.ref_name }}" \
+                   au.pkg
+
+          # Bundle both into one installer
+          productbuild --package vst3.pkg --package au.pkg \
+                       VoltageSeq2_macOS_ARM64.pkg
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
