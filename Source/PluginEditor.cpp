@@ -301,17 +301,22 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     // ── Page navigation buttons ───────────────────────────────────────────────
     synthPageBtn.setButtonText ("SYNTH");
     synthPageBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2255aa));
-    synthPageBtn.onClick = [this]() { showPage (false); };
+    synthPageBtn.onClick = [this]() { showPage (0); };
     addAndMakeVisible (synthPageBtn);
 
     patternPageBtn.setButtonText ("PATTERNS");
     patternPageBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff161630));
-    patternPageBtn.onClick = [this]() { showPage (true); };
+    patternPageBtn.onClick = [this]() { showPage (1); };
     addAndMakeVisible (patternPageBtn);
+
+    fxPageBtn.setButtonText ("FX");
+    fxPageBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff161630));
+    fxPageBtn.onClick = [this]() { showPage (2); };
+    addAndMakeVisible (fxPageBtn);
 
     // ── Capture all synth-page components (everything added so far except nav btns)
     for (auto* c : getChildren())
-        if (c != &synthPageBtn && c != &patternPageBtn)
+        if (c != &synthPageBtn && c != &patternPageBtn && c != &fxPageBtn)
             synthPageComponents.push_back (c);
 
     // ── Pattern bank tiles (added invisible by default) ───────────────────────
@@ -360,6 +365,9 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
         addChildComponent (saveBtn[vi]);
         patternPageComponents.push_back (&saveBtn[vi]);
     }
+
+    // ── FX page controls ─────────────────────────────────────────────────────
+    setupFxControls();
 
     // setSize LAST — triggers resized() which calls layoutVoice()
     setSize (1500, winH);
@@ -888,19 +896,201 @@ void VoltageSeq2AudioProcessorEditor::setupKnob (juce::Slider& s, double mn, dou
 }
 
 //==============================================================================
-// showPage — toggle between synth and pattern views
+// setupFxControls — wire up all FX page controls
 //==============================================================================
-void VoltageSeq2AudioProcessorEditor::showPage (bool showPattern)
+void VoltageSeq2AudioProcessorEditor::setupFxControls()
 {
-    showPatternPage = showPattern;
-    for (auto* c : synthPageComponents)
-        c->setVisible (!showPattern);
-    for (auto* c : patternPageComponents)
-        c->setVisible (showPattern);
+    auto& p = audioProcessor.fx;
+
+    auto addFx = [&](juce::Component& c) {
+        addChildComponent (c);
+        fxPageComponents.push_back (&c);
+    };
+
+    // ── Delay ─────────────────────────────────────────────────────────────
+    delayOnBtn.setButtonText ("OFF");
+    delayOnBtn.setClickingTogglesState (true);
+    delayOnBtn.setToggleState (p.delayOn, juce::dontSendNotification);
+    delayOnBtn.setColour (juce::TextButton::buttonColourId,   p.delayOn ? gateOnColour : gateOffColour);
+    delayOnBtn.setColour (juce::TextButton::buttonOnColourId, gateOnColour);
+    delayOnBtn.onClick = [this]() {
+        bool s = delayOnBtn.getToggleState();
+        audioProcessor.fx.delayOn = s;
+        delayOnBtn.setButtonText (s ? "ON" : "OFF");
+        delayOnBtn.setColour (juce::TextButton::buttonColourId, s ? gateOnColour : gateOffColour);
+    };
+    addFx (delayOnBtn);
+
+    delaySyncBtn.setButtonText (p.delaySync ? "SYNC" : "FREE");
+    delaySyncBtn.setClickingTogglesState (true);
+    delaySyncBtn.setToggleState (p.delaySync, juce::dontSendNotification);
+    delaySyncBtn.setColour (juce::TextButton::buttonColourId,   p.delaySync ? juce::Colour(0xffe09040) : gateOffColour);
+    delaySyncBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour(0xffe09040));
+    delaySyncBtn.onClick = [this]() {
+        bool s = delaySyncBtn.getToggleState();
+        audioProcessor.fx.delaySync = s;
+        delaySyncBtn.setButtonText (s ? "SYNC" : "FREE");
+        delaySyncBtn.setColour (juce::TextButton::buttonColourId, s ? juce::Colour(0xffe09040) : gateOffColour);
+    };
+    addFx (delaySyncBtn);
+
+    delaySyncDivBox.addItem ("1/4",   1);
+    delaySyncDivBox.addItem ("1/8",   2);
+    delaySyncDivBox.addItem ("1/16",  3);
+    delaySyncDivBox.addItem ("1/8T",  4);
+    delaySyncDivBox.addItem ("1/16T", 5);
+    delaySyncDivBox.addItem ("1/8.",  6);
+    delaySyncDivBox.addItem ("1/16.", 7);
+    delaySyncDivBox.setSelectedItemIndex (p.delaySyncDiv, juce::dontSendNotification);
+    delaySyncDivBox.onChange = [this]() { audioProcessor.fx.delaySyncDiv = delaySyncDivBox.getSelectedItemIndex(); };
+    delaySyncDivBox.setColour (juce::ComboBox::backgroundColourId, juce::Colour(0xff0e1020));
+    delaySyncDivBox.setColour (juce::ComboBox::textColourId,       juce::Colour(0xffe0e0e0));
+    addFx (delaySyncDivBox);
+
+    setupKnob (delayTimeMsSlider, 1.0, 2000.0, p.delayTimeMs);
+    delayTimeMsSlider.onValueChange = [this]() { audioProcessor.fx.delayTimeMs = (float)delayTimeMsSlider.getValue(); };
+    addFx (delayTimeMsSlider);
+
+    setupKnob (delayFeedbackSlider, 0.0, 0.95, p.delayFeedback);
+    delayFeedbackSlider.onValueChange = [this]() { audioProcessor.fx.delayFeedback = (float)delayFeedbackSlider.getValue(); };
+    addFx (delayFeedbackSlider);
+
+    delayPingPongBtn.setButtonText ("PING");
+    delayPingPongBtn.setClickingTogglesState (true);
+    delayPingPongBtn.setToggleState (p.delayPingPong, juce::dontSendNotification);
+    delayPingPongBtn.setColour (juce::TextButton::buttonColourId,   p.delayPingPong ? juce::Colour(0xff5566dd) : gateOffColour);
+    delayPingPongBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour(0xff5566dd));
+    delayPingPongBtn.onClick = [this]() {
+        bool s = delayPingPongBtn.getToggleState();
+        audioProcessor.fx.delayPingPong = s;
+        delayPingPongBtn.setColour (juce::TextButton::buttonColourId, s ? juce::Colour(0xff5566dd) : gateOffColour);
+    };
+    addFx (delayPingPongBtn);
+
+    setupKnob (delayMixSlider, 0.0, 1.0, p.delayMix);
+    delayMixSlider.onValueChange = [this]() { audioProcessor.fx.delayMix = (float)delayMixSlider.getValue(); };
+    addFx (delayMixSlider);
+
+    // ── Reverb ─────────────────────────────────────────────────────────────
+    reverbOnBtn.setButtonText ("OFF");
+    reverbOnBtn.setClickingTogglesState (true);
+    reverbOnBtn.setToggleState (p.reverbOn, juce::dontSendNotification);
+    reverbOnBtn.setColour (juce::TextButton::buttonColourId,   p.reverbOn ? gateOnColour : gateOffColour);
+    reverbOnBtn.setColour (juce::TextButton::buttonOnColourId, gateOnColour);
+    reverbOnBtn.onClick = [this]() {
+        bool s = reverbOnBtn.getToggleState();
+        audioProcessor.fx.reverbOn = s;
+        reverbOnBtn.setButtonText (s ? "ON" : "OFF");
+        reverbOnBtn.setColour (juce::TextButton::buttonColourId, s ? gateOnColour : gateOffColour);
+    };
+    addFx (reverbOnBtn);
+
+    setupKnob (reverbSizeSlider,     0.0, 1.0, p.reverbSize);
+    reverbSizeSlider.onValueChange = [this]() { audioProcessor.fx.reverbSize = (float)reverbSizeSlider.getValue(); };
+    addFx (reverbSizeSlider);
+
+    setupKnob (reverbDampingSlider,  0.0, 1.0, p.reverbDamping);
+    reverbDampingSlider.onValueChange = [this]() { audioProcessor.fx.reverbDamping = (float)reverbDampingSlider.getValue(); };
+    addFx (reverbDampingSlider);
+
+    setupKnob (reverbPreDelaySlider, 0.0, 100.0, p.reverbPreDelay);
+    reverbPreDelaySlider.onValueChange = [this]() { audioProcessor.fx.reverbPreDelay = (float)reverbPreDelaySlider.getValue(); };
+    addFx (reverbPreDelaySlider);
+
+    setupKnob (reverbMixSlider, 0.0, 1.0, p.reverbMix);
+    reverbMixSlider.onValueChange = [this]() { audioProcessor.fx.reverbMix = (float)reverbMixSlider.getValue(); };
+    addFx (reverbMixSlider);
+
+    // ── Chorus ─────────────────────────────────────────────────────────────
+    chorusOnBtn.setButtonText ("OFF");
+    chorusOnBtn.setClickingTogglesState (true);
+    chorusOnBtn.setToggleState (p.chorusOn, juce::dontSendNotification);
+    chorusOnBtn.setColour (juce::TextButton::buttonColourId,   p.chorusOn ? gateOnColour : gateOffColour);
+    chorusOnBtn.setColour (juce::TextButton::buttonOnColourId, gateOnColour);
+    chorusOnBtn.onClick = [this]() {
+        bool s = chorusOnBtn.getToggleState();
+        audioProcessor.fx.chorusOn = s;
+        chorusOnBtn.setButtonText (s ? "ON" : "OFF");
+        chorusOnBtn.setColour (juce::TextButton::buttonColourId, s ? gateOnColour : gateOffColour);
+    };
+    addFx (chorusOnBtn);
+
+    setupKnob (chorusRateSlider,  0.1, 5.0, p.chorusRate);
+    chorusRateSlider.onValueChange = [this]() { audioProcessor.fx.chorusRate = (float)chorusRateSlider.getValue(); };
+    addFx (chorusRateSlider);
+
+    setupKnob (chorusDepthSlider, 0.0, 1.0, p.chorusDepth);
+    chorusDepthSlider.onValueChange = [this]() { audioProcessor.fx.chorusDepth = (float)chorusDepthSlider.getValue(); };
+    addFx (chorusDepthSlider);
+
+    setupKnob (chorusMixSlider, 0.0, 1.0, p.chorusMix);
+    chorusMixSlider.onValueChange = [this]() { audioProcessor.fx.chorusMix = (float)chorusMixSlider.getValue(); };
+    addFx (chorusMixSlider);
+
+    // ── Master ─────────────────────────────────────────────────────────────
+    setupKnob (masterDriveSlider, 0.0, 1.0, p.masterDrive);
+    masterDriveSlider.onValueChange = [this]() { audioProcessor.fx.masterDrive = (float)masterDriveSlider.getValue(); };
+    addFx (masterDriveSlider);
+
+    setupKnob (masterGainSlider, 0.0, 2.0, p.masterGain);
+    masterGainSlider.onValueChange = [this]() { audioProcessor.fx.masterGain = (float)masterGainSlider.getValue(); };
+    addFx (masterGainSlider);
+}
+
+//==============================================================================
+// layoutFxPage — size and position all FX page controls
+//==============================================================================
+void VoltageSeq2AudioProcessorEditor::layoutFxPage()
+{
+    // Four panels across the page: DELAY | REVERB | CHORUS | MASTER
+    constexpr int py = 60, dR2 = 60 + 150;
+
+    // DELAY: x=10..440
+    constexpr int dX=10;
+    delayOnBtn        .setBounds (dX,        py+10,  80, 26);
+    delaySyncBtn      .setBounds (dX+90,     py+10,  80, 26);
+    delaySyncDivBox   .setBounds (dX+180,    py+10, 100, 26);
+    delayPingPongBtn  .setBounds (dX+290,    py+10,  80, 26);
+    delayTimeMsSlider .setBounds (dX+10,     dR2,    52, 52);
+    delayFeedbackSlider.setBounds(dX+80,     dR2,    52, 52);
+    delayMixSlider    .setBounds (dX+150,    dR2,    52, 52);
+
+    // REVERB: x=460..890
+    constexpr int rX=460;
+    reverbOnBtn         .setBounds (rX,      py+10,  80, 26);
+    reverbSizeSlider    .setBounds (rX+10,   dR2,    52, 52);
+    reverbDampingSlider .setBounds (rX+80,   dR2,    52, 52);
+    reverbPreDelaySlider.setBounds (rX+150,  dR2,    52, 52);
+    reverbMixSlider     .setBounds (rX+220,  dR2,    52, 52);
+
+    // CHORUS: x=960..1260
+    constexpr int cX=960;
+    chorusOnBtn       .setBounds (cX,      py+10,  80, 26);
+    chorusRateSlider  .setBounds (cX+10,   dR2,    52, 52);
+    chorusDepthSlider .setBounds (cX+80,   dR2,    52, 52);
+    chorusMixSlider   .setBounds (cX+150,  dR2,    52, 52);
+
+    // MASTER: x=1290..1490
+    constexpr int mX=1290;
+    masterDriveSlider .setBounds (mX+10,   dR2,    52, 52);
+    masterGainSlider  .setBounds (mX+80,   dR2,    52, 52);
+}
+
+//==============================================================================
+// showPage — switch between pages 0=synth 1=pattern 2=fx
+//==============================================================================
+void VoltageSeq2AudioProcessorEditor::showPage (int page)
+{
+    currentPage = page;
+    for (auto* c : synthPageComponents)   c->setVisible (page == 0);
+    for (auto* c : patternPageComponents) c->setVisible (page == 1);
+    for (auto* c : fxPageComponents)      c->setVisible (page == 2);
     synthPageBtn  .setColour (juce::TextButton::buttonColourId,
-                               showPattern ? juce::Colour (0xff161630) : juce::Colour (0xff2255aa));
+                              page == 0 ? juce::Colour(0xff2255aa) : juce::Colour(0xff161630));
     patternPageBtn.setColour (juce::TextButton::buttonColourId,
-                               showPattern ? juce::Colour (0xff2255aa) : juce::Colour (0xff161630));
+                              page == 1 ? juce::Colour(0xff2255aa) : juce::Colour(0xff161630));
+    fxPageBtn     .setColour (juce::TextButton::buttonColourId,
+                              page == 2 ? juce::Colour(0xff2255aa) : juce::Colour(0xff161630));
     repaint();
 }
 
@@ -975,7 +1165,7 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     g.drawText ("PRESET", 1240, 4, 42, 20, juce::Justification::centredLeft);
 
     // ── Pattern page overlay ──────────────────────────────────────────────────
-    if (showPatternPage)
+    if (currentPage == 1)
     {
         g.setColour (juce::Colour (0xff040410));
         g.fillRect (0, headerH, getWidth(), winH - headerH);
@@ -999,6 +1189,50 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         g.setColour (juce::Colour (0xff333355));
         g.drawText ("Left-click to load  ·  Right-click to clear  ·  Use SAVE button to store current pattern",
                     0, winH - 14, getWidth(), 12, juce::Justification::centred);
+        return;
+    }
+
+    // ── FX page overlay ───────────────────────────────────────────────────────
+    if (currentPage == 2)
+    {
+        g.setColour (juce::Colour (0xff040410));
+        g.fillRect (0, headerH, getWidth(), winH - headerH);
+
+        // Panel backgrounds
+        auto drawFxPanel = [&](int px, int pw, const juce::String& title, juce::Colour accent)
+        {
+            g.setColour (juce::Colour (0xff0c0c18).withAlpha (0.92f));
+            g.fillRoundedRectangle ((float)px, 50.f, (float)pw, 630.f, 6.f);
+            g.setColour (accent.withAlpha (0.6f));
+            g.fillRect (px, 50, pw, 3);
+            g.setFont (juce::Font (11.f, juce::Font::bold));
+            g.setColour (accent);
+            g.drawText (title, px, 56, pw, 16, juce::Justification::centred);
+        };
+        drawFxPanel (10,  430, "DELAY",  juce::Colour (0xff00d4aa));
+        drawFxPanel (460, 430, "REVERB", juce::Colour (0xffaa44ff));
+        drawFxPanel (960, 300, "CHORUS", juce::Colour (0xffe09040));
+        drawFxPanel (1290,200, "MASTER", juce::Colour (0xffe94560));
+
+        // Knob labels
+        g.setFont (juce::Font (9.f));
+        g.setColour (textColour);
+        // Delay labels
+        g.drawText ("TIME",     10+10,  220, 52, 12, juce::Justification::centred);
+        g.drawText ("FEEDBK",   10+80,  220, 52, 12, juce::Justification::centred);
+        g.drawText ("MIX",      10+150, 220, 52, 12, juce::Justification::centred);
+        // Reverb labels
+        g.drawText ("SIZE",    460+10,  220, 52, 12, juce::Justification::centred);
+        g.drawText ("DAMP",    460+80,  220, 52, 12, juce::Justification::centred);
+        g.drawText ("PRE-DLY", 460+150, 220, 52, 12, juce::Justification::centred);
+        g.drawText ("MIX",     460+220, 220, 52, 12, juce::Justification::centred);
+        // Chorus labels
+        g.drawText ("RATE",    960+10,  220, 52, 12, juce::Justification::centred);
+        g.drawText ("DEPTH",   960+80,  220, 52, 12, juce::Justification::centred);
+        g.drawText ("MIX",     960+150, 220, 52, 12, juce::Justification::centred);
+        // Master labels
+        g.drawText ("DRIVE",  1290+10,  220, 52, 12, juce::Justification::centred);
+        g.drawText ("GAIN",   1290+80,  220, 52, 12, juce::Justification::centred);
         return;
     }
 
@@ -1175,6 +1409,7 @@ void VoltageSeq2AudioProcessorEditor::resized()
     // Global header (always present)
     synthPageBtn .setBounds (220,  3,  65, 22);
     patternPageBtn.setBounds(290,  3,  80, 22);
+    fxPageBtn    .setBounds (375,  3,  55, 22);
     autoBtn      .setBounds (530,  3,  55, 22);
     savePresetBtn.setBounds (1305, 3,  85, 22);
     loadPresetBtn.setBounds (1396, 3,  85, 22);
@@ -1182,6 +1417,7 @@ void VoltageSeq2AudioProcessorEditor::resized()
     layoutVoice (0, seqAY, ctrlAY);
     layoutVoice (1, seqBY, ctrlBY);
     layoutPatternPage();
+    layoutFxPage();
 }
 
 //==============================================================================
@@ -1486,5 +1722,35 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
                                          vp.modEnv.clockSync ? juce::Colour(0xffe09040) : gateOnColour);
         modEnvDivBox     [v].setSelectedItemIndex (vp.modEnv.clockDiv, juce::dontSendNotification);
     }
+
+    const auto& p = audioProcessor.fx;
+    delayOnBtn.setToggleState (p.delayOn, juce::dontSendNotification);
+    delayOnBtn.setButtonText (p.delayOn ? "ON" : "OFF");
+    delayOnBtn.setColour (juce::TextButton::buttonColourId, p.delayOn ? gateOnColour : gateOffColour);
+    delaySyncBtn.setToggleState (p.delaySync, juce::dontSendNotification);
+    delaySyncBtn.setButtonText (p.delaySync ? "SYNC" : "FREE");
+    delaySyncBtn.setColour (juce::TextButton::buttonColourId, p.delaySync ? juce::Colour(0xffe09040) : gateOffColour);
+    delaySyncDivBox.setSelectedItemIndex (p.delaySyncDiv, juce::dontSendNotification);
+    delayTimeMsSlider.setValue (p.delayTimeMs, juce::dontSendNotification);
+    delayFeedbackSlider.setValue (p.delayFeedback, juce::dontSendNotification);
+    delayPingPongBtn.setToggleState (p.delayPingPong, juce::dontSendNotification);
+    delayPingPongBtn.setColour (juce::TextButton::buttonColourId, p.delayPingPong ? juce::Colour(0xff5566dd) : gateOffColour);
+    delayMixSlider.setValue (p.delayMix, juce::dontSendNotification);
+    reverbOnBtn.setToggleState (p.reverbOn, juce::dontSendNotification);
+    reverbOnBtn.setButtonText (p.reverbOn ? "ON" : "OFF");
+    reverbOnBtn.setColour (juce::TextButton::buttonColourId, p.reverbOn ? gateOnColour : gateOffColour);
+    reverbSizeSlider.setValue (p.reverbSize, juce::dontSendNotification);
+    reverbDampingSlider.setValue (p.reverbDamping, juce::dontSendNotification);
+    reverbPreDelaySlider.setValue (p.reverbPreDelay, juce::dontSendNotification);
+    reverbMixSlider.setValue (p.reverbMix, juce::dontSendNotification);
+    chorusOnBtn.setToggleState (p.chorusOn, juce::dontSendNotification);
+    chorusOnBtn.setButtonText (p.chorusOn ? "ON" : "OFF");
+    chorusOnBtn.setColour (juce::TextButton::buttonColourId, p.chorusOn ? gateOnColour : gateOffColour);
+    chorusRateSlider.setValue (p.chorusRate, juce::dontSendNotification);
+    chorusDepthSlider.setValue (p.chorusDepth, juce::dontSendNotification);
+    chorusMixSlider.setValue (p.chorusMix, juce::dontSendNotification);
+    masterDriveSlider.setValue (p.masterDrive, juce::dontSendNotification);
+    masterGainSlider.setValue (p.masterGain, juce::dontSendNotification);
+
     repaint();
 }

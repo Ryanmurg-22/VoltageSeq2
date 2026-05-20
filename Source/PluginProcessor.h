@@ -59,12 +59,14 @@ public:
         bool  stepGates   [16] = {};
         bool  stepGlides  [16] = {};
         bool  stepTied    [16] = {};   // true = sustain gate from prev step, no envelope retrigger
+        int   stepRepeats [16] = {};   // 0=1× 1=2× 2=3× 3=4× — ratchet pulse count
         float portamentoTime   = 0.0f;
         float swingAmount      = 0.5f;
         int   clockDivision    = 2;      // 1/16 default
         int   sequenceLength   = 16;
         bool  unipolar         = false;
         int   playOrder        = 0;      // Forward
+        int   nudgeOffset      = 0;      // step start offset [0 .. sequenceLength-1]
 
         // ── Pitch / quantiser ────────────────────────────────────────────────
         float rangeVCA    = 1.0f;
@@ -157,6 +159,7 @@ public:
         bool  stepGates   [16] = {};
         bool  stepGlides  [16] = {};
         bool  stepTied    [16] = {};
+        int   stepRepeats [16] = {};   // 0=1× 1=2× 2=3× 3=4×
         int   sequenceLength   = 16;
         int   clockDivision    = 2;
         float swingAmount      = 0.5f;
@@ -175,6 +178,35 @@ public:
     void savePattern  (int voiceIdx, int slotIdx);
     void loadPattern  (int voiceIdx, int slotIdx);
     void clearPattern (int voiceIdx, int slotIdx);
+
+    struct FxParams {
+        // Delay
+        bool  delayOn       = false;
+        bool  delaySync     = true;
+        int   delaySyncDiv  = 2;       // index into ppqDivTable (0=1/4 .. 6=1/16.)
+        float delayTimeMs   = 375.0f;  // manual time when sync=false, 1..2000ms
+        float delayFeedback = 0.40f;   // 0..0.95
+        bool  delayPingPong = false;
+        float delayMix      = 0.30f;
+
+        // Reverb (Dattorro plate)
+        bool  reverbOn      = false;
+        float reverbSize    = 0.75f;   // decay 0..1
+        float reverbDamping = 0.40f;   // HF damping 0..1
+        float reverbPreDelay = 20.0f;  // ms, 0..100
+        float reverbMix     = 0.25f;
+
+        // Chorus
+        bool  chorusOn      = false;
+        float chorusRate    = 0.50f;   // Hz, 0.1..5
+        float chorusDepth   = 0.50f;   // 0..1
+        float chorusMix     = 0.50f;
+
+        // Master
+        float masterDrive   = 0.0f;   // 0..1
+        float masterGain    = 1.0f;   // 0..2
+    };
+    FxParams fx;
 
     //==========================================================================
     // PUBLIC DATA
@@ -207,7 +239,8 @@ private:
     //==========================================================================
     // PRIVATE AUDIO-THREAD STATE
     //==========================================================================
-    double currentSampleRate = 44100.0;
+    double currentSampleRate  = 44100.0;
+    bool   prevHostPlaying    = false;   // transport state last block — used to detect start/stop
 
     // Per-voice cross-mod sample storage
     float crossModSample[numVoices] = {};
@@ -234,9 +267,39 @@ private:
         juce::ADSR modEnvAdsr;
         double     modEnvClockPos = 0.0;
         bool       modEnvPrevGate = false;
+        // Ratchet sub-step state
+        int    ratchetSubStep    = 0;
+        double ratchetSubStepDur = 0.0;  // duration of one sub-step in samples
+        double ratchetStepPos    = 0.0;  // samples elapsed since step start
+        bool   ratchetNoteOff    = false;
     };
 
     VoiceState vstate[numVoices];
+
+    struct FxState {
+        // ── Stereo Delay ─────────────────────────────────────────────────────────
+        std::vector<float> dlyL, dlyR;
+        int dlyWL = 0, dlyWR = 0;
+
+        // ── Dattorro Plate Reverb ─────────────────────────────────────────────────
+        // Input diffusers (4 all-pass chains)
+        std::vector<float> iap[4]; int iapW[4]={}, iapLen[4]={};
+        // Tank: 4 main delay lines + 4 all-pass delay lines
+        std::vector<float> td[4];  int tdW[4]={},  tdLen[4]={};
+        std::vector<float> tap[4]; int tapW[4]={}, tapLen[4]={};
+        // Damping one-pole LP states
+        float lpL = 0.f, lpR = 0.f;
+        // Tank modulation phases
+        double modPh1 = 0.0, modPh2 = 0.5;
+        // Pre-delay line
+        std::vector<float> preL, preR; int preW = 0;
+
+        // ── Chorus ────────────────────────────────────────────────────────────────
+        std::vector<float> chorusBuf;
+        int   chorusW = 0;
+        float chorusPh[3] = { 0.f, 1.f/3.f, 2.f/3.f };
+    };
+    FxState fxs;
 
     // PPQ duration of one step for each clock-division index
     static constexpr double ppqDivTable[7] = {
@@ -253,6 +316,8 @@ private:
     // PRIVATE METHODS
     //==========================================================================
     void  buildWavetables();
+    void  prepareFx (double sampleRate);
+    void  processFxBuffer (float* L, float* R, int numSamples);
 
     // Process one sample of one voice; returns the output sample.
     float processSingleVoiceSample (int vi, bool running,

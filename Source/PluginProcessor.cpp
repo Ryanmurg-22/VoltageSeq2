@@ -1,6 +1,59 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+//==============================================================================
+// PolyBLEP residual — smooths the hard discontinuity in saw/square waves.
+// t   = current normalised phase [0,1)
+// dt  = phase increment per sample (freq / sampleRate)
+// Returns a correction value to add/subtract at each discontinuity.
+//==============================================================================
+static inline float polyBlep (double t, double dt)
+{
+    if (t < dt)
+    {
+        t /= dt;
+        return (float)(t + t - t * t - 1.0);
+    }
+    if (t > 1.0 - dt)
+    {
+        t = (t - 1.0) / dt;
+        return (float)(t * t + t + t + 1.0);
+    }
+    return 0.0f;
+}
+
+// Circular buffer helpers for FX
+static inline float fxRead (const std::vector<float>& b, int wp, int off)
+{
+    int sz = (int)b.size();
+    return b[(wp - off - 1 + sz * 4) % sz];
+}
+static inline float fxReadLerp (const std::vector<float>& b, int wp, float off)
+{
+    int sz  = (int)b.size();
+    int o0  = (int)off;
+    float f = off - o0;
+    float s0 = b[(wp - o0 - 1 + sz * 4) % sz];
+    float s1 = b[(wp - o0 - 2 + sz * 4) % sz];
+    return s0 + f * (s1 - s0);
+}
+static inline void fxWrite (std::vector<float>& b, int& wp, float v)
+{
+    b[wp] = v;
+    if (++wp >= (int)b.size()) wp = 0;
+}
+// Schroeder all-pass: delay=len samples, coeff=g
+static inline float fxAP (std::vector<float>& b, int& wp, int len, float in, float g)
+{
+    int sz  = (int)b.size();
+    int rp  = (wp - len + sz * 4) % sz;
+    float d = b[rp];
+    float w = in + g * d;
+    b[wp]   = w;
+    if (++wp >= sz) wp = 0;
+    return d - g * w;
+}
+
 // Static constexpr member definitions required by some linkers
 constexpr double VoltageSeq2AudioProcessor::ppqDivTable[7];
 constexpr double VoltageSeq2AudioProcessor::cenvDivBars[8];
@@ -50,15 +103,51 @@ VoltageSeq2AudioProcessor::~VoltageSeq2AudioProcessor() {}
 //==============================================================================
 void VoltageSeq2AudioProcessor::buildWavetables()
 {
+    // Table 0: Sine — already band-limited by nature
     for (int i = 0; i < wavetableSize; ++i)
     {
-        double phase = (double)i / wavetableSize;
+        const double phase = (double)i / wavetableSize;
         wavetables[0][i] = (float)std::sin (phase * juce::MathConstants<double>::twoPi);
-        wavetables[1][i] = (phase < 0.5) ? (float)(phase * 4.0 - 1.0)
-                                          : (float)(3.0 - phase * 4.0);
-        wavetables[2][i] = (float)(phase * 2.0 - 1.0);
-        wavetables[3][i] = (phase < 0.5) ? 1.0f : -1.0f;
     }
+
+    // Tables 1-3: additive synthesis — sum harmonics up to Nyquist of the table.
+    // Using wavetableSize/4 harmonics avoids Gibbs ringing at the discontinuities.
+    const int   numH  = wavetableSize / 4;   // 512 harmonics
+    const double twoPi = juce::MathConstants<double>::twoPi;
+
+    double tri[wavetableSize] {}, saw[wavetableSize] {}, sq[wavetableSize] {};
+
+    for (int i = 0; i < wavetableSize; ++i)
+    {
+        const double t = (double)i / wavetableSize;
+        for (int h = 1; h <= numH; ++h)
+        {
+            const double s = std::sin (h * twoPi * t);
+            // Saw: all harmonics, alternating sign → ramps up
+            saw[i] += ((h & 1) ? 1.0 : -1.0) * s / h;
+            if (h & 1)   // odd harmonics only for triangle + square
+            {
+                const int k = (h - 1) / 2;
+                tri[i] += ((k & 1) ? -1.0 : 1.0) * s / ((double)h * h);
+                sq[i]  += s / h;
+            }
+        }
+    }
+
+    // Normalise each table to [-1, +1]
+    auto normalise = [&](double* buf, int tableIdx)
+    {
+        double peak = 0.0;
+        for (int i = 0; i < wavetableSize; ++i)
+            peak = std::max (peak, std::abs (buf[i]));
+        if (peak > 0.0)
+            for (int i = 0; i < wavetableSize; ++i)
+                wavetables[tableIdx][i] = (float)(buf[i] / peak);
+    };
+
+    normalise (tri, 1);   // Table 1: Triangle
+    normalise (saw, 2);   // Table 2: Saw
+    normalise (sq,  3);   // Table 3: Square
 }
 
 //==============================================================================
@@ -117,9 +206,244 @@ void VoltageSeq2AudioProcessor::prepareToPlay (double sampleRate, int samplesPer
         vs.osc1PhaseInc  = vs.currentFreq1 / sampleRate;
         vs.osc2PhaseInc  = vs.currentFreq2 / sampleRate;
     }
+
+    prepareFx (sampleRate);
 }
 
 void VoltageSeq2AudioProcessor::releaseResources() {}
+
+//==============================================================================
+void VoltageSeq2AudioProcessor::prepareFx (double sr)
+{
+    // ── Delay ────────────────────────────────────────────────────────────────
+    const int maxDly = (int)(sr * 2.0) + 4;
+    fxs.dlyL.assign (maxDly, 0.f); fxs.dlyR.assign (maxDly, 0.f);
+    fxs.dlyWL = fxs.dlyWR = 0;
+
+    // ── Dattorro Plate Reverb ─────────────────────────────────────────────────
+    // All delay lengths from Dattorro 1997 (reference rate 29761 Hz)
+    const double sc = sr / 29761.0;
+    auto sz = [&](int n) { return (int)(n * sc) + 4; };
+
+    // Input diffusers: AP1=142, AP2=107, AP3=379, AP4=277
+    const int iapLens[4] = { sz(142), sz(107), sz(379), sz(277) };
+    for (int i = 0; i < 4; ++i) {
+        fxs.iapLen[i] = iapLens[i];
+        fxs.iap[i].assign (iapLens[i] + 4, 0.f);
+        fxs.iapW[i] = 0;
+    }
+    // Tank main delays: D1=672, D2=3720, D3=908, D4=3163
+    const int tdLens[4] = { sz(672), sz(3720), sz(908), sz(3163) };
+    for (int i = 0; i < 4; ++i) {
+        fxs.tdLen[i] = tdLens[i];
+        fxs.td[i].assign (tdLens[i] + 4, 0.f);
+        fxs.tdW[i] = 0;
+    }
+    // Tank all-pass delays: AP5=1990, AP6=1800, AP7=1228, AP8=2656
+    const int tapLens[4] = { sz(1990), sz(1800), sz(1228), sz(2656) };
+    for (int i = 0; i < 4; ++i) {
+        fxs.tapLen[i] = tapLens[i];
+        fxs.tap[i].assign (tapLens[i] + 64, 0.f); // +64 for modulation headroom
+        fxs.tapW[i] = 0;
+    }
+    fxs.lpL = fxs.lpR = 0.f;
+    fxs.modPh1 = 0.0; fxs.modPh2 = 0.5;
+
+    // Pre-delay (max 100ms)
+    const int preSz = (int)(sr * 0.1) + 4;
+    fxs.preL.assign (preSz, 0.f); fxs.preR.assign (preSz, 0.f);
+    fxs.preW = 0;
+
+    // ── Chorus ────────────────────────────────────────────────────────────────
+    fxs.chorusBuf.assign (8192, 0.f);
+    fxs.chorusW = 0;
+    fxs.chorusPh[0] = 0.f; fxs.chorusPh[1] = 1.f/3.f; fxs.chorusPh[2] = 2.f/3.f;
+}
+
+//==============================================================================
+void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamples)
+{
+    const FxParams& p   = fx;
+    const double    sr  = currentSampleRate;
+    const double    sc  = sr / 29761.0;   // reverb scale factor
+    const double    twoPi = juce::MathConstants<double>::twoPi;
+
+    for (int s = 0; s < numSamples; ++s)
+    {
+        float inL = L[s], inR = R[s];
+
+        //----------------------------------------------------------------------
+        // DELAY
+        //----------------------------------------------------------------------
+        if (p.delayOn)
+        {
+            // Compute delay in samples
+            float delayMs;
+            if (p.delaySync)
+            {
+                static constexpr double divTable[7] = {
+                    1.0, 0.5, 0.25, 1.0/3.0, 1.0/6.0, 0.75, 0.375 };
+                delayMs = (float)(divTable[p.delaySyncDiv] * 4.0 * 60000.0 / internalBPM);
+            }
+            else
+                delayMs = p.delayTimeMs;
+
+            const int dSamples = juce::jlimit (1, (int)fxs.dlyL.size() - 1,
+                                               (int)(delayMs * 0.001f * (float)sr));
+
+            // Read
+            float dL = fxRead (fxs.dlyL, fxs.dlyWL, dSamples);
+            float dR = fxRead (fxs.dlyR, fxs.dlyWR, dSamples);
+
+            // Write with feedback (ping-pong crosses channels)
+            if (p.delayPingPong) {
+                fxWrite (fxs.dlyL, fxs.dlyWL, inL + dR * p.delayFeedback);
+                fxWrite (fxs.dlyR, fxs.dlyWR, inR + dL * p.delayFeedback);
+            } else {
+                fxWrite (fxs.dlyL, fxs.dlyWL, inL + dL * p.delayFeedback);
+                fxWrite (fxs.dlyR, fxs.dlyWR, inR + dR * p.delayFeedback);
+            }
+
+            inL = inL * (1.f - p.delayMix) + dL * p.delayMix;
+            inR = inR * (1.f - p.delayMix) + dR * p.delayMix;
+        }
+
+        //----------------------------------------------------------------------
+        // REVERB — Dattorro plate (stereo in/out)
+        //----------------------------------------------------------------------
+        if (p.reverbOn)
+        {
+            // Pre-delay
+            const int preSamples = juce::jlimit (0, (int)fxs.preL.size() - 1,
+                                                  (int)(p.reverbPreDelay * 0.001f * (float)sr));
+            float preOutL = fxRead (fxs.preL, fxs.preW, preSamples);
+            float preOutR = fxRead (fxs.preR, fxs.preW, preSamples);
+            fxWrite (fxs.preL, fxs.preW, inL);
+            fxWrite (fxs.preR, fxs.preW, inR);
+            // Mono sum → input diffusers
+            float z = (preOutL + preOutR) * 0.5f;
+            z = fxAP (fxs.iap[0], fxs.iapW[0], fxs.iapLen[0], z, 0.75f);
+            z = fxAP (fxs.iap[1], fxs.iapW[1], fxs.iapLen[1], z, 0.75f);
+            z = fxAP (fxs.iap[2], fxs.iapW[2], fxs.iapLen[2], z, 0.625f);
+            z = fxAP (fxs.iap[3], fxs.iapW[3], fxs.iapLen[3], z, 0.625f);
+
+            const float decay = 0.1f + p.reverbSize * 0.87f;  // 0.1..0.97
+
+            // Modulation (±16 samples at ref rate, ~1 Hz)
+            const float modDepth = (float)(16.0 * sc);
+            const float mod1 = modDepth * (float)std::sin (fxs.modPh1 * twoPi);
+            const float mod2 = modDepth * (float)std::sin (fxs.modPh2 * twoPi);
+            fxs.modPh1 = std::fmod (fxs.modPh1 + 1.0 / sr, 1.0);
+            fxs.modPh2 = std::fmod (fxs.modPh2 + 1.1 / sr, 1.0);
+
+            // Read tank finals (for cross-coupling)
+            const float d2out = fxRead (fxs.td[1], fxs.tdW[1], fxs.tdLen[1]);
+            const float d4out = fxRead (fxs.td[3], fxs.tdW[3], fxs.tdLen[3]);
+
+            // ── Left tank path ─────────────────────────────────────────────
+            float tankA = z + decay * d4out;
+            // Modulated AP5
+            {
+                float mo = (float)fxs.tapLen[0] + mod1;
+                int sz2  = (int)fxs.tap[0].size();
+                float d = fxReadLerp (fxs.tap[0], fxs.tapW[0], mo);
+                float w = tankA + 0.70f * d;
+                fxs.tap[0][fxs.tapW[0]] = w;
+                if (++fxs.tapW[0] >= sz2) fxs.tapW[0] = 0;
+                tankA = d - 0.70f * w;
+            }
+            fxWrite (fxs.td[0], fxs.tdW[0], tankA);    // D1
+            // LP damping
+            fxs.lpL = fxs.lpL * p.reverbDamping + tankA * (1.f - p.reverbDamping);
+            tankA = fxAP (fxs.tap[1], fxs.tapW[1], fxs.tapLen[1], fxs.lpL, 0.50f); // AP6
+            fxWrite (fxs.td[1], fxs.tdW[1], tankA);    // D2
+
+            // ── Right tank path ────────────────────────────────────────────
+            float tankB = z + decay * d2out;
+            // Modulated AP7
+            {
+                float mo = (float)fxs.tapLen[2] + mod2;
+                int sz2  = (int)fxs.tap[2].size();
+                float d = fxReadLerp (fxs.tap[2], fxs.tapW[2], mo);
+                float w = tankB + 0.70f * d;
+                fxs.tap[2][fxs.tapW[2]] = w;
+                if (++fxs.tapW[2] >= sz2) fxs.tapW[2] = 0;
+                tankB = d - 0.70f * w;
+            }
+            fxWrite (fxs.td[2], fxs.tdW[2], tankB);    // D3
+            // LP damping
+            fxs.lpR = fxs.lpR * p.reverbDamping + tankB * (1.f - p.reverbDamping);
+            tankB = fxAP (fxs.tap[3], fxs.tapW[3], fxs.tapLen[3], fxs.lpR, 0.50f); // AP8
+            fxWrite (fxs.td[3], fxs.tdW[3], tankB);    // D4
+
+            // ── Output taps (Dattorro Table I, scaled) ─────────────────────
+            auto tap = [&](const std::vector<float>& b, int w, double refOff) -> float {
+                return fxRead (b, w, (int)(refOff * sc));
+            };
+            float revL =  tap(fxs.td[0], fxs.tdW[0], 266)
+                        + tap(fxs.td[0], fxs.tdW[0], 2974)
+                        - tap(fxs.td[2], fxs.tdW[2], 1913)
+                        + tap(fxs.td[2], fxs.tdW[2], 1996)
+                        + tap(fxs.td[3], fxs.tdW[3], 1990)
+                        - tap(fxs.td[3], fxs.tdW[3], 187)
+                        + tap(fxs.td[1], fxs.tdW[1], 1228);
+            float revR =  tap(fxs.td[2], fxs.tdW[2], 353)
+                        + tap(fxs.td[2], fxs.tdW[2], 3627)
+                        - tap(fxs.td[1], fxs.tdW[1], 1228)
+                        + tap(fxs.td[1], fxs.tdW[1], 2673)
+                        + tap(fxs.td[0], fxs.tdW[0], 1990)
+                        - tap(fxs.td[0], fxs.tdW[0], 187)
+                        + tap(fxs.td[3], fxs.tdW[3], 1228);
+
+            revL *= 0.6f; revR *= 0.6f;
+            inL = inL * (1.f - p.reverbMix) + revL * p.reverbMix;
+            inR = inR * (1.f - p.reverbMix) + revR * p.reverbMix;
+        }
+
+        //----------------------------------------------------------------------
+        // CHORUS — 3-voice BBD-style
+        //----------------------------------------------------------------------
+        if (p.chorusOn)
+        {
+            fxWrite (fxs.chorusBuf, fxs.chorusW, (inL + inR) * 0.5f);
+            float outL = 0.f, outR = 0.f;
+            // 3 voices, spread in stereo: voice 0 = left, 1 = centre, 2 = right
+            const float panning[3] = { 1.0f, 0.5f, 0.0f };
+            for (int v = 0; v < 3; ++v)
+            {
+                fxs.chorusPh[v] = std::fmod (fxs.chorusPh[v]
+                                  + (float)(p.chorusRate / sr), 1.0f);
+                // Delay: 5ms center ± depth*10ms
+                const float delayMs  = 5.0f + p.chorusDepth * 10.0f
+                                       * std::sin (fxs.chorusPh[v] * juce::MathConstants<float>::twoPi);
+                const float delaySmp = delayMs * 0.001f * (float)sr;
+                const float sv = fxReadLerp (fxs.chorusBuf, fxs.chorusW, delaySmp);
+                const float panR = panning[v];
+                const float panL = 1.0f - panR;
+                outL += sv * panL;
+                outR += sv * panR;
+            }
+            outL /= 3.f; outR /= 3.f;
+            inL = inL * (1.f - p.chorusMix) + outL * p.chorusMix;
+            inR = inR * (1.f - p.chorusMix) + outR * p.chorusMix;
+        }
+
+        //----------------------------------------------------------------------
+        // MASTER DRIVE + GAIN
+        //----------------------------------------------------------------------
+        if (p.masterDrive > 0.001f)
+        {
+            const float d = 1.0f + p.masterDrive * 7.0f;
+            inL = std::tanh (inL * d) / d;
+            inR = std::tanh (inR * d) / d;
+        }
+        inL *= p.masterGain;
+        inR *= p.masterGain;
+
+        L[s] = inL;
+        R[s] = inR;
+    }
+}
 
 #ifndef JucePlugin_PreferredChannelConfigurations
 bool VoltageSeq2AudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -303,10 +627,11 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             stepOrder[1], glideCoeff[1],
             crossModSample[0]);   // voice A modulates voice B
 
-        const float mixed   = (outA + outB) * 0.5f;
-        leftCh[s]  = mixed;
-        rightCh[s] = mixed;
+        leftCh[s]  = (outA + outB) * 0.5f;
+        rightCh[s] = leftCh[s];
     }
+
+    processFxBuffer (leftCh, rightCh, numSamples);
 }
 
 //==============================================================================
@@ -617,24 +942,40 @@ float VoltageSeq2AudioProcessor::generateOsc1Sample (VoiceState& vs, const Voice
                                                       double phaseInc)
 {
     float output = 0.0f;
+    const double t  = vs.osc1Phase;
+    const double dt = phaseInc;
+
     switch (vp.osc1Waveform)
     {
         case VoiceParams::Sine:
-            output = (float)std::sin (vs.osc1Phase * juce::MathConstants<double>::twoPi);
+            output = (float)std::sin (t * juce::MathConstants<double>::twoPi);
             break;
+
         case VoiceParams::Saw:
-            output = (float)(vs.osc1Phase * 2.0 - 1.0);
+            // Raw ramp, then subtract PolyBLEP at the wrap discontinuity
+            output  = (float)(t * 2.0 - 1.0);
+            output -= polyBlep (t, dt);
             break;
+
         case VoiceParams::Square:
-            output = (vs.osc1Phase < vs.pulseWidth) ? 1.0f : -1.0f;
+        {
+            // Raw square, then correct both edges with PolyBLEP
+            const double pw = (double)vs.pulseWidth;
+            output  = (t < pw) ? 1.0f : -1.0f;
+            output += polyBlep (t, dt);                              // rising edge at t=0
+            output -= polyBlep (std::fmod (t - pw + 1.0, 1.0), dt); // falling edge at t=pw
             break;
+        }
+
         case VoiceParams::Triangle:
-            output = (vs.osc1Phase < 0.5) ? (float)(vs.osc1Phase * 4.0 - 1.0)
-                                           : (float)(3.0 - vs.osc1Phase * 4.0);
+            // Triangle is naturally band-limited — no PolyBLEP needed
+            output = (t < 0.5) ? (float)(t * 4.0 - 1.0)
+                                : (float)(3.0 - t * 4.0);
             break;
-        default:
-            break;
+
+        default: break;
     }
+
     vs.osc1Phase += phaseInc;
     if (vs.osc1Phase >= 1.0) vs.osc1Phase -= 1.0;
     return output;
@@ -1092,6 +1433,26 @@ void VoltageSeq2AudioProcessor::getStateInformation (juce::MemoryBlock& destData
         }
     }
 
+    auto* fxEl = xml.createNewChildElement ("FX");
+    fxEl->setAttribute ("delayOn",       (int)fx.delayOn);
+    fxEl->setAttribute ("delaySync",     (int)fx.delaySync);
+    fxEl->setAttribute ("delaySyncDiv",  fx.delaySyncDiv);
+    fxEl->setAttribute ("delayTimeMs",   fx.delayTimeMs);
+    fxEl->setAttribute ("delayFeedback", fx.delayFeedback);
+    fxEl->setAttribute ("delayPingPong", (int)fx.delayPingPong);
+    fxEl->setAttribute ("delayMix",      fx.delayMix);
+    fxEl->setAttribute ("reverbOn",      (int)fx.reverbOn);
+    fxEl->setAttribute ("reverbSize",    fx.reverbSize);
+    fxEl->setAttribute ("reverbDamping", fx.reverbDamping);
+    fxEl->setAttribute ("reverbPreDly",  fx.reverbPreDelay);
+    fxEl->setAttribute ("reverbMix",     fx.reverbMix);
+    fxEl->setAttribute ("chorusOn",      (int)fx.chorusOn);
+    fxEl->setAttribute ("chorusRate",    fx.chorusRate);
+    fxEl->setAttribute ("chorusDepth",   fx.chorusDepth);
+    fxEl->setAttribute ("chorusMix",     fx.chorusMix);
+    fxEl->setAttribute ("masterDrive",   fx.masterDrive);
+    fxEl->setAttribute ("masterGain",    fx.masterGain);
+
     copyXmlToBinary (xml, destData);
 }
 
@@ -1163,6 +1524,28 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
     {
         // v1 backward compat: flat attributes on root → load into voice[0]
         loadVoiceFromXml (*xml, voice[0], numSteps);
+    }
+
+    if (auto* fxEl = xml->getChildByName ("FX"))
+    {
+        fx.delayOn       = (bool)fxEl->getIntAttribute    ("delayOn",       0);
+        fx.delaySync     = (bool)fxEl->getIntAttribute    ("delaySync",     1);
+        fx.delaySyncDiv  =        fxEl->getIntAttribute   ("delaySyncDiv",  2);
+        fx.delayTimeMs   = (float)fxEl->getDoubleAttribute("delayTimeMs",   375.0);
+        fx.delayFeedback = (float)fxEl->getDoubleAttribute("delayFeedback", 0.40);
+        fx.delayPingPong = (bool)fxEl->getIntAttribute    ("delayPingPong", 0);
+        fx.delayMix      = (float)fxEl->getDoubleAttribute("delayMix",      0.30);
+        fx.reverbOn      = (bool)fxEl->getIntAttribute    ("reverbOn",      0);
+        fx.reverbSize    = (float)fxEl->getDoubleAttribute("reverbSize",    0.75);
+        fx.reverbDamping = (float)fxEl->getDoubleAttribute("reverbDamping", 0.40);
+        fx.reverbPreDelay= (float)fxEl->getDoubleAttribute("reverbPreDly",  20.0);
+        fx.reverbMix     = (float)fxEl->getDoubleAttribute("reverbMix",     0.25);
+        fx.chorusOn      = (bool)fxEl->getIntAttribute    ("chorusOn",      0);
+        fx.chorusRate    = (float)fxEl->getDoubleAttribute("chorusRate",    0.50);
+        fx.chorusDepth   = (float)fxEl->getDoubleAttribute("chorusDepth",   0.50);
+        fx.chorusMix     = (float)fxEl->getDoubleAttribute("chorusMix",     0.50);
+        fx.masterDrive   = (float)fxEl->getDoubleAttribute("masterDrive",   0.0);
+        fx.masterGain    = (float)fxEl->getDoubleAttribute("masterGain",    1.0);
     }
 
     // Apply to live ADSR objects immediately

@@ -302,7 +302,7 @@ private:
 
     // ── Page navigation ───────────────────────────────────────────────────────
     juce::TextButton synthPageBtn, patternPageBtn;
-    bool showPatternPage = false;
+    int currentPage = 0;  // 0=synth 1=pattern 2=fx
 
     // ── Pattern bank page ─────────────────────────────────────────────────────
     std::unique_ptr<PatternSlotView> patternSlot[2][16];
@@ -313,6 +313,36 @@ private:
     // Component lists for bulk show/hide
     std::vector<juce::Component*> synthPageComponents;
     std::vector<juce::Component*> patternPageComponents;
+
+    // ── FX page controls ─────────────────────────────────────────────────────
+    // Delay
+    juce::TextButton delayOnBtn;
+    juce::TextButton delayPingPongBtn;
+    juce::TextButton delaySyncBtn;
+    juce::ComboBox   delaySyncDivBox;
+    juce::Slider     delayTimeMsSlider;
+    juce::Slider     delayFeedbackSlider;
+    juce::Slider     delayMixSlider;
+    // Reverb
+    juce::TextButton reverbOnBtn;
+    juce::Slider     reverbSizeSlider;
+    juce::Slider     reverbDampingSlider;
+    juce::Slider     reverbPreDelaySlider;
+    juce::Slider     reverbMixSlider;
+    // Chorus
+    juce::TextButton chorusOnBtn;
+    juce::Slider     chorusRateSlider;
+    juce::Slider     chorusDepthSlider;
+    juce::Slider     chorusMixSlider;
+    // Master
+    juce::Slider     masterDriveSlider;
+    juce::Slider     masterGainSlider;
+
+    // ── Page 3 navigation ────────────────────────────────────────────────────
+    juce::TextButton fxPageBtn;
+    std::vector<juce::Component*> fxPageComponents;
+    void layoutFxPage();
+    void setupFxControls();
 
     // ── Backplate SVG ─────────────────────────────────────────────────────────
     std::unique_ptr<juce::Drawable> backplate;
@@ -338,7 +368,7 @@ private:
                     double skewMidpoint = 0.0);
     void refreshGateBtn (int v, int i);   // sync one gate button's text + colour
     void syncUIFromProcessor();        // refresh all widget values after preset load
-    void showPage (bool showPattern);  // toggle between synth and pattern pages
+    void showPage (int page);          // switch between pages 0=synth 1=pattern 2=fx
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VoltageSeq2AudioProcessorEditor)
 };
