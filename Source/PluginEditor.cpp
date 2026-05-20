@@ -726,6 +726,22 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     };
     addAndMakeVisible (filterSlopeBtn[v]);
 
+    // Env reset toggle
+    envResetBtn[v].setButtonText (vp.envReset ? "RESET" : "LEGATO");
+    envResetBtn[v].setClickingTogglesState (true);
+    envResetBtn[v].setToggleState (vp.envReset, juce::dontSendNotification);
+    envResetBtn[v].setColour (juce::TextButton::buttonColourId,   vp.envReset ? juce::Colour(0xff994422) : juce::Colour(0xff161630));
+    envResetBtn[v].setColour (juce::TextButton::buttonOnColourId, juce::Colour(0xff994422));
+    envResetBtn[v].onClick = [this, v]()
+    {
+        bool r = envResetBtn[v].getToggleState();
+        audioProcessor.voice[v].envReset = r;
+        envResetBtn[v].setButtonText (r ? "RESET" : "LEGATO");
+        envResetBtn[v].setColour (juce::TextButton::buttonColourId, r ? juce::Colour(0xff994422) : juce::Colour(0xff161630));
+    };
+    addAndMakeVisible (envResetBtn[v]);
+    synthPageComponents.push_back (&envResetBtn[v]);
+
     // Amp Envelope
     setupKnob (attackSlider[v],  0.001, 2.0, vp.adsrParams.attack,  0.3);
     attackSlider[v].onValueChange  = [this, v]() { audioProcessor.voice[v].adsrParams.attack  = (float)attackSlider[v].getValue(); };
@@ -1527,6 +1543,7 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     filterEnvAmtSlider[v].setBounds (pFltX + 118,cy2, kSz, kSz);
 
     // ── Amp Envelope ──────────────────────────────────────────────────────────
+    envResetBtn[v].setBounds (pAEX + pAEW - 44, ctrlTopY + 2, 42, 14);
     const int aeStride = 48;
     attackSlider [v].setBounds (pAEX + 2,            cy1, kSz, kSz);
     decaySlider  [v].setBounds (pAEX + 2 + aeStride, cy1, kSz, kSz);

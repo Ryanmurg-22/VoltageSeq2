@@ -209,6 +209,7 @@ private:
     juce::TextButton bipolarBtn  [2];
     juce::TextButton nudgeLeftBtn[2], nudgeRightBtn[2];
     juce::TextButton runStopBtn  [2];
+    juce::TextButton envResetBtn [2];
 
     juce::Slider     portaSlider     [2];
     juce::Slider     rangeSlider     [2];

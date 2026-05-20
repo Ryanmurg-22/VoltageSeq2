@@ -45,7 +45,7 @@ public:
         float decay   = 0.5f;
         float sustain = 0.0f;
         float release = 0.3f;
-        float depth   = 0.5f;
+        float depth   = 0.0f;
         int   dest    = 0;      // 0=FM Depth  1=Pitch  2=Filter
         bool  clockSync = false;
         int   clockDiv  = 3;    // index into cenvDivBars[]
@@ -61,6 +61,7 @@ public:
         bool  stepTied    [16] = {};   // true = sustain gate from prev step, no envelope retrigger
         int   stepRepeats [16] = {};   // 0=1× 1=2× 2=3× 3=4× — ratchet count
         int   stepPulses  [16] = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 };  // 1–8 clock pulses per step
+        bool  envReset         = false;   // true = hard-reset envelopes on every retrigger
         float portamentoTime   = 0.0f;
         float swingAmount      = 0.5f;
         int   clockDivision    = 2;      // 1/16 default

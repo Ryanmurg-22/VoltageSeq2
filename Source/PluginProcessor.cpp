@@ -717,6 +717,7 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
                     // Tied step: sustain envelope from previous step — no retrigger
                     if (!vp.stepTied[vp.currentStep])
                     {
+                        if (vp.envReset) { vs.adsr.reset();      vs.filterEnv.reset(); }
                         vs.adsr.noteOff();      vs.adsr.noteOn();
                         vs.filterEnv.noteOff(); vs.filterEnv.noteOn();
                         if (!vp.modEnv.clockSync)
@@ -768,6 +769,7 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
             if (subPos >= vs.ratchetSubStepDur && vs.ratchetSubStep < repeats - 1)
             {
                 ++vs.ratchetSubStep;
+                if (vp.envReset) { vs.adsr.reset(); vs.filterEnv.reset(); }
                 vs.adsr.noteOff(); vs.adsr.noteOn();
                 vs.filterEnv.noteOff(); vs.filterEnv.noteOn();
                 vs.ratchetNoteOff = false;
@@ -1161,6 +1163,7 @@ static void saveVoiceToXml (juce::XmlElement& el,
     el.setAttribute ("clkDiv",   vp.clockDivision);
     el.setAttribute ("seqLen",   vp.sequenceLength);
     el.setAttribute ("unipolar",   vp.unipolar);
+    el.setAttribute ("envReset",   vp.envReset);
     el.setAttribute ("playOrder",  vp.playOrder);
     el.setAttribute ("nudgeOffset",vp.nudgeOffset);
     el.setAttribute ("range",      (double)vp.rangeVCA);
@@ -1259,6 +1262,7 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
     vp.clockDivision    = getI ("clkDiv",   vp.clockDivision);
     vp.sequenceLength   = getI ("seqLen",   vp.sequenceLength);
     vp.unipolar         = getB ("unipolar",   vp.unipolar);
+    vp.envReset         = getB ("envReset",   false);
     vp.playOrder        = getI ("playOrder",  vp.playOrder);
     vp.nudgeOffset      = getI ("nudgeOffset",0);
     vp.rangeVCA         = getF ("range",      vp.rangeVCA);
