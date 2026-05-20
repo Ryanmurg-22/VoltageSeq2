@@ -59,7 +59,8 @@ public:
         bool  stepGates   [16] = {};
         bool  stepGlides  [16] = {};
         bool  stepTied    [16] = {};   // true = sustain gate from prev step, no envelope retrigger
-        int   stepRepeats [16] = {};   // 0=1× 1=2× 2=3× 3=4× — ratchet pulse count
+        int   stepRepeats [16] = {};   // 0=1× 1=2× 2=3× 3=4× — ratchet count
+        int   stepPulses  [16] = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 };  // 1–8 clock pulses per step
         float portamentoTime   = 0.0f;
         float swingAmount      = 0.5f;
         int   clockDivision    = 2;      // 1/16 default
@@ -160,6 +161,7 @@ public:
         bool  stepGlides  [16] = {};
         bool  stepTied    [16] = {};
         int   stepRepeats [16] = {};   // 0=1× 1=2× 2=3× 3=4×
+        int   stepPulses  [16] = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 };  // 1–8 clock pulses per step
         int   sequenceLength   = 16;
         int   clockDivision    = 2;
         float swingAmount      = 0.5f;

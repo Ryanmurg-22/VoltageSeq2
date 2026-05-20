@@ -559,8 +559,9 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const double factor = (i % 2 == 0)
                 ? (2.0 * (double)vp.swingAmount)
                 : (2.0 * (1.0 - (double)vp.swingAmount));
-            swingBounds   [vi][i + 1] = swingBounds   [vi][i] + samplesPerStep * factor;
-            swingPPQBounds[vi][i + 1] = swingPPQBounds[vi][i] + ppqStep        * factor;
+            const double pulses = (double)juce::jlimit (1, 8, vp.stepPulses[i]);
+            swingBounds   [vi][i + 1] = swingBounds   [vi][i] + samplesPerStep * factor * pulses;
+            swingPPQBounds[vi][i + 1] = swingPPQBounds[vi][i] + ppqStep        * factor * pulses;
         }
         totalSwingCycle[vi] = swingBounds   [vi][vp.sequenceLength];
         totalSwingPPQ  [vi] = swingPPQBounds[vi][vp.sequenceLength];
@@ -1153,6 +1154,7 @@ static void saveVoiceToXml (juce::XmlElement& el,
         el.setAttribute ("sl" + juce::String (i), vp.stepGlides[i]);
         el.setAttribute ("ti" + juce::String (i), vp.stepTied  [i]);
         el.setAttribute ("rt" + juce::String (i), vp.stepRepeats[i]);
+        el.setAttribute ("pl" + juce::String (i), vp.stepPulses [i]);
     }
     el.setAttribute ("porta",    (double)vp.portamentoTime);
     el.setAttribute ("swing",    (double)vp.swingAmount);
@@ -1250,6 +1252,7 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
         vp.stepGlides  [i] = getB (("sl" + juce::String (i)).toRawUTF8(), vp.stepGlides  [i]);
         vp.stepTied    [i] = getB (("ti" + juce::String (i)).toRawUTF8(), false);
         vp.stepRepeats [i] = getI (("rt" + juce::String (i)).toRawUTF8(), 0);
+        vp.stepPulses  [i] = juce::jlimit (1, 8, getI (("pl" + juce::String (i)).toRawUTF8(), 1));
     }
     vp.portamentoTime   = getF ("porta",    vp.portamentoTime);
     vp.swingAmount      = getF ("swing",    vp.swingAmount);
@@ -1344,6 +1347,7 @@ void VoltageSeq2AudioProcessor::savePattern (int vi, int slot)
         p.stepGlides  [i] = v.stepGlides  [i];
         p.stepTied    [i] = v.stepTied    [i];
         p.stepRepeats [i] = v.stepRepeats [i];
+        p.stepPulses  [i] = v.stepPulses  [i];
     }
     p.sequenceLength = v.sequenceLength;
     p.clockDivision  = v.clockDivision;
@@ -1368,6 +1372,7 @@ void VoltageSeq2AudioProcessor::loadPattern (int vi, int slot)
         v.stepGlides  [i] = p.stepGlides  [i];
         v.stepTied    [i] = p.stepTied    [i];
         v.stepRepeats [i] = p.stepRepeats [i];
+        v.stepPulses  [i] = p.stepPulses  [i];
     }
     v.sequenceLength = p.sequenceLength;
     v.clockDivision  = p.clockDivision;

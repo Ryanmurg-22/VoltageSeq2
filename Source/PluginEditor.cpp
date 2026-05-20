@@ -148,28 +148,39 @@ void WavetableDisplayComponent::paint (juce::Graphics& g)
 }
 
 //==============================================================================
-// GateBtnListener — right-click shows ratchet count menu
+// GateBtnListener — right-click shows ratchet + pulse count menu
 //==============================================================================
 void VoltageSeq2AudioProcessorEditor::GateBtnListener::mouseDown (const juce::MouseEvent& ev)
 {
     if (!ev.mods.isPopupMenu()) return;
 
-    ed.suppressNextGateClick = true;   // block the onClick cycle that may follow
+    ed.suppressNextGateClick = true;
     auto& vp = ed.audioProcessor.voice[vi];
     juce::PopupMenu menu;
-    const char* labels[] = { "1\xc3\x97  (no ratchet)", "2\xc3\x97", "3\xc3\x97", "4\xc3\x97" };
+
+    // ── Ratchet ──────────────────────────────────────────────────────────────
+    menu.addSectionHeader ("RATCHET");
+    const char* rLabels[] = { "1x  (off)", "2x", "3x", "4x" };
     for (int r = 0; r < 4; ++r)
-        menu.addItem (r + 1, labels[r], true, vp.stepRepeats[step] == r);
+        menu.addItem (r + 1, rLabels[r], true, vp.stepRepeats[step] == r);
+
+    // ── Pulse count ──────────────────────────────────────────────────────────
+    menu.addSeparator();
+    menu.addSectionHeader ("PULSE COUNT");
+    for (int p = 1; p <= 8; ++p)
+        menu.addItem (10 + p, juce::String (p) + (p == 1 ? " pulse  (default)" : " pulses"),
+                      true, vp.stepPulses[step] == p);
 
     menu.showMenuAsync (
         juce::PopupMenu::Options{}.withTargetComponent (&ed.gateBtn[vi][step]),
         [this](int result)
         {
             if (result >= 1 && result <= 4)
-            {
                 ed.audioProcessor.voice[vi].stepRepeats[step] = result - 1;
+            else if (result >= 11 && result <= 18)
+                ed.audioProcessor.voice[vi].stepPulses[step] = result - 10;
+            if (result > 0)
                 ed.refreshGateBtn (vi, step);
-            }
         });
 }
 
@@ -1278,11 +1289,32 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         g.drawText ("SLIDE", seqX + 16 * stepStride + 3, sY + slideRelY, 50, 13, juce::Justification::centredLeft);
 
         // Step numbers
-        g.setColour (dimColour);
         g.setFont (juce::Font (8.0f));
         for (int i = 0; i < 16; ++i)
+        {
+            const int pulses = audioProcessor.voice[v].stepPulses[i];
+            const bool multiPulse = (pulses > 1);
+
+            // Step number — dimmer when default, accent colour when multi-pulse
+            g.setColour (multiPulse ? juce::Colour (0xff00d4aa) : dimColour);
             g.drawText (juce::String (i + 1), seqX + i * stepStride + 4, sY + seqH - 10,
                         stepStride - 8, 10, juce::Justification::centred);
+
+            // Pulse pips — small squares just above the step number
+            if (multiPulse)
+            {
+                const int pipW = 4, pipH = 3, pipGap = 2;
+                const int totalPipW = pulses * pipW + (pulses - 1) * pipGap;
+                int px = seqX + i * stepStride + (stepStride - totalPipW) / 2;
+                const int py = sY + seqH - 14;
+                g.setColour (juce::Colour (0xff00d4aa).withAlpha (0.75f));
+                for (int p = 0; p < pulses; ++p)
+                {
+                    g.fillRect (px, py, pipW, pipH);
+                    px += pipW + pipGap;
+                }
+            }
+        }
 
         // ── Sub-strip ─────────────────────────────────────────────────────────
         g.setColour (subStripColour.withAlpha (0.88f));

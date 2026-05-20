@@ -102,6 +102,7 @@ public:
             bool gate  = ps.stepGates[i];
             bool tied  = inLen && ps.stepTied[i];
             int  rep   = inLen ? ps.stepRepeats[i] : 0;
+            int  puls  = inLen ? ps.stepPulses[i]  : 1;
             auto col   = !inLen ? juce::Colour (0xff0a0a12)
                        : !gate  ? juce::Colour (0xff1a1a2c)
                        : tied   ? juce::Colour (0xff704010)
@@ -121,6 +122,11 @@ public:
                 g.drawText (juce::String (rep + 1),
                             gridX + i * sw, gridY + 2, sw - 1, 10,
                             juce::Justification::centred);
+            }
+            // Pulse count bar at bottom of step cell (cyan, proportional width)
+            if (inLen && puls > 1) {
+                g.setColour (juce::Colour (0xff00d4aa).withAlpha (0.7f));
+                g.fillRect (gridX + i * sw, gridY + gridH - 5, (sw - 1) * puls / 8, 2);
             }
         }
 
