@@ -26,7 +26,7 @@ juce_add_plugin(VoltageSeq2
     PRODUCES_MIDI_OUTPUT    FALSE
     IS_MIDI_EFFECT          FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
-    COPY_PLUGIN_AFTER_BUILD FALSE
+    COPY_PLUGIN_AFTER_BUILD TRUE
     PRODUCT_NAME            "VoltageSeq2"
     DESCRIPTION             "Dual-voice 16-step voltage sequencer with FM synthesis"
 )
