@@ -371,6 +371,7 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
 
     // setSize LAST — triggers resized() which calls layoutVoice()
     setSize (1500, winH);
+    showPage (0);   // ensure FX / pattern controls start hidden
     startTimerHz (30);
 }
 
@@ -904,6 +905,7 @@ void VoltageSeq2AudioProcessorEditor::setupFxControls()
 
     auto addFx = [&](juce::Component& c) {
         addChildComponent (c);
+        c.setVisible (false);   // setupKnob may have called addAndMakeVisible first
         fxPageComponents.push_back (&c);
     };
 
@@ -1214,25 +1216,26 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         drawFxPanel (960, 300, "CHORUS", juce::Colour (0xffe09040));
         drawFxPanel (1290,200, "MASTER", juce::Colour (0xffe94560));
 
-        // Knob labels
+        // Knob labels — drawn below the rotary knobs (knobs at y=210 h=52, labels at y=264)
+        constexpr int lblY = 264;
         g.setFont (juce::Font (9.f));
         g.setColour (textColour);
         // Delay labels
-        g.drawText ("TIME",     10+10,  220, 52, 12, juce::Justification::centred);
-        g.drawText ("FEEDBK",   10+80,  220, 52, 12, juce::Justification::centred);
-        g.drawText ("MIX",      10+150, 220, 52, 12, juce::Justification::centred);
+        g.drawText ("TIME",     10+10,  lblY, 52, 12, juce::Justification::centred);
+        g.drawText ("FEEDBK",   10+80,  lblY, 52, 12, juce::Justification::centred);
+        g.drawText ("MIX",      10+150, lblY, 52, 12, juce::Justification::centred);
         // Reverb labels
-        g.drawText ("SIZE",    460+10,  220, 52, 12, juce::Justification::centred);
-        g.drawText ("DAMP",    460+80,  220, 52, 12, juce::Justification::centred);
-        g.drawText ("PRE-DLY", 460+150, 220, 52, 12, juce::Justification::centred);
-        g.drawText ("MIX",     460+220, 220, 52, 12, juce::Justification::centred);
+        g.drawText ("SIZE",    460+10,  lblY, 52, 12, juce::Justification::centred);
+        g.drawText ("DAMP",    460+80,  lblY, 52, 12, juce::Justification::centred);
+        g.drawText ("PRE-DLY", 460+150, lblY, 52, 12, juce::Justification::centred);
+        g.drawText ("MIX",     460+220, lblY, 52, 12, juce::Justification::centred);
         // Chorus labels
-        g.drawText ("RATE",    960+10,  220, 52, 12, juce::Justification::centred);
-        g.drawText ("DEPTH",   960+80,  220, 52, 12, juce::Justification::centred);
-        g.drawText ("MIX",     960+150, 220, 52, 12, juce::Justification::centred);
+        g.drawText ("RATE",    960+10,  lblY, 52, 12, juce::Justification::centred);
+        g.drawText ("DEPTH",   960+80,  lblY, 52, 12, juce::Justification::centred);
+        g.drawText ("MIX",     960+150, lblY, 52, 12, juce::Justification::centred);
         // Master labels
-        g.drawText ("DRIVE",  1290+10,  220, 52, 12, juce::Justification::centred);
-        g.drawText ("GAIN",   1290+80,  220, 52, 12, juce::Justification::centred);
+        g.drawText ("DRIVE",  1290+10,  lblY, 52, 12, juce::Justification::centred);
+        g.drawText ("GAIN",   1290+80,  lblY, 52, 12, juce::Justification::centred);
         return;
     }
 
