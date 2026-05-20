@@ -292,7 +292,7 @@ private:
         // Tank modulation phases
         double modPh1 = 0.0, modPh2 = 0.5;
         // Pre-delay line
-        std::vector<float> preL, preR; int preW = 0;
+        std::vector<float> preL, preR; int preWL = 0, preWR = 0;
 
         // ── Chorus ────────────────────────────────────────────────────────────────
         std::vector<float> chorusBuf;

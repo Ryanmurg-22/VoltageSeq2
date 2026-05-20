@@ -31,6 +31,8 @@ juce_add_plugin(VoltageSeq2
     DESCRIPTION             "Dual-voice 16-step voltage sequencer with FM synthesis"
 )
 
+juce_generate_juce_header(VoltageSeq2)
+
 # ── Sources ───────────────────────────────────────────────────────────────────
 target_sources(VoltageSeq2 PRIVATE
     Source/PluginProcessor.cpp

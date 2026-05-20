@@ -232,15 +232,15 @@ void VoltageSeq2AudioProcessor::prepareFx (double sr)
         fxs.iap[i].assign (iapLens[i] + 4, 0.f);
         fxs.iapW[i] = 0;
     }
-    // Tank main delays: D1=672, D2=3720, D3=908, D4=3163
-    const int tdLens[4] = { sz(672), sz(3720), sz(908), sz(3163) };
+    // Tank main delays: D1=4453, D2=3720, D3=4217, D4=3163
+    const int tdLens[4] = { sz(4453), sz(3720), sz(4217), sz(3163) };
     for (int i = 0; i < 4; ++i) {
         fxs.tdLen[i] = tdLens[i];
         fxs.td[i].assign (tdLens[i] + 4, 0.f);
         fxs.tdW[i] = 0;
     }
-    // Tank all-pass delays: AP5=1990, AP6=1800, AP7=1228, AP8=2656
-    const int tapLens[4] = { sz(1990), sz(1800), sz(1228), sz(2656) };
+    // Tank all-pass delays: AP5=672(mod), AP6=1800, AP7=908(mod), AP8=2656
+    const int tapLens[4] = { sz(672), sz(1800), sz(908), sz(2656) };
     for (int i = 0; i < 4; ++i) {
         fxs.tapLen[i] = tapLens[i];
         fxs.tap[i].assign (tapLens[i] + 64, 0.f); // +64 for modulation headroom
@@ -252,7 +252,7 @@ void VoltageSeq2AudioProcessor::prepareFx (double sr)
     // Pre-delay (max 100ms)
     const int preSz = (int)(sr * 0.1) + 4;
     fxs.preL.assign (preSz, 0.f); fxs.preR.assign (preSz, 0.f);
-    fxs.preW = 0;
+    fxs.preWL = fxs.preWR = 0;
 
     // ── Chorus ────────────────────────────────────────────────────────────────
     fxs.chorusBuf.assign (8192, 0.f);
@@ -313,13 +313,13 @@ void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamp
         //----------------------------------------------------------------------
         if (p.reverbOn)
         {
-            // Pre-delay
+            // Pre-delay (separate write pointers so L and R advance independently)
             const int preSamples = juce::jlimit (0, (int)fxs.preL.size() - 1,
                                                   (int)(p.reverbPreDelay * 0.001f * (float)sr));
-            float preOutL = fxRead (fxs.preL, fxs.preW, preSamples);
-            float preOutR = fxRead (fxs.preR, fxs.preW, preSamples);
-            fxWrite (fxs.preL, fxs.preW, inL);
-            fxWrite (fxs.preR, fxs.preW, inR);
+            float preOutL = fxRead (fxs.preL, fxs.preWL, preSamples);
+            float preOutR = fxRead (fxs.preR, fxs.preWR, preSamples);
+            fxWrite (fxs.preL, fxs.preWL, inL);
+            fxWrite (fxs.preR, fxs.preWR, inR);
             // Mono sum → input diffusers
             float z = (preOutL + preOutR) * 0.5f;
             z = fxAP (fxs.iap[0], fxs.iapW[0], fxs.iapLen[0], z, 0.75f);
@@ -377,27 +377,33 @@ void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamp
             fxWrite (fxs.td[3], fxs.tdW[3], tankB);    // D4
 
             // ── Output taps (Dattorro Table I, scaled) ─────────────────────
-            auto tap = [&](const std::vector<float>& b, int w, double refOff) -> float {
+            // Left output reads from right tank:  td[2]=D3(4217) td[3]=D4(3163) tap[3]=AP8(2656)
+            // Right output reads from left tank:  td[0]=D1(4453) td[1]=D2(3720) tap[1]=AP6(1800)
+            // All offsets verified in-bounds at reference rate 29761 Hz.
+            auto otap = [&](const std::vector<float>& b, int w, double refOff) -> float {
                 return fxRead (b, w, (int)(refOff * sc));
             };
-            float revL =  tap(fxs.td[0], fxs.tdW[0], 266)
-                        + tap(fxs.td[0], fxs.tdW[0], 2974)
-                        - tap(fxs.td[2], fxs.tdW[2], 1913)
-                        + tap(fxs.td[2], fxs.tdW[2], 1996)
-                        + tap(fxs.td[3], fxs.tdW[3], 1990)
-                        - tap(fxs.td[3], fxs.tdW[3], 187)
-                        + tap(fxs.td[1], fxs.tdW[1], 1228);
-            float revR =  tap(fxs.td[2], fxs.tdW[2], 353)
-                        + tap(fxs.td[2], fxs.tdW[2], 3627)
-                        - tap(fxs.td[1], fxs.tdW[1], 1228)
-                        + tap(fxs.td[1], fxs.tdW[1], 2673)
-                        + tap(fxs.td[0], fxs.tdW[0], 1990)
-                        - tap(fxs.td[0], fxs.tdW[0], 187)
-                        + tap(fxs.td[3], fxs.tdW[3], 1228);
+            float revL =  otap(fxs.td[2],  fxs.tdW[2],  266)
+                        + otap(fxs.td[2],  fxs.tdW[2],  2974)
+                        - otap(fxs.tap[3], fxs.tapW[3], 1913)
+                        + otap(fxs.tap[3], fxs.tapW[3], 1996)
+                        + otap(fxs.td[3],  fxs.tdW[3],  1990)
+                        - otap(fxs.td[3],  fxs.tdW[3],  187)
+                        + otap(fxs.td[2],  fxs.tdW[2],  320);
+            float revR =  otap(fxs.td[0],  fxs.tdW[0],  353)
+                        + otap(fxs.td[0],  fxs.tdW[0],  3627)
+                        - otap(fxs.tap[1], fxs.tapW[1], 1228)
+                        + otap(fxs.td[1],  fxs.tdW[1],  2673)
+                        + otap(fxs.td[0],  fxs.tdW[0],  1990)
+                        - otap(fxs.td[0],  fxs.tdW[0],  187)
+                        + otap(fxs.td[0],  fxs.tdW[0],  320);
 
             revL *= 0.6f; revR *= 0.6f;
             inL = inL * (1.f - p.reverbMix) + revL * p.reverbMix;
             inR = inR * (1.f - p.reverbMix) + revR * p.reverbMix;
+            // Guard against feedback explosion (inf/nan → silence rather than crash)
+            inL = juce::jlimit (-4.0f, 4.0f, inL);
+            inR = juce::jlimit (-4.0f, 4.0f, inR);
         }
 
         //----------------------------------------------------------------------
