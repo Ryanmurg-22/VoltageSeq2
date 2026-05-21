@@ -742,6 +742,47 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     addAndMakeVisible (envResetBtn[v]);
     synthPageComponents.push_back (&envResetBtn[v]);
 
+    // Pulse mode toggle (STAGES / PULSES)
+    pulseModeBtn[v].setButtonText (vp.pulseLengthMode ? "PULSES" : "STAGES");
+    pulseModeBtn[v].setClickingTogglesState (true);
+    pulseModeBtn[v].setToggleState (vp.pulseLengthMode, juce::dontSendNotification);
+    pulseModeBtn[v].setColour (juce::TextButton::buttonColourId,   vp.pulseLengthMode ? juce::Colour(0xff00aa88) : juce::Colour(0xff161630));
+    pulseModeBtn[v].setColour (juce::TextButton::buttonOnColourId, juce::Colour(0xff00aa88));
+    pulseModeBtn[v].onClick = [this, v]()
+    {
+        bool m = pulseModeBtn[v].getToggleState();
+        audioProcessor.voice[v].pulseLengthMode = m;
+        pulseModeBtn[v].setButtonText (m ? "PULSES" : "STAGES");
+        pulseModeBtn[v].setColour (juce::TextButton::buttonColourId, m ? juce::Colour(0xff00aa88) : juce::Colour(0xff161630));
+        pulseLenBox[v].setVisible (m);
+    };
+    addAndMakeVisible (pulseModeBtn[v]);
+    synthPageComponents.push_back (&pulseModeBtn[v]);
+
+    // Pulse length selector (visible only in PULSES mode)
+    static const int pulseLengthValues[] = { 4,6,8,12,16,24,32,48,64,96,128 };
+    for (int i = 0; i < 11; ++i)
+        pulseLenBox[v].addItem (juce::String (pulseLengthValues[i]), i + 1);
+    // Select closest item to current pulseLength
+    {
+        int bestId = 4;
+        for (int i = 0; i < 11; ++i)
+            if (pulseLengthValues[i] <= vp.pulseLength) bestId = i + 1;
+        pulseLenBox[v].setSelectedId (bestId, juce::dontSendNotification);
+    }
+    pulseLenBox[v].setColour (juce::ComboBox::backgroundColourId, juce::Colour(0xff0e1a14));
+    pulseLenBox[v].setColour (juce::ComboBox::textColourId,       juce::Colour(0xff00d4aa));
+    pulseLenBox[v].onChange = [this, v]()
+    {
+        static const int vals[] = { 4,6,8,12,16,24,32,48,64,96,128 };
+        int idx = pulseLenBox[v].getSelectedItemIndex();
+        if (idx >= 0 && idx < 11)
+            audioProcessor.voice[v].pulseLength = vals[idx];
+    };
+    pulseLenBox[v].setVisible (vp.pulseLengthMode);
+    addChildComponent (pulseLenBox[v]);
+    synthPageComponents.push_back (&pulseLenBox[v]);
+
     // Amp Envelope
     setupKnob (attackSlider[v],  0.001, 2.0, vp.adsrParams.attack,  0.3);
     attackSlider[v].onValueChange  = [this, v]() { audioProcessor.voice[v].adsrParams.attack  = (float)attackSlider[v].getValue(); };
@@ -1304,6 +1345,36 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         g.setColour (slideOnColour);
         g.drawText ("SLIDE", seqX + 16 * stepStride + 3, sY + slideRelY, 50, 13, juce::Justification::centredLeft);
 
+        // ── Pulse counter (top-right of sequencer strip) ───────────────────
+        {
+            const auto& vp2 = audioProcessor.voice[v];
+            int totalPulses = 0;
+            for (int i = 0; i < vp2.sequenceLength; ++i)
+                totalPulses += vp2.stepPulses[i];
+
+            const int pCtrlX = seqX + 16 * stepStride + 4;
+            const int pCtrlW = seqW - 16 * stepStride - 8;
+
+            // Label
+            g.setFont (juce::Font (7.5f, juce::Font::bold));
+            g.setColour (juce::Colour (0xff00d4aa).withAlpha (0.7f));
+            g.drawText ("TOTAL", pCtrlX, sY + stepSliderTop, pCtrlW, 11, juce::Justification::centred);
+
+            // Count value — cyan if in range, amber warning if over pulse limit
+            const bool overLimit = vp2.pulseLengthMode && totalPulses > vp2.pulseLength;
+            g.setColour (overLimit ? juce::Colour(0xffe09040) : juce::Colour(0xff00d4aa));
+            g.setFont (juce::Font (16.0f, juce::Font::bold));
+            g.drawText (juce::String (totalPulses), pCtrlX, sY + stepSliderTop + 10, pCtrlW, 20, juce::Justification::centred);
+
+            // In pulse mode: show "/N" target below
+            if (vp2.pulseLengthMode)
+            {
+                g.setFont (juce::Font (8.0f));
+                g.setColour (juce::Colour (0xff00aa88));
+                g.drawText ("/ " + juce::String (vp2.pulseLength), pCtrlX, sY + stepSliderTop + 28, pCtrlW, 10, juce::Justification::centred);
+            }
+        }
+
         // Step numbers
         g.setFont (juce::Font (8.0f));
         for (int i = 0; i < 16; ++i)
@@ -1490,6 +1561,12 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
         gateBtn [v][i].setBounds (bx + 8,  seqTopY + gateRelY,      stepStride - 16, 13);
         slideBtn[v][i].setBounds (bx + 8,  seqTopY + slideRelY,     stepStride - 16, 12);
     }
+
+    // ── Pulse counter / mode controls (right of sequencer steps) ─────────────
+    const int pCtrlX = seqX + 16 * stepStride + 4;   // x=1417
+    const int pCtrlW = seqW - 16 * stepStride - 8;   // ~74px
+    pulseModeBtn[v].setBounds (pCtrlX, seqTopY + stepSliderTop + 34, pCtrlW, 15);
+    pulseLenBox [v].setBounds (pCtrlX, seqTopY + stepSliderTop + 53, pCtrlW, 16);
 
     // ── Sub-strip ─────────────────────────────────────────────────────────────
     seqLengthSlider[v].setBounds (12,  sbCY, 82, 18);

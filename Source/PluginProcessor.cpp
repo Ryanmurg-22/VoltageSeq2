@@ -563,8 +563,17 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             swingBounds   [vi][i + 1] = swingBounds   [vi][i] + samplesPerStep * factor * pulses;
             swingPPQBounds[vi][i + 1] = swingPPQBounds[vi][i] + ppqStep        * factor * pulses;
         }
-        totalSwingCycle[vi] = swingBounds   [vi][vp.sequenceLength];
-        totalSwingPPQ  [vi] = swingPPQBounds[vi][vp.sequenceLength];
+        // PULSE MODE: reset after exactly pulseLength clock ticks regardless of stages
+        if (vp.pulseLengthMode && vp.pulseLength > 0)
+        {
+            totalSwingCycle[vi] = (double)vp.pulseLength * samplesPerStep;
+            totalSwingPPQ  [vi] = (double)vp.pulseLength * ppqStep;
+        }
+        else
+        {
+            totalSwingCycle[vi] = swingBounds   [vi][vp.sequenceLength];
+            totalSwingPPQ  [vi] = swingPPQBounds[vi][vp.sequenceLength];
+        }
 
         // Step order
         switch (vp.playOrder)
@@ -1162,9 +1171,11 @@ static void saveVoiceToXml (juce::XmlElement& el,
     el.setAttribute ("swing",    (double)vp.swingAmount);
     el.setAttribute ("clkDiv",   vp.clockDivision);
     el.setAttribute ("seqLen",   vp.sequenceLength);
-    el.setAttribute ("unipolar",   vp.unipolar);
-    el.setAttribute ("envReset",   vp.envReset);
-    el.setAttribute ("playOrder",  vp.playOrder);
+    el.setAttribute ("unipolar",       vp.unipolar);
+    el.setAttribute ("envReset",       vp.envReset);
+    el.setAttribute ("pulseLenMode",   vp.pulseLengthMode);
+    el.setAttribute ("pulseLen",       vp.pulseLength);
+    el.setAttribute ("playOrder",      vp.playOrder);
     el.setAttribute ("nudgeOffset",vp.nudgeOffset);
     el.setAttribute ("range",      (double)vp.rangeVCA);
     el.setAttribute ("root",     vp.rootNote);
@@ -1261,9 +1272,11 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
     vp.swingAmount      = getF ("swing",    vp.swingAmount);
     vp.clockDivision    = getI ("clkDiv",   vp.clockDivision);
     vp.sequenceLength   = getI ("seqLen",   vp.sequenceLength);
-    vp.unipolar         = getB ("unipolar",   vp.unipolar);
-    vp.envReset         = getB ("envReset",   false);
-    vp.playOrder        = getI ("playOrder",  vp.playOrder);
+    vp.unipolar         = getB ("unipolar",     vp.unipolar);
+    vp.envReset         = getB ("envReset",     false);
+    vp.pulseLengthMode  = getB ("pulseLenMode", false);
+    vp.pulseLength      = juce::jlimit (1, 512, getI ("pulseLen", 16));
+    vp.playOrder        = getI ("playOrder",    vp.playOrder);
     vp.nudgeOffset      = getI ("nudgeOffset",0);
     vp.rangeVCA         = getF ("range",      vp.rangeVCA);
     vp.rootNote         = getI ("root",     vp.rootNote);

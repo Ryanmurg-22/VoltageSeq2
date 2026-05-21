@@ -62,6 +62,8 @@ public:
         int   stepRepeats [16] = {};   // 0=1× 1=2× 2=3× 3=4× — ratchet count
         int   stepPulses  [16] = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 };  // 1–8 clock pulses per step
         bool  envReset         = false;   // true = hard-reset envelopes on every retrigger
+        bool  pulseLengthMode  = false;   // true = reset after fixed pulse count, not stage count
+        int   pulseLength      = 16;      // target total pulses before reset (pulse mode only)
         float portamentoTime   = 0.0f;
         float swingAmount      = 0.5f;
         int   clockDivision    = 2;      // 1/16 default
