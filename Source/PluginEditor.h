@@ -353,6 +353,18 @@ private:
     void layoutFxPage();
     void setupFxControls();
 
+    // ── FX page voice selector ─────────────────────────────────────────────
+    int              fxVoiceTab = 0;    // 0 = Voice A FX,  1 = Voice B FX
+    juce::TextButton fxVoiceABtn, fxVoiceBBtn;   // tab selectors
+    juce::TextButton fxBypassBtn;                // per-voice bypass
+
+    // Refresh all FX page controls from audioProcessor.fx[fxVoiceTab].
+    void syncFxPageFromVoice();
+
+    // ── MIDI Out (per voice, on Synth page) ────────────────────────────────
+    juce::TextButton midiOutBtn    [2];   // enable toggle
+    juce::ComboBox   midiOutChBox  [2];   // MIDI channel 1–16
+
     // ── Backplate SVG ─────────────────────────────────────────────────────────
     std::unique_ptr<juce::Drawable> backplate;
 
@@ -368,6 +380,22 @@ private:
     };
     std::unique_ptr<GateBtnListener> gateMouseListener[2][16];
     bool suppressNextGateClick = false;  // set by GateBtnListener to block onClick cycling
+
+    // ── APVTS slider attachments ─────────────────────────────────────────────
+    // These must be declared BEFORE the controls they attach to are destroyed,
+    // so put them here (members are destroyed in reverse declaration order).
+    using SliderAtt = juce::AudioProcessorValueTreeState::SliderAttachment;
+    std::unique_ptr<SliderAtt> stepAttach     [2][16];
+    std::unique_ptr<SliderAtt> cutoffAttach   [2];
+    std::unique_ptr<SliderAtt> ampAAttach     [2], ampDAttach    [2];
+    std::unique_ptr<SliderAtt> ampSAttach     [2], ampRAttach    [2];
+    std::unique_ptr<SliderAtt> fAAttach       [2], fDAttach      [2];
+    std::unique_ptr<SliderAtt> fSAttach       [2], fRAttach      [2];
+    std::unique_ptr<SliderAtt> fEnvAmtAttach  [2];
+    std::unique_ptr<SliderAtt> lfo1RateAttach [2], lfo1DepAttach [2];
+    std::unique_ptr<SliderAtt> lfo2RateAttach [2], lfo2DepAttach [2];
+    std::unique_ptr<SliderAtt> fmRatioAttach  [2], fmDepthAttach [2];
+    std::unique_ptr<SliderAtt> portaAttach    [2], rangeAttach   [2];
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     void setupVoice (int v);                          // wire up all controls for one voice

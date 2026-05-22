@@ -142,6 +142,10 @@ public:
         // ── Mod Envelope ─────────────────────────────────────────────────────
         ModEnvParams modEnv;
 
+        // ── MIDI Out ─────────────────────────────────────────────────────────
+        bool midiOutEnabled = false;
+        int  midiOutChannel = 1;     // 1–16
+
         // ── Display / transport (written audio thread, read UI — harmless race)
         int currentStep = 0;
         std::atomic<bool> sequencerRunning { true };
@@ -185,6 +189,9 @@ public:
     void clearPattern (int voiceIdx, int slotIdx);
 
     struct FxParams {
+        // Per-voice bypass — when true, voice passes dry (no delay/reverb/chorus)
+        bool  fxBypass      = false;
+
         // Delay
         bool  delayOn       = false;
         bool  delaySync     = true;
@@ -211,7 +218,7 @@ public:
         float masterDrive   = 0.0f;   // 0..1
         float masterGain    = 1.0f;   // 0..2
     };
-    FxParams fx;
+    FxParams fx[2];   // fx[0] = Voice A,  fx[1] = Voice B
 
     //==========================================================================
     // PUBLIC DATA
@@ -220,6 +227,14 @@ public:
     static const int numSteps  = 16;
 
     VoiceParams voice[numVoices];   // voice[0]=A  voice[1]=B
+
+    // APVTS — registers automatable parameters with the DAW host.
+    // Declare after voice[] so createParameterLayout() can reference defaults.
+    juce::AudioProcessorValueTreeState apvts;
+    static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+
+    // Push current VoiceParams values into APVTS (call after loadPattern / old-format restore).
+    void syncAPVTSFromVoice (int vi);
 
     // Shared between both voices
     double            internalBPM = 120.0;
@@ -277,6 +292,19 @@ private:
         double ratchetSubStepDur = 0.0;  // duration of one sub-step in samples
         double ratchetStepPos    = 0.0;  // samples elapsed since step start
         bool   ratchetNoteOff    = false;
+
+        // ── MIDI Out step signals (set by processSingleVoiceSample, consumed in processBlock)
+        bool  midiStepFired   = false;  // one-shot: new step just advanced
+        bool  midiStepGate    = false;  // gate state of the new step
+        bool  midiStepGlide   = false;  // new step has portamento active
+        int   midiStepNote    = -1;     // quantized MIDI note for new step (-1 = none)
+        int   midiOutNote     = -1;     // currently sounding MIDI note (-1 = silent)
+        bool  midiRatchetOff  = false;  // ratchet 50%-point: emit note-off
+        bool  midiRatchetOn   = false;  // ratchet sub-step advance: emit note-off + note-on
+        // Pitch-bend portamento ramp
+        bool  midiGlideActive = false;  // PB ramp in progress
+        float midiGlideBend   = 0.0f;   // current PB offset in semitones (decays → 0)
+        int   midiGlideTick   = 0;      // samples since last PB message
     };
 
     VoiceState vstate[numVoices];
@@ -304,7 +332,11 @@ private:
         int   chorusW = 0;
         float chorusPh[3] = { 0.f, 1.f/3.f, 2.f/3.f };
     };
-    FxState fxs;
+    FxState fxs[2];   // fxs[0] = Voice A DSP state,  fxs[1] = Voice B DSP state
+
+    // Pre-allocated temp buffers for Voice B output when the host only
+    // activates one stereo output bus (fallback-mix path).
+    std::vector<float> voiceBTempL, voiceBTempR;
 
     // PPQ duration of one step for each clock-division index
     static constexpr double ppqDivTable[7] = {
@@ -322,7 +354,8 @@ private:
     //==========================================================================
     void  buildWavetables();
     void  prepareFx (double sampleRate);
-    void  processFxBuffer (float* L, float* R, int numSamples);
+    void  processFxBuffer (float* L, float* R, int numSamples,
+                           FxState& state, const FxParams& params);
 
     // Process one sample of one voice; returns the output sample.
     float processSingleVoiceSample (int vi, bool running,
@@ -342,7 +375,8 @@ private:
                               float input, float effectiveCutoff);
     float voltageToQuantizedFreq (const VoiceParams& vp, float voltage,
                                   float rangeOverride = -1.0f);
-    int   quantizeNoteToScale    (int midiNote, int rootNote, int scale);
+    int   voltageToMidiNote      (const VoiceParams& vp, float voltage) const;
+    int   quantizeNoteToScale    (int midiNote, int rootNote, int scale) const;
     float processModEnv          (const ModEnvParams& p, VoiceState& vs,
                                   bool gateOn, double bpm);
 

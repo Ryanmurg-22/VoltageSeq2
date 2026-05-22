@@ -76,10 +76,107 @@ static const int scaleIntervals[][12] =
 static const int scaleSizes[] = { 7, 7, 7, 7, 7, 7, 5, 5, 12 };
 
 //==============================================================================
+// APVTS parameter layout
+// Skew factors are the NormalisableRange equivalent of Slider::setSkewFactorFromMidPoint:
+//   skew = log(0.5) / log((midPoint - min) / (max - min))
+//==============================================================================
+juce::AudioProcessorValueTreeState::ParameterLayout
+VoltageSeq2AudioProcessor::createParameterLayout()
+{
+    std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
+
+    for (int vi = 0; vi < 2; ++vi)
+    {
+        juce::String s  = "_" + juce::String (vi);
+        juce::String vn = (vi == 0) ? "A" : "B";
+
+        // ── Step voltages (16 per voice) ──────────────────────────────────────
+        for (int i = 0; i < 16; ++i)
+            params.push_back (std::make_unique<juce::AudioParameterFloat> (
+                juce::ParameterID ("step" + juce::String (i) + s, 1),
+                "Step " + juce::String (i + 1) + " " + vn,
+                juce::NormalisableRange<float> (-5.0f, 5.0f, 0.01f),
+                0.0f));
+
+        // ── Filter cutoff  (20–16000 Hz, midpoint 1000 → skew ≈ 0.248) ──────
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("cutoff" + s, 1), "Cutoff " + vn,
+            juce::NormalisableRange<float> (20.0f, 16000.0f, 0.1f, 0.248f), 2000.0f));
+
+        // ── Amp ADSR  (times: midpoint 0.3 over 0.001–2.0 → skew ≈ 0.365) ──
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("ampA" + s, 1), "Amp Attack " + vn,
+            juce::NormalisableRange<float> (0.001f, 2.0f, 0.001f, 0.365f), 0.01f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("ampD" + s, 1), "Amp Decay " + vn,
+            juce::NormalisableRange<float> (0.001f, 2.0f, 0.001f, 0.365f), 0.1f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("ampS" + s, 1), "Amp Sustain " + vn,
+            juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.7f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("ampR" + s, 1), "Amp Release " + vn,
+            juce::NormalisableRange<float> (0.001f, 3.0f, 0.001f, 0.301f), 0.08f));
+
+        // ── Filter ADSR  (times: midpoint 0.3 over 0.001–4.0 → skew ≈ 0.267)
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("fA" + s, 1), "Flt Attack " + vn,
+            juce::NormalisableRange<float> (0.001f, 4.0f, 0.001f, 0.267f), 0.01f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("fD" + s, 1), "Flt Decay " + vn,
+            juce::NormalisableRange<float> (0.001f, 4.0f, 0.001f, 0.267f), 0.5f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("fS" + s, 1), "Flt Sustain " + vn,
+            juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("fR" + s, 1), "Flt Release " + vn,
+            juce::NormalisableRange<float> (0.001f, 4.0f, 0.001f, 0.267f), 0.3f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("fEnvAmt" + s, 1), "Flt Env Amt " + vn,
+            juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.5f));
+
+        // ── LFO 1  (rate 0.1–20 Hz, midpoint 4.0 → skew ≈ 0.425) ───────────
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("lfo1Rate" + s, 1), "LFO1 Rate " + vn,
+            juce::NormalisableRange<float> (0.1f, 20.0f, 0.01f, 0.425f), 2.0f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("lfo1Dep" + s, 1), "LFO1 Depth " + vn,
+            juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
+
+        // ── LFO 2 ─────────────────────────────────────────────────────────────
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("lfo2Rate" + s, 1), "LFO2 Rate " + vn,
+            juce::NormalisableRange<float> (0.1f, 20.0f, 0.01f, 0.425f), 3.0f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("lfo2Dep" + s, 1), "LFO2 Depth " + vn,
+            juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
+
+        // ── FM ────────────────────────────────────────────────────────────────
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("fmRatio" + s, 1), "FM Ratio " + vn,
+            juce::NormalisableRange<float> (0.0f, 6.0f, 0.25f), 1.0f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("fmDepth" + s, 1), "FM Depth " + vn,
+            juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
+
+        // ── Portamento + Range ────────────────────────────────────────────────
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("porta" + s, 1), "Portamento " + vn,
+            juce::NormalisableRange<float> (0.0f, 2.0f, 0.01f), 0.0f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("range" + s, 1), "Range " + vn,
+            juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 1.0f));
+    }
+
+    return { params.begin(), params.end() };
+}
+
+//==============================================================================
 VoltageSeq2AudioProcessor::VoltageSeq2AudioProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
     : AudioProcessor (BusesProperties()
-                     .withOutput ("Output", juce::AudioChannelSet::stereo(), true))
+                     .withOutput ("Voice A", juce::AudioChannelSet::stereo(), true)
+                     .withOutput ("Voice B", juce::AudioChannelSet::stereo(), false)),
+      apvts (*this, nullptr, "Parameters", createParameterLayout())
 #endif
 {
     buildWavetables();
@@ -208,6 +305,10 @@ void VoltageSeq2AudioProcessor::prepareToPlay (double sampleRate, int samplesPer
     }
 
     prepareFx (sampleRate);
+
+    // Pre-size Voice B temp buffers to avoid allocation in the audio thread.
+    voiceBTempL.assign (samplesPerBlock + 64, 0.f);
+    voiceBTempR.assign (samplesPerBlock + 64, 0.f);
 }
 
 void VoltageSeq2AudioProcessor::releaseResources() {}
@@ -215,55 +316,55 @@ void VoltageSeq2AudioProcessor::releaseResources() {}
 //==============================================================================
 void VoltageSeq2AudioProcessor::prepareFx (double sr)
 {
-    // ── Delay ────────────────────────────────────────────────────────────────
-    const int maxDly = (int)(sr * 2.0) + 4;
-    fxs.dlyL.assign (maxDly, 0.f); fxs.dlyR.assign (maxDly, 0.f);
-    fxs.dlyWL = fxs.dlyWR = 0;
-
-    // ── Dattorro Plate Reverb ─────────────────────────────────────────────────
     // All delay lengths from Dattorro 1997 (reference rate 29761 Hz)
     const double sc = sr / 29761.0;
     auto sz = [&](int n) { return (int)(n * sc) + 4; };
 
-    // Input diffusers: AP1=142, AP2=107, AP3=379, AP4=277
+    const int maxDly  = (int)(sr * 2.0) + 4;
+    const int preSz   = (int)(sr * 0.1) + 4;
     const int iapLens[4] = { sz(142), sz(107), sz(379), sz(277) };
-    for (int i = 0; i < 4; ++i) {
-        fxs.iapLen[i] = iapLens[i];
-        fxs.iap[i].assign (iapLens[i] + 4, 0.f);
-        fxs.iapW[i] = 0;
-    }
-    // Tank main delays: D1=4453, D2=3720, D3=4217, D4=3163
-    const int tdLens[4] = { sz(4453), sz(3720), sz(4217), sz(3163) };
-    for (int i = 0; i < 4; ++i) {
-        fxs.tdLen[i] = tdLens[i];
-        fxs.td[i].assign (tdLens[i] + 4, 0.f);
-        fxs.tdW[i] = 0;
-    }
-    // Tank all-pass delays: AP5=672(mod), AP6=1800, AP7=908(mod), AP8=2656
-    const int tapLens[4] = { sz(672), sz(1800), sz(908), sz(2656) };
-    for (int i = 0; i < 4; ++i) {
-        fxs.tapLen[i] = tapLens[i];
-        fxs.tap[i].assign (tapLens[i] + 64, 0.f); // +64 for modulation headroom
-        fxs.tapW[i] = 0;
-    }
-    fxs.lpL = fxs.lpR = 0.f;
-    fxs.modPh1 = 0.0; fxs.modPh2 = 0.5;
+    const int tdLens [4] = { sz(4453), sz(3720), sz(4217), sz(3163) };
+    const int tapLens[4] = { sz(672),  sz(1800), sz(908),  sz(2656) };
 
-    // Pre-delay (max 100ms)
-    const int preSz = (int)(sr * 0.1) + 4;
-    fxs.preL.assign (preSz, 0.f); fxs.preR.assign (preSz, 0.f);
-    fxs.preWL = fxs.preWR = 0;
+    for (int vi = 0; vi < 2; ++vi)
+    {
+        FxState& f = fxs[vi];
 
-    // ── Chorus ────────────────────────────────────────────────────────────────
-    fxs.chorusBuf.assign (8192, 0.f);
-    fxs.chorusW = 0;
-    fxs.chorusPh[0] = 0.f; fxs.chorusPh[1] = 1.f/3.f; fxs.chorusPh[2] = 2.f/3.f;
+        // ── Delay ─────────────────────────────────────────────────────────────
+        f.dlyL.assign (maxDly, 0.f); f.dlyR.assign (maxDly, 0.f);
+        f.dlyWL = f.dlyWR = 0;
+
+        // ── Dattorro Plate Reverb ──────────────────────────────────────────────
+        for (int i = 0; i < 4; ++i) {
+            f.iapLen[i] = iapLens[i];
+            f.iap[i].assign (iapLens[i] + 4, 0.f);
+            f.iapW[i] = 0;
+            f.tdLen[i] = tdLens[i];
+            f.td[i].assign (tdLens[i] + 4, 0.f);
+            f.tdW[i] = 0;
+            f.tapLen[i] = tapLens[i];
+            f.tap[i].assign (tapLens[i] + 64, 0.f);
+            f.tapW[i] = 0;
+        }
+        f.lpL = f.lpR = 0.f;
+        f.modPh1 = 0.0; f.modPh2 = 0.5;
+        f.preL.assign (preSz, 0.f); f.preR.assign (preSz, 0.f);
+        f.preWL = f.preWR = 0;
+
+        // ── Chorus ────────────────────────────────────────────────────────────
+        f.chorusBuf.assign (8192, 0.f);
+        f.chorusW = 0;
+        f.chorusPh[0] = 0.f; f.chorusPh[1] = 1.f/3.f; f.chorusPh[2] = 2.f/3.f;
+    }
 }
 
 //==============================================================================
-void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamples)
+void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamples,
+                                                  FxState& fxs, const FxParams& p)
 {
-    const FxParams& p   = fx;
+    // Early-out when this voice has FX bypassed — leave L/R untouched.
+    if (p.fxBypass) return;
+
     const double    sr  = currentSampleRate;
     const double    sc  = sr / 29761.0;   // reverb scale factor
     const double    twoPi = juce::MathConstants<double>::twoPi;
@@ -454,7 +555,12 @@ void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamp
 #ifndef JucePlugin_PreferredChannelConfigurations
 bool VoltageSeq2AudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
+    // Bus 0 (Voice A) must always be stereo.
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
+        return false;
+    // Bus 1 (Voice B) may be stereo or disabled.
+    const auto& bus1 = layouts.getNumChannels (false, 1);
+    if (bus1 != 0 && bus1 != 2)
         return false;
     return true;
 }
@@ -466,6 +572,39 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 {
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
+
+    //--------------------------------------------------------------------------
+    // APVTS → VoiceParams sync  (DAW automation + MIDI-learn support)
+    // getRawParameterValue returns a lock-free atomic<float>* — safe to read
+    // here on the audio thread without any allocations.
+    //--------------------------------------------------------------------------
+    for (int vi = 0; vi < numVoices; ++vi)
+    {
+        auto& vp = voice[vi];
+        const juce::String s = "_" + juce::String (vi);
+
+        for (int i = 0; i < numSteps; ++i)
+            vp.stepVoltages[i] = apvts.getRawParameterValue ("step" + juce::String (i) + s)->load();
+
+        vp.filterCutoff            = apvts.getRawParameterValue ("cutoff"   + s)->load();
+        vp.adsrParams.attack       = apvts.getRawParameterValue ("ampA"     + s)->load();
+        vp.adsrParams.decay        = apvts.getRawParameterValue ("ampD"     + s)->load();
+        vp.adsrParams.sustain      = apvts.getRawParameterValue ("ampS"     + s)->load();
+        vp.adsrParams.release      = apvts.getRawParameterValue ("ampR"     + s)->load();
+        vp.filterEnvParams.attack  = apvts.getRawParameterValue ("fA"       + s)->load();
+        vp.filterEnvParams.decay   = apvts.getRawParameterValue ("fD"       + s)->load();
+        vp.filterEnvParams.sustain = apvts.getRawParameterValue ("fS"       + s)->load();
+        vp.filterEnvParams.release = apvts.getRawParameterValue ("fR"       + s)->load();
+        vp.filterEnvAmount         = apvts.getRawParameterValue ("fEnvAmt"  + s)->load();
+        vp.lfoRate                 = apvts.getRawParameterValue ("lfo1Rate" + s)->load();
+        vp.lfoDepth                = apvts.getRawParameterValue ("lfo1Dep"  + s)->load();
+        vp.lfo2Rate                = apvts.getRawParameterValue ("lfo2Rate" + s)->load();
+        vp.lfo2Depth               = apvts.getRawParameterValue ("lfo2Dep"  + s)->load();
+        vp.fmRatio                 = apvts.getRawParameterValue ("fmRatio"  + s)->load();
+        vp.fmDepth                 = apvts.getRawParameterValue ("fmDepth"  + s)->load();
+        vp.portamentoTime          = apvts.getRawParameterValue ("porta"    + s)->load();
+        vp.rangeVCA                = apvts.getRawParameterValue ("range"    + s)->load();
+    }
 
     //--------------------------------------------------------------------------
     // HOST SYNC — common to both voices (same timeline)
@@ -509,10 +648,25 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             vstate[vi].ratchetSubStepDur= 0.0;
             vstate[vi].ratchetStepPos   = 0.0;
             vstate[vi].ratchetNoteOff   = false;
-            if (!hostPlaying)             // stopping: silence envelopes immediately
+            if (!hostPlaying)             // stopping: silence envelopes + flush MIDI note
             {
                 vstate[vi].adsr.noteOff();
                 vstate[vi].filterEnv.noteOff();
+                if (voice[vi].midiOutEnabled)
+                {
+                    const int ch = juce::jlimit (1, 16, voice[vi].midiOutChannel);
+                    if (vstate[vi].midiOutNote >= 0)
+                    {
+                        midiMessages.addEvent (
+                            juce::MidiMessage::noteOff (ch, vstate[vi].midiOutNote, (juce::uint8)0), 0);
+                        vstate[vi].midiOutNote = -1;
+                    }
+                    if (vstate[vi].midiGlideActive)
+                    {
+                        vstate[vi].midiGlideActive = false;
+                        midiMessages.addEvent (juce::MidiMessage::pitchWheel (ch, 0), 0);
+                    }
+                }
             }
         }
     }
@@ -614,18 +768,24 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     //--------------------------------------------------------------------------
-    // SAMPLE LOOP
+    // SAMPLE LOOP — Voice A → channels 0/1, Voice B → channels 2/3
     //--------------------------------------------------------------------------
-    auto* leftCh  = buffer.getWritePointer (0);
-    auto* rightCh = buffer.getWritePointer (1);
-
     const int numSamples = buffer.getNumSamples();
+
+    // Voice A always goes to the main stereo bus (channels 0/1).
+    float* chA0 = buffer.getWritePointer (0);
+    float* chA1 = buffer.getWritePointer (1);
+
+    // Voice B goes to the second stereo bus if the host has enabled it,
+    // otherwise falls back to a pre-allocated temp buffer that we mix into bus 0.
+    const bool hasDualOut = (buffer.getNumChannels() >= 4);
+    float* chB0 = hasDualOut ? buffer.getWritePointer (2) : voiceBTempL.data();
+    float* chB1 = hasDualOut ? buffer.getWritePointer (3) : voiceBTempR.data();
+
     for (int s = 0; s < numSamples; ++s)
     {
         const double samplePPQ = startPPQ + (double)s * ppqPerSample;
 
-        // In a DAW: follow host transport exclusively.
-        // Standalone (no host): use the per-voice RUN/STOP button.
         const bool runA = hostAvailable ? hostPlaying : voice[0].sequencerRunning.load();
         const bool runB = hostAvailable ? hostPlaying : voice[1].sequencerRunning.load();
 
@@ -634,20 +794,163 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             swingBounds[0], swingPPQBounds[0],
             totalSwingCycle[0], totalSwingPPQ[0],
             stepOrder[0], glideCoeff[0],
-            crossModSample[1]);   // voice B modulates voice A
+            crossModSample[1]);
 
         float outB = processSingleVoiceSample (1,
             runB, useHostSync, samplePPQ, effectiveBPM,
             swingBounds[1], swingPPQBounds[1],
             totalSwingCycle[1], totalSwingPPQ[1],
             stepOrder[1], glideCoeff[1],
-            crossModSample[0]);   // voice A modulates voice B
+            crossModSample[0]);
 
-        leftCh[s]  = (outA + outB) * 0.5f;
-        rightCh[s] = leftCh[s];
+        chA0[s] = outA;  chA1[s] = outA;
+        chB0[s] = outB;  chB1[s] = outB;
+
+        // ── MIDI out: emit note + pitch-bend events at the exact sample offset ──
+        for (int vi = 0; vi < numVoices; ++vi)
+        {
+            auto& vp = voice[vi];
+            auto& vs = vstate[vi];
+
+            if (!vp.midiOutEnabled) continue;
+
+            const int   ch       = juce::jlimit (1, 16, vp.midiOutChannel);
+            // Pitch-bend range assumed / set on downstream synth: ±12 semitones
+            constexpr float kPbRange    = 12.0f;
+            constexpr int   kPbInterval = 64;   // send a PB message every 64 samples
+
+            // Helper: semitones → 14-bit MIDI pitch-bend value
+            auto semToPB = [](float semi, float range) -> int {
+                return juce::jlimit (-8192, 8191,
+                                     (int)(semi / range * 8191.0f));
+            };
+
+            // ── 1. Step advance ────────────────────────────────────────────────
+            if (vs.midiStepFired)
+            {
+                vs.midiStepFired = false;
+
+                const bool canGlide = vs.midiStepGlide
+                                      && vs.midiOutNote >= 0
+                                      && vs.midiStepNote >= 0
+                                      && vs.midiStepGate;
+
+                if (canGlide)
+                {
+                    // Clamp bend to ±kPbRange semitones
+                    const float initBend = juce::jlimit (-kPbRange, kPbRange,
+                        (float)(vs.midiOutNote - vs.midiStepNote));
+
+                    // Note-off for old note
+                    midiMessages.addEvent (
+                        juce::MidiMessage::noteOff (ch, vs.midiOutNote, (juce::uint8)0), s);
+
+                    // Tell downstream synth to use ±12 semitone PB range (RPN 0)
+                    midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101,  0), s);
+                    midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100,  0), s);
+                    midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,   6, (int)kPbRange), s);
+                    midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,  38,  0), s);
+                    midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101, 127), s);
+                    midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100, 127), s);
+
+                    // Bend to old pitch before note-on (sounds like we're still on old note)
+                    midiMessages.addEvent (
+                        juce::MidiMessage::pitchWheel (ch, semToPB (initBend, kPbRange)), s);
+
+                    // Note-on for new note (bent to old pitch, will ramp to 0)
+                    midiMessages.addEvent (
+                        juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+
+                    vs.midiOutNote    = vs.midiStepNote;
+                    vs.midiGlideActive = true;
+                    vs.midiGlideBend   = initBend;
+                    vs.midiGlideTick   = 0;
+                }
+                else
+                {
+                    // Non-glide step: cancel any active PB ramp first
+                    if (vs.midiGlideActive)
+                    {
+                        vs.midiGlideActive = false;
+                        midiMessages.addEvent (juce::MidiMessage::pitchWheel (ch, 0), s);
+                    }
+
+                    if (vs.midiOutNote >= 0)
+                    {
+                        midiMessages.addEvent (
+                            juce::MidiMessage::noteOff (ch, vs.midiOutNote, (juce::uint8)0), s);
+                        vs.midiOutNote = -1;
+                    }
+                    if (vs.midiStepGate && vs.midiStepNote >= 0)
+                    {
+                        midiMessages.addEvent (
+                            juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                        vs.midiOutNote = vs.midiStepNote;
+                    }
+                }
+            }
+
+            // ── 2. Ratchet 50 % point: note-off gap between hits ──────────────
+            if (vs.midiRatchetOff)
+            {
+                vs.midiRatchetOff = false;
+                if (vs.midiOutNote >= 0)
+                {
+                    midiMessages.addEvent (
+                        juce::MidiMessage::noteOff (ch, vs.midiOutNote, (juce::uint8)0), s);
+                    vs.midiOutNote = -1;
+                }
+            }
+
+            // ── 3. Ratchet sub-step advance: note-on for next hit ─────────────
+            if (vs.midiRatchetOn)
+            {
+                vs.midiRatchetOn = false;
+                if (vs.midiOutNote >= 0)
+                {
+                    midiMessages.addEvent (
+                        juce::MidiMessage::noteOff (ch, vs.midiOutNote, (juce::uint8)0), s);
+                    vs.midiOutNote = -1;
+                }
+                if (vs.midiStepNote >= 0)
+                {
+                    midiMessages.addEvent (
+                        juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                    vs.midiOutNote = vs.midiStepNote;
+                }
+            }
+
+            // ── 4. Pitch-bend portamento ramp (fires every kPbInterval samples) ─
+            if (vs.midiGlideActive)
+            {
+                vs.midiGlideBend *= glideCoeff[vi];   // same IIR as audio portamento
+                ++vs.midiGlideTick;
+
+                const bool done = std::abs (vs.midiGlideBend) < 0.02f;
+                if (done || vs.midiGlideTick >= kPbInterval)
+                {
+                    vs.midiGlideTick = 0;
+                    midiMessages.addEvent (
+                        juce::MidiMessage::pitchWheel (ch, done ? 0 : semToPB (vs.midiGlideBend, kPbRange)), s);
+                    if (done) vs.midiGlideActive = false;
+                }
+            }
+        }
     }
 
-    processFxBuffer (leftCh, rightCh, numSamples);
+    // Apply independent FX chain to each voice.
+    processFxBuffer (chA0, chA1, numSamples, fxs[0], fx[0]);
+    processFxBuffer (chB0, chB1, numSamples, fxs[1], fx[1]);
+
+    // Single-bus fallback: mix Voice B into Voice A (legacy behaviour).
+    if (!hasDualOut)
+    {
+        for (int s = 0; s < numSamples; ++s)
+        {
+            chA0[s] = (chA0[s] + chB0[s]) * 0.5f;
+            chA1[s] = (chA1[s] + chB1[s]) * 0.5f;
+        }
+    }
 }
 
 //==============================================================================
@@ -707,6 +1010,14 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
             }
             vp.currentStep = newStep;
 
+            // Signal to processBlock that a new step fired, so MIDI out can be emitted
+            // at the exact sample offset where the step advance occurred.
+            vs.midiStepFired = true;
+            vs.midiStepGate  = vp.stepGates[vp.currentStep];
+            vs.midiStepNote  = vs.midiStepGate
+                               ? voltageToMidiNote (vp, vp.stepVoltages[vp.currentStep])
+                               : -1;
+
             if (vp.stepGates[vp.currentStep])
             {
                 float baseFreq = voltageToQuantizedFreq (vp, vp.stepVoltages[vp.currentStep]);
@@ -714,7 +1025,8 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
                 vs.targetFreq2 = baseFreq * (float)std::pow (2.0, (double)vp.osc2Octave);
 
                 const bool doGlide = (vp.portamentoTime > 0.001f && vp.stepGlides[vp.currentStep]);
-                vs.glideActive = doGlide;
+                vs.glideActive  = doGlide;
+                vs.midiStepGlide = doGlide;   // mirror to MIDI out
 
                 if (!doGlide)
                 {
@@ -749,7 +1061,8 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
             }
             else
             {
-                vs.glideActive = false;
+                vs.glideActive   = false;
+                vs.midiStepGlide = false;
                 vs.adsr.noteOff();
                 vs.filterEnv.noteOff();
                 if (!vp.modEnv.clockSync)
@@ -770,7 +1083,8 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
             {
                 vs.adsr.noteOff();
                 vs.filterEnv.noteOff();
-                vs.ratchetNoteOff = true;
+                vs.ratchetNoteOff   = true;
+                vs.midiRatchetOff   = true;   // signal MIDI note-off to processBlock
             }
 
             // Advance to next sub-step
@@ -781,7 +1095,8 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
                 if (vp.envReset) { vs.adsr.reset(); vs.filterEnv.reset(); }
                 vs.adsr.noteOff(); vs.adsr.noteOn();
                 vs.filterEnv.noteOff(); vs.filterEnv.noteOn();
-                vs.ratchetNoteOff = false;
+                vs.ratchetNoteOff   = false;
+                vs.midiRatchetOn    = true;   // signal MIDI note-on to processBlock
             }
         }
 
@@ -1107,10 +1422,19 @@ float VoltageSeq2AudioProcessor::voltageToQuantizedFreq (const VoiceParams& vp, 
     return 440.0f * std::pow (2.0f, (quantized - 69.0f) / 12.0f);
 }
 
+// voltageToMidiNote — same pitch calculation as voltageToQuantizedFreq but
+// returns the MIDI note number directly (avoids a round-trip through frequency).
+int VoltageSeq2AudioProcessor::voltageToMidiNote (const VoiceParams& vp, float voltage) const
+{
+    float scaledV = voltage * vp.rangeVCA;
+    float rawMidi = juce::jlimit (0.0f, 127.0f, 60.0f + (float)vp.rootNote + scaledV * 5.0f);
+    return quantizeNoteToScale ((int)std::round (rawMidi), vp.rootNote, vp.currentScale);
+}
+
 //==============================================================================
 // Note quantiser
 //==============================================================================
-int VoltageSeq2AudioProcessor::quantizeNoteToScale (int midiNote, int rootNote, int scale)
+int VoltageSeq2AudioProcessor::quantizeNoteToScale (int midiNote, int rootNote, int scale) const
 {
     int bestNote   = midiNote;
     int bestDist   = 127;
@@ -1142,7 +1466,7 @@ juce::AudioProcessorEditor* VoltageSeq2AudioProcessor::createEditor()
 
 const juce::String VoltageSeq2AudioProcessor::getName() const { return JucePlugin_Name; }
 bool VoltageSeq2AudioProcessor::acceptsMidi() const  { return false; }
-bool VoltageSeq2AudioProcessor::producesMidi() const { return false; }
+bool VoltageSeq2AudioProcessor::producesMidi() const { return true; }
 bool VoltageSeq2AudioProcessor::isMidiEffect() const { return false; }
 double VoltageSeq2AudioProcessor::getTailLengthSeconds() const { return 0.0; }
 int VoltageSeq2AudioProcessor::getNumPrograms()    { return 1; }
@@ -1246,6 +1570,9 @@ static void saveVoiceToXml (juce::XmlElement& el,
     el.setAttribute ("mEnvDst",  vp.modEnv.dest);
     el.setAttribute ("mEnvSync", vp.modEnv.clockSync);
     el.setAttribute ("mEnvDiv",  vp.modEnv.clockDiv);
+
+    el.setAttribute ("midiOutEn",  (int)vp.midiOutEnabled);
+    el.setAttribute ("midiOutCh",  vp.midiOutChannel);
 }
 
 static void loadVoiceFromXml (const juce::XmlElement& el,
@@ -1347,6 +1674,9 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
     vp.modEnv.dest      = getI ("mEnvDst",  vp.modEnv.dest);
     vp.modEnv.clockSync = getB ("mEnvSync", vp.modEnv.clockSync);
     vp.modEnv.clockDiv  = getI ("mEnvDiv",  vp.modEnv.clockDiv);
+
+    vp.midiOutEnabled = getB ("midiOutEn", false);
+    vp.midiOutChannel = getI ("midiOutCh", 1);
 }
 
 //==============================================================================
@@ -1401,6 +1731,9 @@ void VoltageSeq2AudioProcessor::loadPattern (int vi, int slot)
     v.currentScale   = p.currentScale;
     v.rangeVCA       = p.rangeVCA;
     v.resetOnNextBlock.store (true);
+    // Push the newly-loaded step voltages + synth params into APVTS so that
+    // SliderAttachments and the DAW automation system both see the new values.
+    syncAPVTSFromVoice (vi);
 }
 
 void VoltageSeq2AudioProcessor::clearPattern (int vi, int slot)
@@ -1409,13 +1742,62 @@ void VoltageSeq2AudioProcessor::clearPattern (int vi, int slot)
     patternBank[vi][slot] = PatternSlot{};
 }
 
+//==============================================================================
+// syncAPVTSFromVoice — pushes VoiceParams values into the APVTS so that
+// SliderAttachments in the editor and the DAW host both see updated values.
+// Call this after loadPattern() or after restoring a pre-v4 preset.
+// Uses setValueNotifyingHost() which is safe to call from the message thread.
+//==============================================================================
+void VoltageSeq2AudioProcessor::syncAPVTSFromVoice (int vi)
+{
+    jassert (vi >= 0 && vi < numVoices);
+    const juce::String s  = "_" + juce::String (vi);
+    const auto&        vp = voice[vi];
+
+    auto setP = [&](const juce::String& id, float val)
+    {
+        if (auto* p = apvts.getParameter (id))
+            p->setValueNotifyingHost (p->convertTo0to1 (val));
+    };
+
+    for (int i = 0; i < numSteps; ++i)
+        setP ("step" + juce::String (i) + s, vp.stepVoltages[i]);
+
+    setP ("cutoff"   + s, vp.filterCutoff);
+    setP ("ampA"     + s, vp.adsrParams.attack);
+    setP ("ampD"     + s, vp.adsrParams.decay);
+    setP ("ampS"     + s, vp.adsrParams.sustain);
+    setP ("ampR"     + s, vp.adsrParams.release);
+    setP ("fA"       + s, vp.filterEnvParams.attack);
+    setP ("fD"       + s, vp.filterEnvParams.decay);
+    setP ("fS"       + s, vp.filterEnvParams.sustain);
+    setP ("fR"       + s, vp.filterEnvParams.release);
+    setP ("fEnvAmt"  + s, vp.filterEnvAmount);
+    setP ("lfo1Rate" + s, vp.lfoRate);
+    setP ("lfo1Dep"  + s, vp.lfoDepth);
+    setP ("lfo2Rate" + s, vp.lfo2Rate);
+    setP ("lfo2Dep"  + s, vp.lfo2Depth);
+    setP ("fmRatio"  + s, vp.fmRatio);
+    setP ("fmDepth"  + s, vp.fmDepth);
+    setP ("porta"    + s, vp.portamentoTime);
+    setP ("range"    + s, vp.rangeVCA);
+}
+
 //------------------------------------------------------------------------------
 void VoltageSeq2AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     juce::XmlElement xml ("VoltageSeq2State");
-    xml.setAttribute ("version", 3);
+    xml.setAttribute ("version", 4);      // v4 adds <Parameters> APVTS child
     xml.setAttribute ("bpm", internalBPM);
 
+    // ── APVTS state (automatable parameters) ─────────────────────────────────
+    {
+        auto apvtsState = apvts.copyState();
+        if (auto apvtsXml = apvtsState.createXml())
+            xml.addChildElement (apvtsXml.release());
+    }
+
+    // ── Full voice data (all params, for backward-compat with pre-v4 loaders) ─
     for (int vi = 0; vi < numVoices; ++vi)
     {
         auto* voiceEl = xml.createNewChildElement ("Voice");
@@ -1461,25 +1843,32 @@ void VoltageSeq2AudioProcessor::getStateInformation (juce::MemoryBlock& destData
         }
     }
 
-    auto* fxEl = xml.createNewChildElement ("FX");
-    fxEl->setAttribute ("delayOn",       (int)fx.delayOn);
-    fxEl->setAttribute ("delaySync",     (int)fx.delaySync);
-    fxEl->setAttribute ("delaySyncDiv",  fx.delaySyncDiv);
-    fxEl->setAttribute ("delayTimeMs",   fx.delayTimeMs);
-    fxEl->setAttribute ("delayFeedback", fx.delayFeedback);
-    fxEl->setAttribute ("delayPingPong", (int)fx.delayPingPong);
-    fxEl->setAttribute ("delayMix",      fx.delayMix);
-    fxEl->setAttribute ("reverbOn",      (int)fx.reverbOn);
-    fxEl->setAttribute ("reverbSize",    fx.reverbSize);
-    fxEl->setAttribute ("reverbDamping", fx.reverbDamping);
-    fxEl->setAttribute ("reverbPreDly",  fx.reverbPreDelay);
-    fxEl->setAttribute ("reverbMix",     fx.reverbMix);
-    fxEl->setAttribute ("chorusOn",      (int)fx.chorusOn);
-    fxEl->setAttribute ("chorusRate",    fx.chorusRate);
-    fxEl->setAttribute ("chorusDepth",   fx.chorusDepth);
-    fxEl->setAttribute ("chorusMix",     fx.chorusMix);
-    fxEl->setAttribute ("masterDrive",   fx.masterDrive);
-    fxEl->setAttribute ("masterGain",    fx.masterGain);
+    // Save per-voice FX (two child elements: <FX voice="0">, <FX voice="1">)
+    for (int vi = 0; vi < 2; ++vi)
+    {
+        const auto& p  = fx[vi];
+        auto* fxEl = xml.createNewChildElement ("FX");
+        fxEl->setAttribute ("voice",         vi);
+        fxEl->setAttribute ("bypass",        (int)p.fxBypass);
+        fxEl->setAttribute ("delayOn",       (int)p.delayOn);
+        fxEl->setAttribute ("delaySync",     (int)p.delaySync);
+        fxEl->setAttribute ("delaySyncDiv",  p.delaySyncDiv);
+        fxEl->setAttribute ("delayTimeMs",   p.delayTimeMs);
+        fxEl->setAttribute ("delayFeedback", p.delayFeedback);
+        fxEl->setAttribute ("delayPingPong", (int)p.delayPingPong);
+        fxEl->setAttribute ("delayMix",      p.delayMix);
+        fxEl->setAttribute ("reverbOn",      (int)p.reverbOn);
+        fxEl->setAttribute ("reverbSize",    p.reverbSize);
+        fxEl->setAttribute ("reverbDamping", p.reverbDamping);
+        fxEl->setAttribute ("reverbPreDly",  p.reverbPreDelay);
+        fxEl->setAttribute ("reverbMix",     p.reverbMix);
+        fxEl->setAttribute ("chorusOn",      (int)p.chorusOn);
+        fxEl->setAttribute ("chorusRate",    p.chorusRate);
+        fxEl->setAttribute ("chorusDepth",   p.chorusDepth);
+        fxEl->setAttribute ("chorusMix",     p.chorusMix);
+        fxEl->setAttribute ("masterDrive",   p.masterDrive);
+        fxEl->setAttribute ("masterGain",    p.masterGain);
+    }
 
     copyXmlToBinary (xml, destData);
 }
@@ -1493,6 +1882,17 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
 
     const int version = xml->getIntAttribute ("version", 1);
 
+    // ── v4+: restore APVTS state (automatable params) ────────────────────────
+    if (version >= 4)
+    {
+        if (auto* apvtsEl = xml->getChildByName ("Parameters"))
+        {
+            auto vt = juce::ValueTree::fromXml (*apvtsEl);
+            if (vt.isValid())
+                apvts.replaceState (vt);
+        }
+    }
+
     if (version >= 2)
     {
         for (auto* child : xml->getChildIterator())
@@ -1501,7 +1901,13 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
             {
                 int vi = child->getIntAttribute ("index", -1);
                 if (vi >= 0 && vi < numVoices)
+                {
                     loadVoiceFromXml (*child, voice[vi], numSteps);
+                    // For pre-v4 presets: push loaded values into APVTS so the
+                    // host sees them and the UI attachments reflect them.
+                    if (version < 4)
+                        syncAPVTSFromVoice (vi);
+                }
             }
             else if (child->getTagName() == "PatternBank" && version >= 3)
             {
@@ -1552,28 +1958,37 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
     {
         // v1 backward compat: flat attributes on root → load into voice[0]
         loadVoiceFromXml (*xml, voice[0], numSteps);
+        syncAPVTSFromVoice (0);
     }
 
-    if (auto* fxEl = xml->getChildByName ("FX"))
+    // Load per-voice FX.  Supports both:
+    //  - New format (v4+): two <FX voice="0/1"> child elements
+    //  - Old format (v1-v3): single <FX> child (no voice attr) → loaded into fx[0]
+    for (auto* fxEl : xml->getChildIterator())
     {
-        fx.delayOn       = (bool)fxEl->getIntAttribute    ("delayOn",       0);
-        fx.delaySync     = (bool)fxEl->getIntAttribute    ("delaySync",     1);
-        fx.delaySyncDiv  =        fxEl->getIntAttribute   ("delaySyncDiv",  2);
-        fx.delayTimeMs   = (float)fxEl->getDoubleAttribute("delayTimeMs",   375.0);
-        fx.delayFeedback = (float)fxEl->getDoubleAttribute("delayFeedback", 0.40);
-        fx.delayPingPong = (bool)fxEl->getIntAttribute    ("delayPingPong", 0);
-        fx.delayMix      = (float)fxEl->getDoubleAttribute("delayMix",      0.30);
-        fx.reverbOn      = (bool)fxEl->getIntAttribute    ("reverbOn",      0);
-        fx.reverbSize    = (float)fxEl->getDoubleAttribute("reverbSize",    0.75);
-        fx.reverbDamping = (float)fxEl->getDoubleAttribute("reverbDamping", 0.40);
-        fx.reverbPreDelay= (float)fxEl->getDoubleAttribute("reverbPreDly",  20.0);
-        fx.reverbMix     = (float)fxEl->getDoubleAttribute("reverbMix",     0.25);
-        fx.chorusOn      = (bool)fxEl->getIntAttribute    ("chorusOn",      0);
-        fx.chorusRate    = (float)fxEl->getDoubleAttribute("chorusRate",    0.50);
-        fx.chorusDepth   = (float)fxEl->getDoubleAttribute("chorusDepth",   0.50);
-        fx.chorusMix     = (float)fxEl->getDoubleAttribute("chorusMix",     0.50);
-        fx.masterDrive   = (float)fxEl->getDoubleAttribute("masterDrive",   0.0);
-        fx.masterGain    = (float)fxEl->getDoubleAttribute("masterGain",    1.0);
+        if (fxEl->getTagName() != "FX") continue;
+        const int vi = fxEl->getIntAttribute ("voice", 0);   // defaults to 0 for old format
+        if (vi < 0 || vi >= 2) continue;
+        auto& p = fx[vi];
+        p.fxBypass      = (bool)fxEl->getIntAttribute    ("bypass",        0);
+        p.delayOn       = (bool)fxEl->getIntAttribute    ("delayOn",       0);
+        p.delaySync     = (bool)fxEl->getIntAttribute    ("delaySync",     1);
+        p.delaySyncDiv  =        fxEl->getIntAttribute   ("delaySyncDiv",  2);
+        p.delayTimeMs   = (float)fxEl->getDoubleAttribute("delayTimeMs",   375.0);
+        p.delayFeedback = (float)fxEl->getDoubleAttribute("delayFeedback", 0.40);
+        p.delayPingPong = (bool)fxEl->getIntAttribute    ("delayPingPong", 0);
+        p.delayMix      = (float)fxEl->getDoubleAttribute("delayMix",      0.30);
+        p.reverbOn      = (bool)fxEl->getIntAttribute    ("reverbOn",      0);
+        p.reverbSize    = (float)fxEl->getDoubleAttribute("reverbSize",    0.75);
+        p.reverbDamping = (float)fxEl->getDoubleAttribute("reverbDamping", 0.40);
+        p.reverbPreDelay= (float)fxEl->getDoubleAttribute("reverbPreDly",  20.0);
+        p.reverbMix     = (float)fxEl->getDoubleAttribute("reverbMix",     0.25);
+        p.chorusOn      = (bool)fxEl->getIntAttribute    ("chorusOn",      0);
+        p.chorusRate    = (float)fxEl->getDoubleAttribute("chorusRate",    0.50);
+        p.chorusDepth   = (float)fxEl->getDoubleAttribute("chorusDepth",   0.50);
+        p.chorusMix     = (float)fxEl->getDoubleAttribute("chorusMix",     0.50);
+        p.masterDrive   = (float)fxEl->getDoubleAttribute("masterDrive",   0.0);
+        p.masterGain    = (float)fxEl->getDoubleAttribute("masterGain",    1.0);
     }
 
     // Apply to live ADSR objects immediately
