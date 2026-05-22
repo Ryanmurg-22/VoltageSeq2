@@ -977,6 +977,51 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     };
     addAndMakeVisible (midiOutChBox[v]);
     synthPageComponents.push_back (&midiOutChBox[v]);
+
+    // ── Voice mode (Unison / Poly) ────────────────────────────────────────────
+    voiceModeBox[v].addItem ("MONO",   1);
+    voiceModeBox[v].addItem ("UNISON", 2);
+    voiceModeBox[v].addItem ("POLY",   3);
+    voiceModeBox[v].setSelectedId (vp.voiceMode + 1, juce::dontSendNotification);
+    voiceModeBox[v].onChange = [this, v]()
+    {
+        audioProcessor.voice[v].voiceMode =
+            (VoltageSeq2AudioProcessor::VoiceParams::VoiceMode)(voiceModeBox[v].getSelectedId() - 1);
+    };
+    addAndMakeVisible (voiceModeBox[v]);
+    synthPageComponents.push_back (&voiceModeBox[v]);
+
+    uniCountBtn[v].setButtonText (vp.unisonCount == 2 ? "2V" : "4V");
+    uniCountBtn[v].onClick = [this, v]()
+    {
+        int cur = audioProcessor.voice[v].unisonCount;
+        audioProcessor.voice[v].unisonCount = (cur == 2) ? 4 : 2;
+        uniCountBtn[v].setButtonText (audioProcessor.voice[v].unisonCount == 2 ? "2V" : "4V");
+    };
+    addAndMakeVisible (uniCountBtn[v]);
+    synthPageComponents.push_back (&uniCountBtn[v]);
+
+    uniSpreadSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
+    uniSpreadSlider[v].setRange (0.0, 0.5, 0.001);
+    uniSpreadSlider[v].setValue (vp.unisonSpread, juce::dontSendNotification);
+    uniSpreadSlider[v].setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    uniSpreadSlider[v].onValueChange = [this, v]()
+    {
+        audioProcessor.voice[v].unisonSpread = (float)uniSpreadSlider[v].getValue();
+    };
+    addAndMakeVisible (uniSpreadSlider[v]);
+    synthPageComponents.push_back (&uniSpreadSlider[v]);
+
+    uniWidthSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
+    uniWidthSlider[v].setRange (0.0, 1.0, 0.01);
+    uniWidthSlider[v].setValue (vp.unisonWidth, juce::dontSendNotification);
+    uniWidthSlider[v].setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    uniWidthSlider[v].onValueChange = [this, v]()
+    {
+        audioProcessor.voice[v].unisonWidth = (float)uniWidthSlider[v].getValue();
+    };
+    addAndMakeVisible (uniWidthSlider[v]);
+    synthPageComponents.push_back (&uniWidthSlider[v]);
 }
 
 //==============================================================================
@@ -1712,6 +1757,12 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     midiOutBtn  [v].setBounds (730, sbCY,  80, 18);
     midiOutChBox[v].setBounds (818, sbCY,  62, 18);
 
+    // ── Voice mode controls ──────────────────────────────────────────────────
+    voiceModeBox   [v].setBounds (900,  sbCY, 68, 18);
+    uniCountBtn    [v].setBounds (974,  sbCY, 28, 18);
+    uniSpreadSlider[v].setBounds (1008, sbCY, 90, 18);
+    uniWidthSlider [v].setBounds (1104, sbCY, 90, 18);
+
     // ── SEQ panel ─────────────────────────────────────────────────────────────
     rangeSlider[v]  .setBounds (pSeqX + 5,                     cy1 - 2, pSeqW - 10, 22);
     clockDivBox[v]  .setBounds (pSeqX + 8,                     cy2,     pSeqW - 16, 20);
@@ -1967,6 +2018,12 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
                                   vp.midiOutEnabled ? juce::Colour(0xff228844) : juce::Colour(0xff161630));
         midiOutChBox[v].setSelectedId (vp.midiOutChannel, juce::dontSendNotification);
         midiOutChBox[v].setEnabled    (vp.midiOutEnabled);
+
+        // Unison / Poly
+        voiceModeBox   [v].setSelectedId ((int)vp.voiceMode + 1, juce::dontSendNotification);
+        uniCountBtn    [v].setButtonText (vp.unisonCount == 2 ? "2V" : "4V");
+        uniSpreadSlider[v].setValue (vp.unisonSpread, juce::dontSendNotification);
+        uniWidthSlider [v].setValue (vp.unisonWidth,  juce::dontSendNotification);
     }
 
     // FX page — refresh whichever voice tab is currently selected

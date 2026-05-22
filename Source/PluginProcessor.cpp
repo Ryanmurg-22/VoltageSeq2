@@ -270,13 +270,8 @@ void VoltageSeq2AudioProcessor::prepareToPlay (double sampleRate, int samplesPer
         vs.lfo2Phase    = 0.0f;
         vs.lfo3Phase    = 0.0f;
         vs.lfo4Phase    = 0.0f;
-        vs.osc1FeedbackSample = 0.0f;
-        vs.osc1DriftRate = 0.08f + juce::Random::getSystemRandom().nextFloat() * 0.18f;
-        vs.osc2DriftRate = 0.08f + juce::Random::getSystemRandom().nextFloat() * 0.18f;
-        vs.osc1DriftPhase = juce::Random::getSystemRandom().nextFloat();
-        vs.osc2DriftPhase = juce::Random::getSystemRandom().nextFloat();
         vs.pulseWidth   = vp.osc1PulseWidth;
-        vs.glideActive  = false;
+        vs.srFilled     = 0;
         vs.sampleCounter     = 0.0;
         vs.lastPos           = -1;
         vp.currentStep       = 0;
@@ -295,13 +290,27 @@ void VoltageSeq2AudioProcessor::prepareToPlay (double sampleRate, int samplesPer
         if (autoRun.load())
             vp.sequencerRunning.store (true);
 
-        float freq       = voltageToQuantizedFreq (vp, vp.stepVoltages[0]);
-        vs.currentFreq1  = freq * (float)std::pow (2.0, (double)vp.osc1Octave);
-        vs.currentFreq2  = freq * (float)std::pow (2.0, (double)vp.osc2Octave);
-        vs.targetFreq1   = vs.currentFreq1;
-        vs.targetFreq2   = vs.currentFreq2;
-        vs.osc1PhaseInc  = vs.currentFreq1 / sampleRate;
-        vs.osc2PhaseInc  = vs.currentFreq2 / sampleRate;
+        // Initialize all slots
+        float freq = voltageToQuantizedFreq (vp, vp.stepVoltages[0]);
+        for (int si = 0; si < VoiceState::kMaxSlots; ++si)
+        {
+            UnisonSlot& slot = vs.slots[si];
+            slot.currentFreq1  = freq * (float)std::pow (2.0, (double)vp.osc1Octave);
+            slot.currentFreq2  = freq * (float)std::pow (2.0, (double)vp.osc2Octave);
+            slot.targetFreq1   = slot.currentFreq1;
+            slot.targetFreq2   = slot.currentFreq2;
+            slot.osc1PhaseInc  = slot.currentFreq1 / sampleRate;
+            slot.osc2PhaseInc  = slot.currentFreq2 / sampleRate;
+            slot.osc1FeedbackSample = 0.0f;
+            slot.glideActive   = false;
+            slot.osc1DriftRate = 0.08f + (float)si * 0.03f + juce::Random::getSystemRandom().nextFloat() * 0.10f;
+            slot.osc2DriftRate = 0.11f + (float)si * 0.04f + juce::Random::getSystemRandom().nextFloat() * 0.10f;
+            slot.osc1DriftPhase = juce::Random::getSystemRandom().nextFloat();
+            slot.osc2DriftPhase = juce::Random::getSystemRandom().nextFloat();
+            slot.panL = 1.0f; slot.panR = 1.0f;
+            slot.detuneRatio = 1.0f;
+            slot.assignedVoltage = 0.0f;
+        }
     }
 
     prepareFx (sampleRate);
@@ -768,6 +777,29 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     //--------------------------------------------------------------------------
+    // UNISON SLOT DETUNE + PAN PRE-COMPUTATION
+    //--------------------------------------------------------------------------
+    for (int vi = 0; vi < numVoices; ++vi)
+    {
+        const VoiceParams& vp = voice[vi];
+        const int nSlots = (vp.voiceMode == VoiceParams::Mono) ? 1 : vp.unisonCount;
+        for (int si = 0; si < nSlots; ++si)
+        {
+            UnisonSlot& slot = vstate[vi].slots[si];
+            // Symmetric detune: outermost slots get ±unisonSpread semitones
+            float detuneSemi = (nSlots == 1) ? 0.0f
+                : (si - (nSlots - 1) * 0.5f) / ((nSlots - 1) * 0.5f) * vp.unisonSpread;
+            slot.detuneRatio = std::pow (2.0f, detuneSemi / 12.0f);
+            // Constant-power pan
+            float panPos = (nSlots == 1) ? 0.0f
+                : (si - (nSlots - 1) * 0.5f) / ((nSlots - 1) * 0.5f) * vp.unisonWidth;
+            panPos = juce::jlimit (-1.0f, 1.0f, panPos);
+            slot.panL = std::sqrt (0.5f * (1.0f - panPos));
+            slot.panR = std::sqrt (0.5f * (1.0f + panPos));
+        }
+    }
+
+    //--------------------------------------------------------------------------
     // SAMPLE LOOP — Voice A → channels 0/1, Voice B → channels 2/3
     //--------------------------------------------------------------------------
     const int numSamples = buffer.getNumSamples();
@@ -789,22 +821,23 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const bool runA = hostAvailable ? hostPlaying : voice[0].sequencerRunning.load();
         const bool runB = hostAvailable ? hostPlaying : voice[1].sequencerRunning.load();
 
-        float outA = processSingleVoiceSample (0,
+        float outAL, outAR, outBL, outBR;
+        processSingleVoiceSample (0,
             runA, useHostSync, samplePPQ, effectiveBPM,
             swingBounds[0], swingPPQBounds[0],
             totalSwingCycle[0], totalSwingPPQ[0],
             stepOrder[0], glideCoeff[0],
-            crossModSample[1]);
+            crossModSample[1], outAL, outAR);
 
-        float outB = processSingleVoiceSample (1,
+        processSingleVoiceSample (1,
             runB, useHostSync, samplePPQ, effectiveBPM,
             swingBounds[1], swingPPQBounds[1],
             totalSwingCycle[1], totalSwingPPQ[1],
             stepOrder[1], glideCoeff[1],
-            crossModSample[0]);
+            crossModSample[0], outBL, outBR);
 
-        chA0[s] = outA;  chA1[s] = outA;
-        chB0[s] = outB;  chB1[s] = outB;
+        chA0[s] = outAL;  chA1[s] = outAR;
+        chB0[s] = outBL;  chB1[s] = outBR;
 
         // ── MIDI out: emit note + pitch-bend events at the exact sample offset ──
         for (int vi = 0; vi < numVoices; ++vi)
@@ -957,7 +990,7 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 // SINGLE-VOICE SAMPLE PROCESSOR
 // Contains the full per-sample voice chain for voice[vi].
 //==============================================================================
-float VoltageSeq2AudioProcessor::processSingleVoiceSample (
+void VoltageSeq2AudioProcessor::processSingleVoiceSample (
     int vi, bool running,
     bool useHostSync, double samplePPQ,
     double effectiveBPM,
@@ -967,10 +1000,13 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
     double totalSwingPPQ,
     const int* stepOrder,
     float glideCoeff,
-    float crossModIn)
+    float crossModIn,
+    float& outL,
+    float& outR)
 {
     VoiceState& vs = vstate[vi];
     VoiceParams& vp = voice[vi];
+    const int nSlots = (vp.voiceMode == VoiceParams::Mono) ? 1 : vp.unisonCount;
 
     //--------------------------------------------------------------------------
     // SEQUENCER CLOCK
@@ -1010,35 +1046,38 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
             }
             vp.currentStep = newStep;
 
-            // Signal to processBlock that a new step fired, so MIDI out can be emitted
-            // at the exact sample offset where the step advance occurred.
             vs.midiStepFired = true;
             vs.midiStepGate  = vp.stepGates[vp.currentStep];
             vs.midiStepNote  = vs.midiStepGate
                                ? voltageToMidiNote (vp, vp.stepVoltages[vp.currentStep])
                                : -1;
 
-            if (vp.stepGates[vp.currentStep])
+            if (vp.voiceMode == VoiceParams::Poly)
             {
-                float baseFreq = voltageToQuantizedFreq (vp, vp.stepVoltages[vp.currentStep]);
-                vs.targetFreq1 = baseFreq * (float)std::pow (2.0, (double)vp.osc1Octave);
-                vs.targetFreq2 = baseFreq * (float)std::pow (2.0, (double)vp.osc2Octave);
-
-                const bool doGlide = (vp.portamentoTime > 0.001f && vp.stepGlides[vp.currentStep]);
-                vs.glideActive  = doGlide;
-                vs.midiStepGlide = doGlide;   // mirror to MIDI out
-
-                if (!doGlide)
+                // SHIFT REGISTER: push all slots back, slot 0 gets new note
+                for (int si = nSlots - 1; si > 0; --si)
                 {
-                    vs.currentFreq1  = vs.targetFreq1;
-                    vs.currentFreq2  = vs.targetFreq2;
-                    vs.osc1PhaseInc  = vs.currentFreq1 / currentSampleRate;
-                    vs.osc2PhaseInc  = vs.currentFreq2 / currentSampleRate;
+                    vs.slots[si].currentFreq1    = vs.slots[si-1].currentFreq1;
+                    vs.slots[si].currentFreq2    = vs.slots[si-1].currentFreq2;
+                    vs.slots[si].osc1PhaseInc    = vs.slots[si-1].osc1PhaseInc;
+                    vs.slots[si].osc2PhaseInc    = vs.slots[si-1].osc2PhaseInc;
+                    vs.slots[si].assignedVoltage = vs.slots[si-1].assignedVoltage;
+                }
+                vs.srFilled = juce::jmin (vs.srFilled + 1, nSlots);
 
-                    // Tied step: sustain envelope from previous step — no retrigger
+                vs.slots[0].assignedVoltage = vp.stepVoltages[vp.currentStep];
+                if (vp.stepGates[vp.currentStep])
+                {
+                    float baseFreq = voltageToQuantizedFreq (vp, vp.stepVoltages[vp.currentStep]);
+                    vs.slots[0].currentFreq1 = baseFreq * (float)std::pow (2.0, (double)vp.osc1Octave);
+                    vs.slots[0].currentFreq2 = baseFreq * (float)std::pow (2.0, (double)vp.osc2Octave);
+                    vs.slots[0].osc1PhaseInc = vs.slots[0].currentFreq1 / currentSampleRate;
+                    vs.slots[0].osc2PhaseInc = vs.slots[0].currentFreq2 / currentSampleRate;
+                    vs.slots[0].glideActive  = false;
+
                     if (!vp.stepTied[vp.currentStep])
                     {
-                        if (vp.envReset) { vs.adsr.reset();      vs.filterEnv.reset(); }
+                        if (vp.envReset) { vs.adsr.reset(); vs.filterEnv.reset(); }
                         vs.adsr.noteOff();      vs.adsr.noteOn();
                         vs.filterEnv.noteOff(); vs.filterEnv.noteOn();
                         if (!vp.modEnv.clockSync)
@@ -1048,8 +1087,17 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
                         }
                     }
                 }
+                else
+                {
+                    vs.adsr.noteOff();
+                    vs.filterEnv.noteOff();
+                    if (!vp.modEnv.clockSync)
+                        vs.modEnvAdsr.noteOff();
+                }
 
-                // ── Ratchet setup ──────────────────────────────────────────────
+                vs.midiStepGlide = false;
+
+                // Ratchet setup (poly mode — uses shared envelope)
                 {
                     const int repeats = juce::jlimit (1, 4, vp.stepRepeats[vp.currentStep] + 1);
                     const double stepDur = swingBounds[pos + 1] - swingBounds[pos];
@@ -1061,12 +1109,61 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
             }
             else
             {
-                vs.glideActive   = false;
-                vs.midiStepGlide = false;
-                vs.adsr.noteOff();
-                vs.filterEnv.noteOff();
-                if (!vp.modEnv.clockSync)
-                    vs.modEnvAdsr.noteOff();
+                // MONO or UNISON: all slots get same base freq, triggered simultaneously
+                if (vp.stepGates[vp.currentStep])
+                {
+                    float baseFreq = voltageToQuantizedFreq (vp, vp.stepVoltages[vp.currentStep]);
+                    const bool doGlide = (vp.portamentoTime > 0.001f && vp.stepGlides[vp.currentStep]);
+
+                    for (int si = 0; si < nSlots; ++si)
+                    {
+                        UnisonSlot& slot = vs.slots[si];
+                        slot.targetFreq1 = baseFreq * (float)std::pow (2.0, (double)vp.osc1Octave) * slot.detuneRatio;
+                        slot.targetFreq2 = baseFreq * (float)std::pow (2.0, (double)vp.osc2Octave) * slot.detuneRatio;
+                        slot.glideActive = doGlide;
+                        if (!doGlide)
+                        {
+                            slot.currentFreq1 = slot.targetFreq1;
+                            slot.currentFreq2 = slot.targetFreq2;
+                            slot.osc1PhaseInc = slot.currentFreq1 / currentSampleRate;
+                            slot.osc2PhaseInc = slot.currentFreq2 / currentSampleRate;
+                        }
+                    }
+
+                    vs.midiStepGlide = doGlide;
+
+                    if (!vp.stepTied[vp.currentStep])
+                    {
+                        if (vp.envReset) { vs.adsr.reset(); vs.filterEnv.reset(); }
+                        vs.adsr.noteOff();      vs.adsr.noteOn();
+                        vs.filterEnv.noteOff(); vs.filterEnv.noteOn();
+                        if (!vp.modEnv.clockSync)
+                        {
+                            vs.modEnvAdsr.reset();
+                            vs.modEnvAdsr.noteOn();
+                        }
+                    }
+
+                    // ── Ratchet setup ──────────────────────────────────────────────
+                    {
+                        const int repeats = juce::jlimit (1, 4, vp.stepRepeats[vp.currentStep] + 1);
+                        const double stepDur = swingBounds[pos + 1] - swingBounds[pos];
+                        vs.ratchetSubStepDur = (repeats > 1) ? (stepDur / repeats) : 0.0;
+                        vs.ratchetStepPos    = 0.0;
+                        vs.ratchetSubStep    = 0;
+                        vs.ratchetNoteOff    = false;
+                    }
+                }
+                else
+                {
+                    for (int si = 0; si < nSlots; ++si)
+                        vs.slots[si].glideActive = false;
+                    vs.midiStepGlide = false;
+                    vs.adsr.noteOff();
+                    vs.filterEnv.noteOff();
+                    if (!vp.modEnv.clockSync)
+                        vs.modEnvAdsr.noteOff();
+                }
             }
         }
 
@@ -1084,7 +1181,7 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
                 vs.adsr.noteOff();
                 vs.filterEnv.noteOff();
                 vs.ratchetNoteOff   = true;
-                vs.midiRatchetOff   = true;   // signal MIDI note-off to processBlock
+                vs.midiRatchetOff   = true;
             }
 
             // Advance to next sub-step
@@ -1096,7 +1193,7 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
                 vs.adsr.noteOff(); vs.adsr.noteOn();
                 vs.filterEnv.noteOff(); vs.filterEnv.noteOn();
                 vs.ratchetNoteOff   = false;
-                vs.midiRatchetOn    = true;   // signal MIDI note-on to processBlock
+                vs.midiRatchetOn    = true;
             }
         }
 
@@ -1106,20 +1203,23 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
     }
 
     //--------------------------------------------------------------------------
-    // PORTAMENTO (glide)
+    // PORTAMENTO (glide) — per slot
     //--------------------------------------------------------------------------
-    if (vs.glideActive)
+    for (int si = 0; si < nSlots; ++si)
     {
-        vs.currentFreq1  = vs.currentFreq1 * glideCoeff + vs.targetFreq1 * (1.0f - glideCoeff);
-        vs.currentFreq2  = vs.currentFreq2 * glideCoeff + vs.targetFreq2 * (1.0f - glideCoeff);
-        vs.osc1PhaseInc  = vs.currentFreq1 / currentSampleRate;
-        vs.osc2PhaseInc  = vs.currentFreq2 / currentSampleRate;
+        UnisonSlot& slot = vs.slots[si];
+        if (slot.glideActive)
+        {
+            slot.currentFreq1 = slot.currentFreq1 * glideCoeff + slot.targetFreq1 * (1.0f - glideCoeff);
+            slot.currentFreq2 = slot.currentFreq2 * glideCoeff + slot.targetFreq2 * (1.0f - glideCoeff);
+            slot.osc1PhaseInc = slot.currentFreq1 / currentSampleRate;
+            slot.osc2PhaseInc = slot.currentFreq2 / currentSampleRate;
+        }
     }
 
     //--------------------------------------------------------------------------
     // LFOs
     //--------------------------------------------------------------------------
-    // LFO waveform helper
     auto lfoWave = [](float phase, int wave) -> float
     {
         switch (wave)
@@ -1131,13 +1231,11 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
         }
     };
 
-    // LFO sync rate helper (returns Hz from BPM + division index)
     auto syncRate = [&](int divIdx) -> float
     {
         return (float)(effectiveBPM / 60.0 / (cenvDivBars[juce::jlimit (0, 7, divIdx)] * 4.0));
     };
 
-    // Advance LFO phases (synced or free)
     auto advanceLFO = [&](float& phase, float freeRate, bool synced, int divIdx)
     {
         float rate = synced ? syncRate (divIdx) : freeRate;
@@ -1198,24 +1296,23 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
     if (std::abs (totalRangeMod) > 0.001f && running)
     {
         const float effRange = juce::jlimit (0.0f, 2.0f, vp.rangeVCA + totalRangeMod);
-        const float baseFreq = voltageToQuantizedFreq (vp, vp.stepVoltages[vp.currentStep], effRange);
-        const float f1 = baseFreq * (float)std::pow (2.0, (double)vp.osc1Octave);
-        const float f2 = baseFreq * (float)std::pow (2.0, (double)vp.osc2Octave);
-
-        if (vs.glideActive)
+        for (int si = 0; si < nSlots; ++si)
         {
-            vs.targetFreq1 = f1;
-            vs.targetFreq2 = f2;
-        }
-        else
-        {
-            vs.osc1PhaseInc = (double)f1 / currentSampleRate;
-            vs.osc2PhaseInc = (double)f2 / currentSampleRate;
+            UnisonSlot& slot = vs.slots[si];
+            float slotVoltage = (vp.voiceMode == VoiceParams::Poly)
+                                ? slot.assignedVoltage
+                                : vp.stepVoltages[vp.currentStep];
+            const float baseFreq = voltageToQuantizedFreq (vp, slotVoltage, effRange);
+            const float f1 = baseFreq * (float)std::pow (2.0, (double)vp.osc1Octave) * slot.detuneRatio;
+            const float f2 = baseFreq * (float)std::pow (2.0, (double)vp.osc2Octave) * slot.detuneRatio;
+            if (slot.glideActive) { slot.targetFreq1 = f1; slot.targetFreq2 = f2; }
+            else { slot.osc1PhaseInc = (double)f1 / currentSampleRate;
+                   slot.osc2PhaseInc = (double)f2 / currentSampleRate; }
         }
     }
 
     //--------------------------------------------------------------------------
-    // FILTER ENVELOPE → effective cutoff
+    // FILTER ENVELOPE → effective cutoff (shared, computed once)
     //--------------------------------------------------------------------------
     float fEnvSample   = vs.filterEnv.getNextSample();
     float effectiveCut = vp.filterCutoff
@@ -1224,58 +1321,83 @@ float VoltageSeq2AudioProcessor::processSingleVoiceSample (
                                  (effectiveCut + cutoffMod) * cenvCutoffMod);
 
     //--------------------------------------------------------------------------
-    // OSCILLATORS → scope → filter → amp envelope
+    // PER-SLOT OSCILLATORS → sum to mono (with stereo pan weights)
     //--------------------------------------------------------------------------
-    //--------------------------------------------------------------------------
-    // OSCILLATOR DRIFT — independent slow random-walk per VCO
-    //--------------------------------------------------------------------------
-    const float maxDriftCents = 4.0f;
-    vs.osc1DriftVal = std::sin (vs.osc1DriftPhase * juce::MathConstants<float>::twoPi)
-                      * vp.driftAmount * maxDriftCents;
-    vs.osc2DriftVal = std::sin (vs.osc2DriftPhase * juce::MathConstants<float>::twoPi)
-                      * vp.driftAmount * maxDriftCents;
-    vs.osc1DriftPhase += vs.osc1DriftRate / (float)currentSampleRate;
-    if (vs.osc1DriftPhase >= 1.0f) vs.osc1DriftPhase -= 1.0f;
-    vs.osc2DriftPhase += vs.osc2DriftRate / (float)currentSampleRate;
-    if (vs.osc2DriftPhase >= 1.0f) vs.osc2DriftPhase -= 1.0f;
-    const float drift1Ratio = std::pow (2.0f, vs.osc1DriftVal / 1200.0f);
-    const float drift2Ratio = std::pow (2.0f, vs.osc2DriftVal / 1200.0f);
-
-    // FM: OSC2 runs at harmonic ratio of OSC1 when depth > 0
     const float fmRatioVal = std::max (0.0f, vp.fmRatio);
-    const double osc2Inc = (effectiveFMDepth > 0.001f && fmRatioVal > 0.0f)
-        ? (vs.currentFreq1 * (double)fmRatioVal * pitchMod * (double)drift2Ratio) / currentSampleRate
-        : vs.osc2PhaseInc * pitchMod * (double)drift2Ratio;
-    const float osc2Raw = generateOsc2Sample (vs, vp, osc2Inc);   // [-1..+1]
+    const float maxDriftCents = 4.0f;
 
-    // OSC1 with FM deviation from OSC2 and self-feedback
-    const double fmDev = vs.osc1PhaseInc * (double)(effectiveFMDepth * osc2Raw * 3.0f
-                         + vp.crossModDepth * crossModIn * 3.0f);
-    const double fbDev = vs.osc1PhaseInc * (double)(vp.osc1Feedback  * vs.osc1FeedbackSample * 2.0f);
-    const float osc1Raw = generateOsc1Sample (vs, vp, vs.osc1PhaseInc * pitchMod * (double)drift1Ratio + fmDev + fbDev);
-    vs.osc1FeedbackSample = juce::jlimit (-1.0f, 1.0f, osc1Raw);  // clamp to prevent blow-up
-    crossModSample[vi] = osc1Raw;   // expose raw output for cross-mod next sample
+    float sumL = 0.0f, sumR = 0.0f;
+    float primaryOsc1Raw = 0.0f;  // slot 0 for scope + cross-mod
 
-    float osc1 = osc1Raw * vp.osc1Level;
-    float osc2 = osc2Raw * vp.osc2Level;
+    for (int si = 0; si < nSlots; ++si)
+    {
+        UnisonSlot& slot = vs.slots[si];
 
-    // Scope ring-buffer (pre-filter, always shows raw waveform)
-    oscScopeBuffer[vi][scopeWritePos[vi]] = osc1 + osc2;
+        // Drift — independent per slot
+        slot.osc1DriftVal = std::sin (slot.osc1DriftPhase * juce::MathConstants<float>::twoPi)
+                            * vp.driftAmount * maxDriftCents;
+        slot.osc2DriftVal = std::sin (slot.osc2DriftPhase * juce::MathConstants<float>::twoPi)
+                            * vp.driftAmount * maxDriftCents;
+        slot.osc1DriftPhase += slot.osc1DriftRate / (float)currentSampleRate;
+        if (slot.osc1DriftPhase >= 1.0f) slot.osc1DriftPhase -= 1.0f;
+        slot.osc2DriftPhase += slot.osc2DriftRate / (float)currentSampleRate;
+        if (slot.osc2DriftPhase >= 1.0f) slot.osc2DriftPhase -= 1.0f;
+        const float drift1Ratio = std::pow (2.0f, slot.osc1DriftVal / 1200.0f);
+        const float drift2Ratio = std::pow (2.0f, slot.osc2DriftVal / 1200.0f);
+
+        // OSC2
+        const double osc2Inc = (effectiveFMDepth > 0.001f && fmRatioVal > 0.0f)
+            ? (slot.currentFreq1 * (double)fmRatioVal * pitchMod * (double)drift2Ratio) / currentSampleRate
+            : slot.osc2PhaseInc * pitchMod * (double)drift2Ratio;
+        const float osc2Raw = generateOsc2Sample (slot, vp, osc2Inc);
+
+        // OSC1 with FM + feedback
+        const double fmDev = slot.osc1PhaseInc * (double)(effectiveFMDepth * osc2Raw * 3.0f
+                             + vp.crossModDepth * crossModIn * 3.0f);
+        const double fbDev = slot.osc1PhaseInc * (double)(vp.osc1Feedback * slot.osc1FeedbackSample * 2.0f);
+        const float osc1Raw = generateOsc1Sample (slot, vp,
+            slot.osc1PhaseInc * pitchMod * (double)drift1Ratio + fmDev + fbDev, vs.pulseWidth);
+        slot.osc1FeedbackSample = juce::jlimit (-1.0f, 1.0f, osc1Raw);
+
+        if (si == 0) primaryOsc1Raw = osc1Raw;
+
+        float slotOut = (osc1Raw * vp.osc1Level) + (osc2Raw * vp.osc2Level);
+        sumL += slotOut * slot.panL;
+        sumR += slotOut * slot.panR;
+    }
+
+    // Scope (slot 0 only, pre-filter)
+    oscScopeBuffer[vi][scopeWritePos[vi]] = primaryOsc1Raw * vp.osc1Level;
     scopeWritePos[vi] = (scopeWritePos[vi] + 1) % scopeSize;
 
-    float filtered = applyFilter (vs, vp, osc1 + osc2, effectiveCut);
+    // Cross-mod: expose slot 0 for next sample
+    crossModSample[vi] = primaryOsc1Raw;
+
+    // Normalize, filter, envelope — L and R filtered independently (avoids divide artefacts)
+    const float norm = 1.0f / (float)nSlots;
+
+    // Run the SVF on each channel separately using independent state registers.
+    // For MONO (nSlots==1) sumL==sumR so both channels produce identical output.
+    float filtL = applyFilter (vs.ic1eq,  vs.ic2eq,  vs.ic1eq2,  vs.ic2eq2,
+                               vp, sumL * norm, effectiveCut);
+    float filtR = applyFilter (vs.ic1eqR, vs.ic2eqR, vs.ic1eq2R, vs.ic2eq2R,
+                               vp, sumR * norm, effectiveCut);
+
     float envelope = vs.adsr.getNextSample();
-    return filtered * envelope * cenvAmpMod * 0.3f;
+    const float gain = envelope * cenvAmpMod * 0.3f;
+
+    outL = filtL * gain;
+    outR = filtR * gain;
 }
 
 //==============================================================================
 // OSC 1 — phase accumulator with waveform selector
 //==============================================================================
-float VoltageSeq2AudioProcessor::generateOsc1Sample (VoiceState& vs, const VoiceParams& vp,
-                                                      double phaseInc)
+float VoltageSeq2AudioProcessor::generateOsc1Sample (UnisonSlot& slot, const VoiceParams& vp,
+                                                      double phaseInc, float pulseWidth)
 {
     float output = 0.0f;
-    const double t  = vs.osc1Phase;
+    const double t  = slot.osc1Phase;
     const double dt = phaseInc;
 
     switch (vp.osc1Waveform)
@@ -1293,7 +1415,7 @@ float VoltageSeq2AudioProcessor::generateOsc1Sample (VoiceState& vs, const Voice
         case VoiceParams::Square:
         {
             // Raw square, then correct both edges with PolyBLEP
-            const double pw = (double)vs.pulseWidth;
+            const double pw = (double)pulseWidth;
             output  = (t < pw) ? 1.0f : -1.0f;
             output += polyBlep (t, dt);                              // rising edge at t=0
             output -= polyBlep (std::fmod (t - pw + 1.0, 1.0), dt); // falling edge at t=pw
@@ -1309,15 +1431,15 @@ float VoltageSeq2AudioProcessor::generateOsc1Sample (VoiceState& vs, const Voice
         default: break;
     }
 
-    vs.osc1Phase += phaseInc;
-    if (vs.osc1Phase >= 1.0) vs.osc1Phase -= 1.0;
+    slot.osc1Phase += phaseInc;
+    if (slot.osc1Phase >= 1.0) slot.osc1Phase -= 1.0;
     return output;
 }
 
 //==============================================================================
 // OSC 2 — interpolated wavetable morphing
 //==============================================================================
-float VoltageSeq2AudioProcessor::generateOsc2Sample (VoiceState& vs, const VoiceParams& vp,
+float VoltageSeq2AudioProcessor::generateOsc2Sample (UnisonSlot& slot, const VoiceParams& vp,
                                                       double phaseInc)
 {
     float tablePos = vp.osc2Position * (numWavetables - 1);
@@ -1325,7 +1447,7 @@ float VoltageSeq2AudioProcessor::generateOsc2Sample (VoiceState& vs, const Voice
     int   tableB   = juce::jmin (tableA + 1, numWavetables - 1);
     float blend    = tablePos - tableA;
 
-    float readPos = (float)(vs.osc2Phase * wavetableSize);
+    float readPos = (float)(slot.osc2Phase * wavetableSize);
     int   indexA  = (int)readPos % wavetableSize;
     int   indexB  = (indexA + 1) % wavetableSize;
     float frac    = readPos - (int)readPos;
@@ -1333,15 +1455,17 @@ float VoltageSeq2AudioProcessor::generateOsc2Sample (VoiceState& vs, const Voice
     float sA = wavetables[tableA][indexA] + frac * (wavetables[tableA][indexB] - wavetables[tableA][indexA]);
     float sB = wavetables[tableB][indexA] + frac * (wavetables[tableB][indexB] - wavetables[tableB][indexA]);
 
-    vs.osc2Phase += phaseInc;
-    if (vs.osc2Phase >= 1.0) vs.osc2Phase -= 1.0;
+    slot.osc2Phase += phaseInc;
+    if (slot.osc2Phase >= 1.0) slot.osc2Phase -= 1.0;
     return sA + blend * (sB - sA);
 }
 
 //==============================================================================
 // TPT State Variable Filter with drive, mode, and slope
 //==============================================================================
-float VoltageSeq2AudioProcessor::applyFilter (VoiceState& vs, const VoiceParams& vp,
+float VoltageSeq2AudioProcessor::applyFilter (float& ic1, float& ic2,
+                                               float& ic1_2, float& ic2_2,
+                                               const VoiceParams& vp,
                                                float input, float effectiveCutoff)
 {
     // Pre-filter drive (tanh saturation)
@@ -1349,30 +1473,30 @@ float VoltageSeq2AudioProcessor::applyFilter (VoiceState& vs, const VoiceParams&
     float driven = std::tanh (input * drive) / drive;    // normalised so unity gain at drive=0
 
     // TPT SVF — first stage
-    auto runSVF = [](float in, float& ic1, float& ic2, float g, float k, int mode) -> float
+    auto runSVF = [](float in, float& s1, float& s2, float g, float k, int mode) -> float
     {
         float a1 = 1.0f / (1.0f + g * (g + k));
         float a2 = g * a1;
         float a3 = g * a2;
-        float v3 = in   - ic2;
-        float v1 = a1 * ic1 + a2 * v3;
-        float v2 = ic2 + a2 * ic1 + a3 * v3;
-        ic1      = 2.0f * v1 - ic1;
-        ic2      = 2.0f * v2 - ic2;
+        float v3 = in  - s2;
+        float v1 = a1 * s1 + a2 * v3;
+        float v2 = s2 + a2 * s1 + a3 * v3;
+        s1       = 2.0f * v1 - s1;
+        s2       = 2.0f * v2 - s2;
         if (mode == 1) return v1;                        // BP
         if (mode == 2) return in - k * v1 - v2;         // HP
         return v2;                                       // LP (default)
     };
 
     float cut = juce::jlimit (20.0f, (float)(currentSampleRate * 0.45), effectiveCutoff);
-    float g = std::tan (juce::MathConstants<float>::pi * cut / (float)currentSampleRate);
-    float k = juce::jlimit (0.01f, 2.0f, 2.0f - 1.99f * vp.filterResonance);
+    float g   = std::tan (juce::MathConstants<float>::pi * cut / (float)currentSampleRate);
+    float k   = juce::jlimit (0.01f, 2.0f, 2.0f - 1.99f * vp.filterResonance);
 
-    float out = runSVF (driven, vs.ic1eq, vs.ic2eq, g, k, vp.filterMode);
+    float out = runSVF (driven, ic1, ic2, g, k, vp.filterMode);
 
     // Second stage for 24 dB/oct
     if (vp.filterSlope == 1)
-        out = runSVF (out, vs.ic1eq2, vs.ic2eq2, g, k, vp.filterMode);
+        out = runSVF (out, ic1_2, ic2_2, g, k, vp.filterMode);
 
     return out;
 }
@@ -1573,6 +1697,11 @@ static void saveVoiceToXml (juce::XmlElement& el,
 
     el.setAttribute ("midiOutEn",  (int)vp.midiOutEnabled);
     el.setAttribute ("midiOutCh",  vp.midiOutChannel);
+
+    el.setAttribute ("voiceMode",  (int)vp.voiceMode);
+    el.setAttribute ("uniCount",   vp.unisonCount);
+    el.setAttribute ("uniSpread",  (double)vp.unisonSpread);
+    el.setAttribute ("uniWidth",   (double)vp.unisonWidth);
 }
 
 static void loadVoiceFromXml (const juce::XmlElement& el,
@@ -1677,6 +1806,11 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
 
     vp.midiOutEnabled = getB ("midiOutEn", false);
     vp.midiOutChannel = getI ("midiOutCh", 1);
+
+    vp.voiceMode   = (VoltageSeq2AudioProcessor::VoiceParams::VoiceMode)getI ("voiceMode", 0);
+    vp.unisonCount = juce::jlimit (2, 4, getI ("uniCount", 4));
+    vp.unisonSpread= getF ("uniSpread", 0.15f);
+    vp.unisonWidth = getF ("uniWidth",  0.7f);
 }
 
 //==============================================================================

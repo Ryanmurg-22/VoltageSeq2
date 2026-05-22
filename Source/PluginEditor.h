@@ -365,6 +365,12 @@ private:
     juce::TextButton midiOutBtn    [2];   // enable toggle
     juce::ComboBox   midiOutChBox  [2];   // MIDI channel 1–16
 
+    // ── Unison / Poly mode (per voice, on Synth page) ──────────────────────
+    juce::ComboBox   voiceModeBox   [2];   // MONO / UNISON / POLY
+    juce::TextButton uniCountBtn    [2];   // "2V" / "4V" toggle
+    juce::Slider     uniSpreadSlider[2];   // detune spread
+    juce::Slider     uniWidthSlider [2];   // stereo width
+
     // ── Backplate SVG ─────────────────────────────────────────────────────────
     std::unique_ptr<juce::Drawable> backplate;
 

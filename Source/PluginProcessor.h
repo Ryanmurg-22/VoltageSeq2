@@ -38,6 +38,25 @@ public:
     // TYPES
     //==========================================================================
 
+    struct UnisonSlot
+    {
+        double osc1Phase = 0.0, osc1PhaseInc = 0.0;
+        double osc2Phase = 0.0, osc2PhaseInc = 0.0;
+        float  currentFreq1 = 261.63f, targetFreq1 = 261.63f;
+        float  currentFreq2 = 261.63f, targetFreq2 = 261.63f;
+        bool   glideActive  = false;
+        float  osc1FeedbackSample = 0.0f;
+        // Independent drift per slot (so unison voices drift differently)
+        float  osc1DriftPhase = 0.0f, osc1DriftRate = 0.13f, osc1DriftVal = 0.0f;
+        float  osc2DriftPhase = 0.0f, osc2DriftRate = 0.19f, osc2DriftVal = 0.0f;
+        // Pre-computed pan gains (constant-power)
+        float  panL = 1.0f, panR = 1.0f;
+        // Pre-computed detune frequency ratio (pow(2, detuneSemitones/12))
+        float  detuneRatio = 1.0f;
+        // Poly shift-register: this slot's assigned step voltage
+        float  assignedVoltage = 0.0f;
+    };
+
     // Mod envelope — ADSR envelope assignable to FM or Pitch, with optional clock sync
     struct ModEnvParams
     {
@@ -145,6 +164,13 @@ public:
         // ── MIDI Out ─────────────────────────────────────────────────────────
         bool midiOutEnabled = false;
         int  midiOutChannel = 1;     // 1–16
+
+        // ── Unison / Poly mode ────────────────────────────────────────────────
+        enum VoiceMode { Mono = 0, Unison = 1, Poly = 2 };
+        VoiceMode voiceMode    = Mono;
+        int       unisonCount  = 4;      // 2 or 4 slots when mode != Mono
+        float     unisonSpread = 0.15f;  // detune half-width in semitones (0..0.5)
+        float     unisonWidth  = 0.7f;   // stereo pan width (0..1)
 
         // ── Display / transport (written audio thread, read UI — harmless race)
         int currentStep = 0;
@@ -267,27 +293,37 @@ private:
 
     struct VoiceState
     {
-        double osc1Phase = 0.0, osc1PhaseInc = 0.0;
-        double osc2Phase = 0.0, osc2PhaseInc = 0.0;
-        float  currentFreq1 = 261.63f, targetFreq1 = 261.63f;
-        float  currentFreq2 = 261.63f, targetFreq2 = 261.63f;
-        bool   glideActive  = false;
-        float  ic1eq = 0.0f, ic2eq = 0.0f;
-        float  ic1eq2 = 0.0f, ic2eq2 = 0.0f;   // second SVF stage for 24dB
+        // ── Per-slot oscillator state (oscillators only; filter/env are shared)
+        static constexpr int kMaxSlots = 4;
+        UnisonSlot slots[kMaxSlots];
+        int srFilled = 0;   // how many shift-register slots have been filled (POLY mode)
+
+        // ── Shared filter state — two independent channels (L / R) ─────────────
+        float  ic1eq  = 0.0f, ic2eq  = 0.0f;    // L  first SVF stage
+        float  ic1eq2 = 0.0f, ic2eq2 = 0.0f;    // L  second SVF stage (24 dB)
+        float  ic1eqR  = 0.0f, ic2eqR  = 0.0f;  // R  first SVF stage
+        float  ic1eq2R = 0.0f, ic2eq2R = 0.0f;  // R  second SVF stage (24 dB)
+
+        // ── Shared envelopes ─────────────────────────────────────────────────────
         juce::ADSR adsr, filterEnv;
+
+        // ── LFO phases ────────────────────────────────────────────────────────────
         float  lfoPhase  = 0.0f, lfo2Phase  = 0.0f;
-        float lfo3Phase = 0.0f, lfo4Phase = 0.0f;
-        float  osc1FeedbackSample = 0.0f;
-        // Per-oscillator independent drift (slow random-rate LFOs)
-        float osc1DriftPhase = 0.0f, osc1DriftRate = 0.13f, osc1DriftVal = 0.0f;
-        float osc2DriftPhase = 0.0f, osc2DriftRate = 0.19f, osc2DriftVal = 0.0f;
+        float  lfo3Phase = 0.0f, lfo4Phase  = 0.0f;
+
+        // ── Pulse width (shared, modulated by LFO PWM) ───────────────────────────
         float  pulseWidth = 0.5f;
+
+        // ── Sequencer clock state ─────────────────────────────────────────────────
         int    lastPos = -1, randomStep = 0;
         double sampleCounter = 0.0;
+
+        // ── Mod envelope ──────────────────────────────────────────────────────────
         juce::ADSR modEnvAdsr;
         double     modEnvClockPos = 0.0;
         bool       modEnvPrevGate = false;
-        // Ratchet sub-step state
+
+        // ── Ratchet sub-step state ────────────────────────────────────────────────
         int    ratchetSubStep    = 0;
         double ratchetSubStepDur = 0.0;  // duration of one sub-step in samples
         double ratchetStepPos    = 0.0;  // samples elapsed since step start
@@ -357,8 +393,8 @@ private:
     void  processFxBuffer (float* L, float* R, int numSamples,
                            FxState& state, const FxParams& params);
 
-    // Process one sample of one voice; returns the output sample.
-    float processSingleVoiceSample (int vi, bool running,
+    // Process one sample of one voice; writes stereo output to outL and outR.
+    void  processSingleVoiceSample (int vi, bool running,
                                     bool useHostSync, double samplePPQ,
                                     double effectiveBPM,
                                     const double* swingBounds,
@@ -367,11 +403,16 @@ private:
                                     double totalSwingPPQ,
                                     const int*   stepOrder,
                                     float        glideCoeff,
-                                    float        crossModIn = 0.0f);
+                                    float        crossModIn,
+                                    float&       outL,
+                                    float&       outR);
 
-    float generateOsc1Sample (VoiceState& vs, const VoiceParams& vp, double phaseInc);
-    float generateOsc2Sample (VoiceState& vs, const VoiceParams& vp, double phaseInc);
-    float applyFilter        (VoiceState& vs, const VoiceParams& vp,
+    float generateOsc1Sample (UnisonSlot& slot, const VoiceParams& vp,
+                              double phaseInc, float pulseWidth);
+    float generateOsc2Sample (UnisonSlot& slot, const VoiceParams& vp,
+                              double phaseInc);
+    float applyFilter        (float& ic1, float& ic2, float& ic1_2, float& ic2_2,
+                              const VoiceParams& vp,
                               float input, float effectiveCutoff);
     float voltageToQuantizedFreq (const VoiceParams& vp, float voltage,
                                   float rangeOverride = -1.0f);
