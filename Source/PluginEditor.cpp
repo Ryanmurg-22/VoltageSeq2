@@ -1453,8 +1453,8 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         drawFxPanel (960, 300, "CHORUS", juce::Colour (0xffe09040));
         drawFxPanel (1290,200, "MASTER", juce::Colour (0xffe94560));
 
-        // Knob labels — drawn below the rotary knobs (knobs at y=210 h=52, labels at y=264)
-        constexpr int lblY = 264;
+        // Knob labels — drawn above the rotary knobs (knobs at dR2=240; labels sit just above)
+        constexpr int lblY = 224;
         g.setFont (juce::Font (9.f));
         g.setColour (textColour);
         // Delay labels

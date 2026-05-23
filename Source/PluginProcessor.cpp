@@ -187,7 +187,7 @@ VoltageSeq2AudioProcessor::VoltageSeq2AudioProcessor()
         for (int i = 0; i < numSteps; ++i)
         {
             voice[vi].stepVoltages[i] = 0.0f;
-            voice[vi].stepGates[i]    = true;   // all gates on → hear root note on play
+            voice[vi].stepGates[i]    = false;  // all gates off by default (clean slate)
             voice[vi].stepGlides[i]   = false;
         }
         voice[vi].unipolar      = true;   // unipolar (0..5 V range)
@@ -664,12 +664,24 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 if (voice[vi].midiOutEnabled)
                 {
                     const int ch = juce::jlimit (1, 16, voice[vi].midiOutChannel);
+                    // MONO/UNISON: flush single held note
                     if (vstate[vi].midiOutNote >= 0)
                     {
                         midiMessages.addEvent (
                             juce::MidiMessage::noteOff (ch, vstate[vi].midiOutNote, (juce::uint8)0), 0);
                         vstate[vi].midiOutNote = -1;
                     }
+                    // POLY: flush all shift-register notes
+                    for (int si = 0; si < VoiceState::kMaxSlots; ++si)
+                    {
+                        if (vstate[vi].midiPolyNotes[si] >= 0)
+                        {
+                            midiMessages.addEvent (
+                                juce::MidiMessage::noteOff (ch, vstate[vi].midiPolyNotes[si], (juce::uint8)0), 0);
+                            vstate[vi].midiPolyNotes[si] = -1;
+                        }
+                    }
+                    vstate[vi].midiPolyEvict = false;
                     if (vstate[vi].midiGlideActive)
                     {
                         vstate[vi].midiGlideActive = false;
@@ -863,75 +875,145 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             {
                 vs.midiStepFired = false;
 
-                const bool canGlide = vs.midiStepGlide
-                                      && vs.midiOutNote >= 0
-                                      && vs.midiStepNote >= 0
-                                      && vs.midiStepGate;
-
-                if (canGlide)
+                if (vp.voiceMode == VoiceParams::Poly)
                 {
-                    // Clamp bend to ±kPbRange semitones
-                    const float initBend = juce::jlimit (-kPbRange, kPbRange,
-                        (float)(vs.midiOutNote - vs.midiStepNote));
-
-                    // Note-off for old note
-                    midiMessages.addEvent (
-                        juce::MidiMessage::noteOff (ch, vs.midiOutNote, (juce::uint8)0), s);
-
-                    // Tell downstream synth to use ±12 semitone PB range (RPN 0)
-                    midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101,  0), s);
-                    midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100,  0), s);
-                    midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,   6, (int)kPbRange), s);
-                    midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,  38,  0), s);
-                    midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101, 127), s);
-                    midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100, 127), s);
-
-                    // Bend to old pitch before note-on (sounds like we're still on old note)
-                    midiMessages.addEvent (
-                        juce::MidiMessage::pitchWheel (ch, semToPB (initBend, kPbRange)), s);
-
-                    // Note-on for new note (bent to old pitch, will ramp to 0)
-                    midiMessages.addEvent (
-                        juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
-
-                    vs.midiOutNote    = vs.midiStepNote;
-                    vs.midiGlideActive = true;
-                    vs.midiGlideBend   = initBend;
-                    vs.midiGlideTick   = 0;
+                    // ── POLY: shift-register polyphony ─────────────────────────
+                    if (!vs.midiStepGate)
+                    {
+                        // Gate off: silence every held note
+                        vs.midiPolyEvict = false;
+                        for (int si = 0; si < VoiceState::kMaxSlots; ++si)
+                        {
+                            if (vs.midiPolyNotes[si] >= 0)
+                            {
+                                midiMessages.addEvent (
+                                    juce::MidiMessage::noteOff (ch, vs.midiPolyNotes[si], (juce::uint8)0), s);
+                                vs.midiPolyNotes[si] = -1;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Evict oldest note when register is full
+                        if (vs.midiPolyEvict && vs.midiPolyEvictNote >= 0)
+                        {
+                            midiMessages.addEvent (
+                                juce::MidiMessage::noteOff (ch, vs.midiPolyEvictNote, (juce::uint8)0), s);
+                            vs.midiPolyEvict = false;
+                        }
+                        // New note on
+                        if (vs.midiStepNote >= 0)
+                            midiMessages.addEvent (
+                                juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                    }
                 }
                 else
                 {
-                    // Non-glide step: cancel any active PB ramp first
-                    if (vs.midiGlideActive)
+                    // ── MONO / UNISON ───────────────────────────────────────────
+                    if (vs.midiStepTied && vs.midiStepGate && vs.midiOutNote >= 0)
                     {
-                        vs.midiGlideActive = false;
-                        midiMessages.addEvent (juce::MidiMessage::pitchWheel (ch, 0), s);
+                        // Tied step → legato: no retrigger, just update pitch
+                        if (vs.midiStepGlide && vs.midiStepNote >= 0
+                            && vs.midiStepNote != vs.midiOutNote)
+                        {
+                            // Glide on a tied step — portamento ramp as normal
+                            const float initBend = juce::jlimit (-kPbRange, kPbRange,
+                                (float)(vs.midiOutNote - vs.midiStepNote));
+                            midiMessages.addEvent (
+                                juce::MidiMessage::noteOff (ch, vs.midiOutNote, (juce::uint8)0), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101,  0), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100,  0), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,   6, (int)kPbRange), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,  38,  0), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101, 127), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100, 127), s);
+                            midiMessages.addEvent (
+                                juce::MidiMessage::pitchWheel (ch, semToPB (initBend, kPbRange)), s);
+                            midiMessages.addEvent (
+                                juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                            vs.midiOutNote     = vs.midiStepNote;
+                            vs.midiGlideActive = true;
+                            vs.midiGlideBend   = initBend;
+                            vs.midiGlideTick   = 0;
+                        }
+                        else if (vs.midiStepNote >= 0 && vs.midiStepNote != vs.midiOutNote)
+                        {
+                            // Tied pitch-change, no glide: legato overlap
+                            // note-on first so the downstream synth sees overlap → no re-attack
+                            midiMessages.addEvent (
+                                juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                            midiMessages.addEvent (
+                                juce::MidiMessage::noteOff (ch, vs.midiOutNote, (juce::uint8)0), s);
+                            vs.midiOutNote = vs.midiStepNote;
+                        }
+                        // Same pitch + tied → do nothing (note sustains naturally)
                     }
+                    else
+                    {
+                        // Normal (non-tied) step
+                        const bool canGlide = vs.midiStepGlide
+                                              && vs.midiOutNote >= 0
+                                              && vs.midiStepNote >= 0
+                                              && vs.midiStepGate;
 
-                    if (vs.midiOutNote >= 0)
-                    {
-                        midiMessages.addEvent (
-                            juce::MidiMessage::noteOff (ch, vs.midiOutNote, (juce::uint8)0), s);
-                        vs.midiOutNote = -1;
-                    }
-                    if (vs.midiStepGate && vs.midiStepNote >= 0)
-                    {
-                        midiMessages.addEvent (
-                            juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
-                        vs.midiOutNote = vs.midiStepNote;
+                        if (canGlide)
+                        {
+                            const float initBend = juce::jlimit (-kPbRange, kPbRange,
+                                (float)(vs.midiOutNote - vs.midiStepNote));
+                            midiMessages.addEvent (
+                                juce::MidiMessage::noteOff (ch, vs.midiOutNote, (juce::uint8)0), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101,  0), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100,  0), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,   6, (int)kPbRange), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,  38,  0), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101, 127), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100, 127), s);
+                            midiMessages.addEvent (
+                                juce::MidiMessage::pitchWheel (ch, semToPB (initBend, kPbRange)), s);
+                            midiMessages.addEvent (
+                                juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                            vs.midiOutNote     = vs.midiStepNote;
+                            vs.midiGlideActive = true;
+                            vs.midiGlideBend   = initBend;
+                            vs.midiGlideTick   = 0;
+                        }
+                        else
+                        {
+                            if (vs.midiGlideActive)
+                            {
+                                vs.midiGlideActive = false;
+                                midiMessages.addEvent (juce::MidiMessage::pitchWheel (ch, 0), s);
+                            }
+                            if (vs.midiOutNote >= 0)
+                            {
+                                midiMessages.addEvent (
+                                    juce::MidiMessage::noteOff (ch, vs.midiOutNote, (juce::uint8)0), s);
+                                vs.midiOutNote = -1;
+                            }
+                            if (vs.midiStepGate && vs.midiStepNote >= 0)
+                            {
+                                midiMessages.addEvent (
+                                    juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                                vs.midiOutNote = vs.midiStepNote;
+                            }
+                        }
                     }
                 }
+                vs.midiStepTied = false;
             }
 
             // ── 2. Ratchet 50 % point: note-off gap between hits ──────────────
             if (vs.midiRatchetOff)
             {
                 vs.midiRatchetOff = false;
-                if (vs.midiOutNote >= 0)
+                // For POLY use slot-0 note; for MONO/UNISON use midiOutNote
+                int& rNote = (vp.voiceMode == VoiceParams::Poly)
+                             ? vs.midiPolyNotes[0] : vs.midiOutNote;
+                if (rNote >= 0)
                 {
                     midiMessages.addEvent (
-                        juce::MidiMessage::noteOff (ch, vs.midiOutNote, (juce::uint8)0), s);
-                    vs.midiOutNote = -1;
+                        juce::MidiMessage::noteOff (ch, rNote, (juce::uint8)0), s);
+                    rNote = -1;
                 }
             }
 
@@ -939,17 +1021,19 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             if (vs.midiRatchetOn)
             {
                 vs.midiRatchetOn = false;
-                if (vs.midiOutNote >= 0)
+                int& rNote = (vp.voiceMode == VoiceParams::Poly)
+                             ? vs.midiPolyNotes[0] : vs.midiOutNote;
+                if (rNote >= 0)
                 {
                     midiMessages.addEvent (
-                        juce::MidiMessage::noteOff (ch, vs.midiOutNote, (juce::uint8)0), s);
-                    vs.midiOutNote = -1;
+                        juce::MidiMessage::noteOff (ch, rNote, (juce::uint8)0), s);
+                    rNote = -1;
                 }
                 if (vs.midiStepNote >= 0)
                 {
                     midiMessages.addEvent (
                         juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
-                    vs.midiOutNote = vs.midiStepNote;
+                    rNote = vs.midiStepNote;
                 }
             }
 
@@ -1051,6 +1135,7 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
             vs.midiStepNote  = vs.midiStepGate
                                ? voltageToMidiNote (vp, vp.stepVoltages[vp.currentStep])
                                : -1;
+            vs.midiStepTied  = vp.stepTied[vp.currentStep];
 
             if (vp.voiceMode == VoiceParams::Poly)
             {
@@ -1064,6 +1149,13 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
                     vs.slots[si].assignedVoltage = vs.slots[si-1].assignedVoltage;
                 }
                 vs.srFilled = juce::jmin (vs.srFilled + 1, nSlots);
+
+                // MIDI poly register: parallel shift, capture evicted note
+                vs.midiPolyEvict     = (vs.midiPolyNotes[nSlots - 1] >= 0);
+                vs.midiPolyEvictNote = vs.midiPolyNotes[nSlots - 1];
+                for (int si = nSlots - 1; si > 0; --si)
+                    vs.midiPolyNotes[si] = vs.midiPolyNotes[si - 1];
+                vs.midiPolyNotes[0] = vs.midiStepNote;   // -1 on gate-off
 
                 vs.slots[0].assignedVoltage = vp.stepVoltages[vp.currentStep];
                 if (vp.stepGates[vp.currentStep])
@@ -1469,8 +1561,11 @@ float VoltageSeq2AudioProcessor::applyFilter (float& ic1, float& ic2,
                                                float input, float effectiveCutoff)
 {
     // Pre-filter drive (tanh saturation)
-    const float drive = 1.0f + vp.filterDrive * 7.0f;   // 1x … 8x gain into clipper
-    float driven = std::tanh (input * drive) / drive;    // normalised so unity gain at drive=0
+    // Normalise by tanh(drive) so unity input always gives unity output amplitude;
+    // drive only adds harmonic content, it never thins or compresses the level.
+    const float drive = 1.0f + vp.filterDrive * 7.0f;   // 1x … 8x
+    const float dNorm = std::tanh (drive);               // approaches 1 as drive→∞
+    float driven = std::tanh (input * drive) / dNorm;
 
     // TPT SVF — first stage
     auto runSVF = [](float in, float& s1, float& s2, float g, float k, int mode) -> float
@@ -1541,7 +1636,8 @@ float VoltageSeq2AudioProcessor::voltageToQuantizedFreq (const VoiceParams& vp, 
     float scaledV     = voltage * range;
     // Anchor zero-voltage to the root note so the sequencer is always
     // tonally grounded in the selected key (rootNote: 0=C … 11=B).
-    float rawMidi     = juce::jlimit (0.0f, 127.0f, 60.0f + (float)vp.rootNote + scaledV * 5.0f);
+    // 4.8 semitones per volt → 5 V = exactly 24 semitones (2 octaves) at full range
+    float rawMidi     = juce::jlimit (0.0f, 127.0f, 60.0f + (float)vp.rootNote + scaledV * 4.8f);
     int   quantized   = quantizeNoteToScale ((int)std::round (rawMidi), vp.rootNote, vp.currentScale);
     return 440.0f * std::pow (2.0f, (quantized - 69.0f) / 12.0f);
 }
@@ -1551,7 +1647,7 @@ float VoltageSeq2AudioProcessor::voltageToQuantizedFreq (const VoiceParams& vp, 
 int VoltageSeq2AudioProcessor::voltageToMidiNote (const VoiceParams& vp, float voltage) const
 {
     float scaledV = voltage * vp.rangeVCA;
-    float rawMidi = juce::jlimit (0.0f, 127.0f, 60.0f + (float)vp.rootNote + scaledV * 5.0f);
+    float rawMidi = juce::jlimit (0.0f, 127.0f, 60.0f + (float)vp.rootNote + scaledV * 4.8f);
     return quantizeNoteToScale ((int)std::round (rawMidi), vp.rootNote, vp.currentScale);
 }
 

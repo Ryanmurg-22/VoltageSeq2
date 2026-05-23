@@ -333,14 +333,19 @@ private:
         bool  midiStepFired   = false;  // one-shot: new step just advanced
         bool  midiStepGate    = false;  // gate state of the new step
         bool  midiStepGlide   = false;  // new step has portamento active
+        bool  midiStepTied    = false;  // new step is a tie → legato, no retrigger
         int   midiStepNote    = -1;     // quantized MIDI note for new step (-1 = none)
-        int   midiOutNote     = -1;     // currently sounding MIDI note (-1 = silent)
+        int   midiOutNote     = -1;     // currently sounding MIDI note (MONO/UNISON)
         bool  midiRatchetOff  = false;  // ratchet 50%-point: emit note-off
         bool  midiRatchetOn   = false;  // ratchet sub-step advance: emit note-off + note-on
         // Pitch-bend portamento ramp
         bool  midiGlideActive = false;  // PB ramp in progress
         float midiGlideBend   = 0.0f;   // current PB offset in semitones (decays → 0)
         int   midiGlideTick   = 0;      // samples since last PB message
+        // POLY mode shift-register note tracking
+        int   midiPolyNotes[kMaxSlots] = { -1, -1, -1, -1 }; // per-slot held notes
+        bool  midiPolyEvict    = false; // oldest slot note needs note-off
+        int   midiPolyEvictNote = -1;   // the note being evicted
     };
 
     VoiceState vstate[numVoices];
