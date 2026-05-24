@@ -1108,7 +1108,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
 }
 
 //==============================================================================
-// setupGenControls — wire up Page 4 GENERATE controls
+// setupGenControls — wire up Page 4 GENERATE controls (single shared generator)
 //==============================================================================
 void VoltageSeq2AudioProcessorEditor::setupGenControls()
 {
@@ -1118,100 +1118,118 @@ void VoltageSeq2AudioProcessorEditor::setupGenControls()
         genPageComponents.push_back (&c);
     };
 
-    for (int v = 0; v < 2; ++v)
+    // Helper to refresh target button colours
+    auto refreshTargetBtns = [this]()
     {
-        // ── N: Steps (2–16) ──────────────────────────────────────────────────
-        euclidStepsSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
-        euclidStepsSlider[v].setRange (2.0, 16.0, 1.0);
-        euclidStepsSlider[v].setValue (8.0, juce::dontSendNotification);
-        euclidStepsSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 30, 20);
-        euclidStepsSlider[v].setColour (juce::Slider::textBoxTextColourId,    juce::Colour (0xffe0e0e0));
-        euclidStepsSlider[v].setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (0x00000000));
-        euclidStepsSlider[v].onValueChange = [this, v]()
-        {
-            const int n = (int)euclidStepsSlider[v].getValue();
-            const int r = euclidR[v];
-            euclidHitsSlider[v].setRange (0.0, (double)(n * r), 1.0);
-            euclidHitsSlider[v].setValue (
-                juce::jlimit (0.0, (double)(n * r), euclidHitsSlider[v].getValue()),
-                juce::dontSendNotification);
-            repaint();
-        };
-        addGen (euclidStepsSlider[v]);
+        euclidVoiceABtn.setColour (juce::TextButton::buttonColourId,
+            euclidTargetVoice == 0 ? juce::Colour (0xff1a4a88) : juce::Colour (0xff161630));
+        euclidVoiceBBtn.setColour (juce::TextButton::buttonColourId,
+            euclidTargetVoice == 1 ? juce::Colour (0xff5a2488) : juce::Colour (0xff161630));
+    };
 
-        // ── K: Hits (0..N×R) ─────────────────────────────────────────────────
-        euclidHitsSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
-        euclidHitsSlider[v].setRange (0.0, 8.0, 1.0);   // max updated dynamically
-        euclidHitsSlider[v].setValue (4.0, juce::dontSendNotification);
-        euclidHitsSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 30, 20);
-        euclidHitsSlider[v].setColour (juce::Slider::textBoxTextColourId,    juce::Colour (0xffe0e0e0));
-        euclidHitsSlider[v].setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (0x00000000));
-        euclidHitsSlider[v].onValueChange = [this, v]() { repaint(); };
-        addGen (euclidHitsSlider[v]);
+    // ── Target voice selectors ────────────────────────────────────────────────
+    euclidVoiceABtn.setButtonText ("VOICE A");
+    euclidVoiceABtn.onClick = [this, refreshTargetBtns]()
+    {
+        euclidTargetVoice = 0;
+        refreshTargetBtns();
+        repaint();
+    };
+    addGen (euclidVoiceABtn);
 
-        // ── R: Max Ratchets (1–4, cycling button) ────────────────────────────
-        euclidRatchetBtn[v].setButtonText ("1");
-        euclidRatchetBtn[v].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff1a1a40));
-        euclidRatchetBtn[v].onClick = [this, v]()
-        {
-            euclidR[v] = (euclidR[v] % 4) + 1;
-            euclidRatchetBtn[v].setButtonText (juce::String (euclidR[v]));
-            const int n = (int)euclidStepsSlider[v].getValue();
-            euclidHitsSlider[v].setRange (0.0, (double)(n * euclidR[v]), 1.0);
-            euclidHitsSlider[v].setValue (
-                juce::jlimit (0.0, (double)(n * euclidR[v]), euclidHitsSlider[v].getValue()),
-                juce::dontSendNotification);
-            repaint();
-        };
-        addGen (euclidRatchetBtn[v]);
+    euclidVoiceBBtn.setButtonText ("VOICE B");
+    euclidVoiceBBtn.onClick = [this, refreshTargetBtns]()
+    {
+        euclidTargetVoice = 1;
+        refreshTargetBtns();
+        repaint();
+    };
+    addGen (euclidVoiceBBtn);
+    refreshTargetBtns();
 
-        // ── APPLY ─────────────────────────────────────────────────────────────
-        euclidApplyBtn[v].setButtonText ("APPLY");
-        euclidApplyBtn[v].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff163016));
-        euclidApplyBtn[v].setColour (juce::TextButton::textColourOffId, juce::Colour (0xff44ee44));
-        euclidApplyBtn[v].onClick = [this, v]()
-        {
-            const int n = (int)euclidStepsSlider[v].getValue();
-            const int k = (int)euclidHitsSlider[v].getValue();
-            const int r = euclidR[v];
-            audioProcessor.applyEuclidean (v, n, k, r);
-            syncUIFromProcessor();
-        };
-        addGen (euclidApplyBtn[v]);
-    }
+    // ── N: Steps (2–16) ──────────────────────────────────────────────────────
+    euclidStepsSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+    euclidStepsSlider.setRange (2.0, 16.0, 1.0);
+    euclidStepsSlider.setValue (8.0, juce::dontSendNotification);
+    euclidStepsSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 32, 22);
+    euclidStepsSlider.setColour (juce::Slider::textBoxTextColourId,    juce::Colour (0xffe0e0e0));
+    euclidStepsSlider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (0x00000000));
+    euclidStepsSlider.onValueChange = [this]()
+    {
+        const int n = (int)euclidStepsSlider.getValue();
+        euclidHitsSlider.setRange (0.0, (double)(n * euclidR), 1.0);
+        euclidHitsSlider.setValue (
+            juce::jlimit (0.0, (double)(n * euclidR), euclidHitsSlider.getValue()),
+            juce::dontSendNotification);
+        repaint();
+    };
+    addGen (euclidStepsSlider);
+
+    // ── K: Hits (0..N×R) ─────────────────────────────────────────────────────
+    euclidHitsSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+    euclidHitsSlider.setRange (0.0, 8.0, 1.0);
+    euclidHitsSlider.setValue (4.0, juce::dontSendNotification);
+    euclidHitsSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 32, 22);
+    euclidHitsSlider.setColour (juce::Slider::textBoxTextColourId,    juce::Colour (0xffe0e0e0));
+    euclidHitsSlider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (0x00000000));
+    euclidHitsSlider.onValueChange = [this]() { repaint(); };
+    addGen (euclidHitsSlider);
+
+    // ── R: Max Ratchets (cycles 1→2→3→4→1) ──────────────────────────────────
+    euclidRatchetBtn.setButtonText ("1");
+    euclidRatchetBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff1a1a40));
+    euclidRatchetBtn.onClick = [this]()
+    {
+        euclidR = (euclidR % 4) + 1;
+        euclidRatchetBtn.setButtonText (juce::String (euclidR));
+        const int n = (int)euclidStepsSlider.getValue();
+        euclidHitsSlider.setRange (0.0, (double)(n * euclidR), 1.0);
+        euclidHitsSlider.setValue (
+            juce::jlimit (0.0, (double)(n * euclidR), euclidHitsSlider.getValue()),
+            juce::dontSendNotification);
+        repaint();
+    };
+    addGen (euclidRatchetBtn);
+
+    // ── APPLY ─────────────────────────────────────────────────────────────────
+    euclidApplyBtn.setButtonText ("APPLY");
+    euclidApplyBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff163016));
+    euclidApplyBtn.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff44ee44));
+    euclidApplyBtn.onClick = [this]()
+    {
+        const int n = (int)euclidStepsSlider.getValue();
+        const int k = (int)euclidHitsSlider.getValue();
+        audioProcessor.applyEuclidean (euclidTargetVoice, n, k, euclidR);
+        syncUIFromProcessor();
+    };
+    addGen (euclidApplyBtn);
 }
 
 //==============================================================================
-// layoutGenPage — position Page 4 controls
+// layoutGenPage — position Page 4 controls (single panel)
 //==============================================================================
 void VoltageSeq2AudioProcessorEditor::layoutGenPage()
 {
-    constexpr int panelX   = 10;
-    constexpr int panelH   = 310;
-    constexpr int panelGap = 12;
-    const int     panelY[2] = { headerH + 10, headerH + 10 + panelH + panelGap };
+    constexpr int panelX  = 10;
+    constexpr int panelY  = headerH + 10;
+    constexpr int ctrlX   = panelX + 24;
+    constexpr int sliderX = ctrlX + 120;
+    constexpr int sliderW = 340;
+    constexpr int sliderH = 26;
 
-    // Control column X / widths (left side of each panel)
-    constexpr int ctrlX  = panelX + 14;
-    constexpr int ctrlW  = 450;   // width for sliders
-    constexpr int sliderH = 24;
+    // Target voice buttons (side by side)
+    euclidVoiceABtn.setBounds (sliderX,      panelY + 42, 100, 26);
+    euclidVoiceBBtn.setBounds (sliderX + 108, panelY + 42, 100, 26);
 
-    for (int v = 0; v < 2; ++v)
-    {
-        const int py = panelY[v];
+    // Sliders
+    euclidStepsSlider.setBounds (sliderX, panelY + 90,  sliderW, sliderH);
+    euclidHitsSlider .setBounds (sliderX, panelY + 140, sliderW, sliderH);
 
-        // Steps slider
-        euclidStepsSlider[v].setBounds (ctrlX + 80, py + 46,  ctrlW, sliderH);
+    // Ratchet cycler
+    euclidRatchetBtn .setBounds (sliderX, panelY + 190, 70, sliderH);
 
-        // Hits slider
-        euclidHitsSlider[v] .setBounds (ctrlX + 80, py + 96,  ctrlW, sliderH);
-
-        // Ratchet cycler button (4 labelled buttons: 1 / 2 / 3 / 4)
-        euclidRatchetBtn[v] .setBounds (ctrlX + 80, py + 146, 60, sliderH);
-
-        // APPLY button (tall, prominent)
-        euclidApplyBtn[v]   .setBounds (ctrlX + 80, py + 185, 120, 40);
-    }
+    // APPLY — prominent, below controls
+    euclidApplyBtn   .setBounds (sliderX, panelY + 240, 150, 50);
 }
 
 //==============================================================================
@@ -1678,149 +1696,172 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         g.setColour (juce::Colour (0xff040410));
         g.fillRect (0, headerH, getWidth(), winH - headerH);
 
-        // Bjorklund helper (reused for live preview)
+        // Bjorklund inline helper for preview
         auto bjorklundPreview = [](int k, int n) -> std::vector<int>
         {
             if (n <= 0 || k <= 0) return std::vector<int> (std::max (n, 0), 0);
             k = std::min (k, n);
             if (k == n) return std::vector<int> (n, 1);
-            const int q = n / k, r = n % k;
+            const int q = n / k, rem = n % k;
             std::vector<int> res; res.reserve (n);
             for (int i = 0; i < k; ++i) {
                 res.push_back (1);
-                for (int j = 0; j < q - 1 + (i < r ? 1 : 0); ++j) res.push_back (0);
+                for (int j = 0; j < q - 1 + (i < rem ? 1 : 0); ++j) res.push_back (0);
             }
             return res;
         };
 
-        // Per-voice panel
-        static const juce::Colour voiceAccents[2] = { juce::Colour(0xff00aaff), juce::Colour(0xffaa44ff) };
-        static const char* voiceLabels[2] = { "VOICE  A", "VOICE  B" };
+        // Accent colour tracks the selected target voice
+        const juce::Colour accent = (euclidTargetVoice == 0)
+                                    ? juce::Colour (0xff00aaff)
+                                    : juce::Colour (0xffaa44ff);
+        const juce::String targetLabel = (euclidTargetVoice == 0) ? "VOICE  A" : "VOICE  B";
 
-        constexpr int panelX  = 10;
-        constexpr int panelW  = 1480;
-        constexpr int panelH  = 310;
-        constexpr int panelGap = 12;
-        const     int panelY[2] = { headerH + 10, headerH + 10 + panelH + panelGap };
+        // ── Single panel ──────────────────────────────────────────────────────
+        constexpr int panelX = 10;
+        constexpr int panelY = headerH + 10;
+        constexpr int panelW = 1480;
+        const     int panelH = winH - panelY - 10;
 
-        for (int v = 0; v < 2; ++v)
+        g.setColour (juce::Colour (0xff0c0c18));
+        g.fillRoundedRectangle ((float)panelX, (float)panelY, (float)panelW, (float)panelH, 6.f);
+
+        // Accent top bar
+        g.setColour (accent.withAlpha (0.7f));
+        g.fillRect (panelX, panelY, panelW, 3);
+
+        // Title
+        g.setFont (juce::Font (11.f, juce::Font::bold));
+        g.setColour (juce::Colour (0xffe0e0e0));
+        g.drawText ("EUCLIDEAN RHYTHM GENERATOR", panelX + 16, panelY + 8, 400, 16,
+                    juce::Justification::centredLeft);
+
+        // Control labels (left column, x=panelX+24)
+        constexpr int lblX  = panelX + 24;
+        constexpr int lblW  = 115;
+        g.setFont (juce::Font (9.f, juce::Font::bold));
+        g.setColour (dimColour);
+        g.drawText ("TARGET",       lblX, panelY + 48,  lblW, 14, juce::Justification::centredLeft);
+        g.drawText ("STEPS",        lblX, panelY + 96,  lblW, 14, juce::Justification::centredLeft);
+        g.drawText ("HITS",         lblX, panelY + 146, lblW, 14, juce::Justification::centredLeft);
+        g.drawText ("MAX RATCHETS", lblX, panelY + 196, lblW, 14, juce::Justification::centredLeft);
+
+        // ── Preview grid ──────────────────────────────────────────────────────
+        const int n = (int)euclidStepsSlider.getValue();
+        const int k = (int)euclidHitsSlider.getValue();
+        const int r = euclidR;
+
+        const auto slots = bjorklundPreview (k, n * r);
+
+        constexpr int gridX   = 560;
+        const     int gridY   = panelY + 36;
+        const     int gridW   = panelW - gridX - 20;
+        const     int gridH   = panelH - 60;
+        const     int cellW   = gridW / 16;
+        constexpr int cellGap = 3;
+        // Compute cell height so all r rows fill the grid height cleanly
+        const int cellH = std::min ((gridH - (r - 1) * cellGap) / r, 160);
+
+        // Step number headers
+        g.setFont (juce::Font (9.f, juce::Font::bold));
+        for (int i = 0; i < 16; ++i)
         {
-            const int py = panelY[v];
-            const juce::Colour accent = voiceAccents[v];
-
-            // Panel background
-            g.setColour (juce::Colour (0xff0c0c18));
-            g.fillRoundedRectangle ((float)panelX, (float)py, (float)panelW, (float)panelH, 6.f);
-
-            // Accent bar + title
-            g.setColour (accent.withAlpha (0.7f));
-            g.fillRect (panelX, py, panelW, 3);
-            g.setFont (juce::Font (10.f, juce::Font::bold));
-            g.setColour (accent);
-            g.drawText (voiceLabels[v], panelX + 12, py + 8, 120, 14, juce::Justification::centredLeft);
-
-            // ── Section labels ────────────────────────────────────────────────
-            g.setFont (juce::Font (9.f, juce::Font::bold));
-            g.setColour (dimColour);
-            g.drawText ("EUCLIDEAN RHYTHM GENERATOR",  panelX + 12, py + 28, 400, 12, juce::Justification::centredLeft);
-
-            // ── Preview grid ─────────────────────────────────────────────────
-            // Compute pattern from current slider values
-            const int n = (int)euclidStepsSlider[v].getValue();
-            const int k = (int)euclidHitsSlider[v].getValue();
-            const int r = euclidR[v];
-
-            const auto slots    = bjorklundPreview (k, n * r);
-            const int  gridX    = 510;
-            const int  gridY    = py + 44;
-            const int  gridW    = panelW - gridX - 20;
-            const int  cellW    = gridW / 16;
-            const int  cellH    = r > 1 ? (200 / r) : 200;
-            const int  cellGap  = 2;
-
-            // Column headers (step numbers)
-            g.setFont (juce::Font (8.f));
-            g.setColour (dimColour.withAlpha (0.6f));
-            for (int i = 0; i < 16; ++i)
-            {
-                const int cx = gridX + i * cellW;
-                const bool inRange = (i < n);
-                g.setColour (inRange ? dimColour : dimColour.withAlpha (0.25f));
-                g.drawText (juce::String (i + 1), cx, gridY - 12, cellW - cellGap, 11,
-                            juce::Justification::centred);
-            }
-
-            // Grid cells
-            for (int i = 0; i < 16; ++i)
-            {
-                const int cx = gridX + i * cellW;
-                const bool inRange = (i < n);
-
-                for (int row = 0; row < r; ++row)
-                {
-                    const int cy = gridY + row * (cellH + cellGap);
-                    bool hit = inRange && slots[i * r + row];
-
-                    juce::Colour cellCol;
-                    if (!inRange)       cellCol = juce::Colour (0xff080810);
-                    else if (hit)       cellCol = accent.withAlpha (0.85f);
-                    else                cellCol = juce::Colour (0xff141424);
-
-                    g.setColour (cellCol);
-                    g.fillRoundedRectangle ((float)cx, (float)cy, (float)(cellW - cellGap), (float)cellH, 2.f);
-                }
-
-                // Ratchet count badge (bottom of column, for in-range steps)
-                if (inRange)
-                {
-                    int hitCount = 0;
-                    for (int row = 0; row < r; ++row)
-                        if (slots[i * r + row]) hitCount++;
-
-                    const int badgeY = gridY + r * (cellH + cellGap) + 4;
-                    if (hitCount > 0)
-                    {
-                        g.setColour (accent);
-                        g.setFont (juce::Font (9.f, juce::Font::bold));
-                        const juce::String badge = hitCount > 1 ? juce::String ("x") + juce::String (hitCount) : juce::String (L"•");
-                        g.drawText (badge, cx, badgeY, cellW - cellGap, 12, juce::Justification::centred);
-                    }
-                }
-            }
-
-            // Grid label
-            g.setFont (juce::Font (8.f, juce::Font::bold));
-            g.setColour (dimColour.withAlpha (0.5f));
-            const juce::String gridInfo = "STEPS: " + juce::String (n)
-                                        + "   HITS: " + juce::String (k)
-                                        + "   MAX RATCHETS: " + juce::String (r)
-                                        + "   DENSITY: " + juce::String ((int)juce::roundToInt (100.0 * k / (n * r))) + "%";
-            g.drawText (gridInfo, gridX, py + panelH - 18, gridW, 12, juce::Justification::centredLeft);
-
-            // Control labels
-            g.setFont (juce::Font (9.f, juce::Font::bold));
-            g.setColour (dimColour);
-            g.drawText ("STEPS",        panelX + 14, py + 54,  80, 12, juce::Justification::centredLeft);
-            g.drawText ("HITS",         panelX + 14, py + 104, 80, 12, juce::Justification::centredLeft);
-            g.drawText ("MAX RATCHETS", panelX + 14, py + 154, 120, 12, juce::Justification::centredLeft);
-
-            // Turing Machine placeholder
-            constexpr int tmX = panelX + 12;
-            const     int tmY = py + 210;
-            g.setColour (juce::Colour (0xff0e0e1a));
-            g.fillRoundedRectangle ((float)tmX, (float)tmY, 460.f, 80.f, 4.f);
-            g.setColour (juce::Colour (0xff1e1e30));
-            g.drawRoundedRectangle ((float)tmX, (float)tmY, 460.f, 80.f, 4.f, 1.f);
-            g.setFont (juce::Font (10.f, juce::Font::bold));
-            g.setColour (dimColour.withAlpha (0.4f));
-            g.drawText ("TURING MACHINE", tmX + 10, tmY + 8, 200, 14, juce::Justification::centredLeft);
-            g.setFont (juce::Font (9.f));
-            g.setColour (dimColour.withAlpha (0.3f));
-            g.drawText ("Probabilistic shift-register looping — coming in v4.0",
-                        tmX + 10, tmY + 30, 440, 12, juce::Justification::centredLeft);
-            g.drawText ("LOCK knob: 0% = chaos  ·  100% = locked loop  ·  50% = evolving pattern",
-                        tmX + 10, tmY + 50, 440, 12, juce::Justification::centredLeft);
+            const bool inRange = (i < n);
+            g.setColour (inRange ? dimColour : dimColour.withAlpha (0.22f));
+            g.drawText (juce::String (i + 1),
+                        gridX + i * cellW, gridY - 16, cellW - cellGap, 13,
+                        juce::Justification::centred);
         }
+
+        // Grid cells + ratchet badges
+        for (int i = 0; i < 16; ++i)
+        {
+            const int  cx      = gridX + i * cellW;
+            const bool inRange = (i < n);
+            int hitCount = 0;
+
+            for (int row = 0; row < r; ++row)
+            {
+                const int  cy  = gridY + row * (cellH + cellGap);
+                const bool hit = inRange && (slots[i * r + row] != 0);
+                if (hit) ++hitCount;
+
+                juce::Colour cellCol;
+                if (!inRange)  cellCol = juce::Colour (0xff080812);
+                else if (hit)  cellCol = accent.withAlpha (0.85f);
+                else           cellCol = juce::Colour (0xff14142a);
+
+                g.setColour (cellCol);
+                g.fillRoundedRectangle ((float)cx, (float)cy,
+                                        (float)(cellW - cellGap), (float)cellH, 3.f);
+
+                // Ratchet row number (right edge of cell, subtle)
+                if (r > 1 && inRange)
+                {
+                    g.setFont (juce::Font (7.f));
+                    g.setColour ((hit ? accent : dimColour).withAlpha (0.4f));
+                    g.drawText (juce::String (row + 1),
+                                cx + cellW - cellGap - 12, cy + 2, 10, cellH - 4,
+                                juce::Justification::centredRight);
+                }
+            }
+
+            // Hit badge below each column
+            if (inRange)
+            {
+                const int badgeY = gridY + r * (cellH + cellGap) + 5;
+                g.setFont (juce::Font (10.f, juce::Font::bold));
+                if (hitCount > 1)
+                {
+                    g.setColour (accent);
+                    g.drawText (juce::String (L"×") + juce::String (hitCount),
+                                cx, badgeY, cellW - cellGap, 14, juce::Justification::centred);
+                }
+                else if (hitCount == 1)
+                {
+                    g.setColour (accent.withAlpha (0.6f));
+                    g.drawText (juce::String (L"•"),
+                                cx, badgeY, cellW - cellGap, 14, juce::Justification::centred);
+                }
+            }
+        }
+
+        // Info strip below grid
+        const int infoY = gridY + r * (cellH + cellGap) + 24;
+        g.setFont (juce::Font (8.5f, juce::Font::bold));
+        g.setColour (dimColour.withAlpha (0.55f));
+        const int density = (n * r > 0) ? (int)juce::roundToInt (100.0 * k / (n * r)) : 0;
+        g.drawText ("STEPS " + juce::String (n)
+                  + "   ·   HITS " + juce::String (k)
+                  + "   ·   MAX RATCHETS " + juce::String (r)
+                  + "   ·   DENSITY " + juce::String (density) + "%"
+                  + "   ·   TARGET → " + targetLabel,
+                  gridX, infoY, gridW, 12, juce::Justification::centredLeft);
+
+        // ── Turing Machine placeholder ─────────────────────────────────────────
+        constexpr int tmX = lblX;
+        const     int tmY = panelY + 310;
+        constexpr int tmW = 480;
+        constexpr int tmH = 130;
+        g.setColour (juce::Colour (0xff0a0a18));
+        g.fillRoundedRectangle ((float)tmX, (float)tmY, (float)tmW, (float)tmH, 5.f);
+        g.setColour (juce::Colour (0xff1c1c30));
+        g.drawRoundedRectangle ((float)tmX, (float)tmY, (float)tmW, (float)tmH, 5.f, 1.f);
+
+        g.setFont (juce::Font (10.f, juce::Font::bold));
+        g.setColour (dimColour.withAlpha (0.45f));
+        g.drawText ("TURING MACHINE", tmX + 14, tmY + 12, 280, 14, juce::Justification::centredLeft);
+
+        g.setFont (juce::Font (8.5f));
+        g.setColour (dimColour.withAlpha (0.3f));
+        g.drawText ("Probabilistic shift-register looping  —  coming in v4.0",
+                    tmX + 14, tmY + 38, tmW - 20, 12, juce::Justification::centredLeft);
+        g.drawText ("LOCK 0% = pure chaos   ·   LOCK 50% = slowly evolving loop",
+                    tmX + 14, tmY + 58, tmW - 20, 12, juce::Justification::centredLeft);
+        g.drawText ("LOCK 100% = fully locked repeating pattern",
+                    tmX + 14, tmY + 78, tmW - 20, 12, juce::Justification::centredLeft);
+        g.drawText ("Assignable to Voice A or B (same target selector as Euclidean)",
+                    tmX + 14, tmY + 98, tmW - 20, 12, juce::Justification::centredLeft);
         return;
     }
 

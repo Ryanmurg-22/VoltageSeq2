@@ -360,12 +360,15 @@ private:
     juce::TextButton              genPageBtn;
     std::vector<juce::Component*> genPageComponents;
 
-    // Per-voice Euclidean controls
-    juce::Slider     euclidStepsSlider [2];   // N: sequence length (2-16)
-    juce::Slider     euclidHitsSlider  [2];   // K: total hits (0..N×R)
-    juce::TextButton euclidRatchetBtn  [2];   // R cycler: 1 → 2 → 3 → 4 → 1
-    juce::TextButton euclidApplyBtn    [2];   // writes to processor + syncs page 1
-    int              euclidR           [2] = { 1, 1 };  // current R state per voice
+    // Single shared Euclidean generator — assignable to Voice A or B
+    juce::TextButton euclidVoiceABtn;     // target selector
+    juce::TextButton euclidVoiceBBtn;
+    juce::Slider     euclidStepsSlider;   // N: sequence length (2-16)
+    juce::Slider     euclidHitsSlider;    // K: total hits (0..N×R)
+    juce::TextButton euclidRatchetBtn;    // R cycler: 1 → 2 → 3 → 4 → 1
+    juce::TextButton euclidApplyBtn;      // writes to processor + syncs page 1
+    int              euclidR            = 1;   // current R state
+    int              euclidTargetVoice  = 0;   // 0 = Voice A,  1 = Voice B
 
     void setupGenControls();
     void layoutGenPage();
