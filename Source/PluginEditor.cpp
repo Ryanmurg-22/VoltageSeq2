@@ -306,23 +306,35 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     // Pattern transpose buttons (per voice) — configured here, added to page components below
     for (int v = 0; v < 2; ++v)
     {
-        patTransposeUpBtn[v].setButtonText ("+8va");
+        patTransposeUpBtn[v].setButtonText ("+OCT");
         patTransposeUpBtn[v].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff203040));
         patTransposeUpBtn[v].onClick = [this, v]()
         {
             auto& vp = audioProcessor.voice[v];
             for (int i = 0; i < 16; ++i)
                 vp.stepOctave[i] = juce::jlimit (-4, 4, vp.stepOctave[i] + 1);
+            // Patch the stored slot directly — only the octave field changes,
+            // so root key, pitches, and all other stored params are untouched.
+            const int slot = activePatternSlot[v];
+            if (slot >= 0 && slot < 16 && audioProcessor.patternBank[v][slot].used)
+                for (int i = 0; i < 16; ++i)
+                    audioProcessor.patternBank[v][slot].stepOctave[i] = vp.stepOctave[i];
             syncUIFromProcessor();
         };
 
-        patTransposeDnBtn[v].setButtonText ("-8va");
+        patTransposeDnBtn[v].setButtonText ("-OCT");
         patTransposeDnBtn[v].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff203040));
         patTransposeDnBtn[v].onClick = [this, v]()
         {
             auto& vp = audioProcessor.voice[v];
             for (int i = 0; i < 16; ++i)
                 vp.stepOctave[i] = juce::jlimit (-4, 4, vp.stepOctave[i] - 1);
+            // Patch the stored slot directly — only the octave field changes,
+            // so root key, pitches, and all other stored params are untouched.
+            const int slot = activePatternSlot[v];
+            if (slot >= 0 && slot < 16 && audioProcessor.patternBank[v][slot].used)
+                for (int i = 0; i < 16; ++i)
+                    audioProcessor.patternBank[v][slot].stepOctave[i] = vp.stepOctave[i];
             syncUIFromProcessor();
         };
     }
@@ -1206,6 +1218,192 @@ void VoltageSeq2AudioProcessorEditor::setupGenControls()
         syncUIFromProcessor();
     };
     addGen (euclidApplyBtn);
+
+    // ────────────────────────────────────────────────────────────────────────
+    // TURING MACHINE controls
+    // ────────────────────────────────────────────────────────────────────────
+
+    // Helper to refresh TM voice button colours
+    auto refreshTMVoiceBtns = [this]()
+    {
+        const int tv = audioProcessor.tmTargetVoice.load();
+        tmVoiceABtn.setColour (juce::TextButton::buttonColourId,
+            tv == 0 ? juce::Colour (0xff1a4a88) : juce::Colour (0xff161630));
+        tmVoiceBBtn.setColour (juce::TextButton::buttonColourId,
+            tv == 1 ? juce::Colour (0xff5a2488) : juce::Colour (0xff161630));
+    };
+
+    // TM voice A selector
+    tmVoiceABtn.setButtonText ("VOICE A");
+    tmVoiceABtn.onClick = [this, refreshTMVoiceBtns]()
+    {
+        audioProcessor.tmTargetVoice.store (0);
+        refreshTMVoiceBtns();
+        syncTMControlsFromVoice();
+        repaint();
+    };
+    addGen (tmVoiceABtn);
+
+    // TM voice B selector
+    tmVoiceBBtn.setButtonText ("VOICE B");
+    tmVoiceBBtn.onClick = [this, refreshTMVoiceBtns]()
+    {
+        audioProcessor.tmTargetVoice.store (1);
+        refreshTMVoiceBtns();
+        syncTMControlsFromVoice();
+        repaint();
+    };
+    addGen (tmVoiceBBtn);
+    refreshTMVoiceBtns();
+
+    // LOCK knob — large rotary, the visual centrepiece
+    tmLockKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    tmLockKnob.setRange (0.0, 1.0, 0.001);
+    tmLockKnob.setValue (0.75, juce::dontSendNotification);
+    tmLockKnob.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    tmLockKnob.setColour (juce::Slider::rotarySliderFillColourId,    juce::Colour (0xff00d4aa));
+    tmLockKnob.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (0xff1a3030));
+    tmLockKnob.onValueChange = [this]()
+    {
+        audioProcessor.turingMachine.lockAmount = (float)tmLockKnob.getValue();
+    };
+    addGen (tmLockKnob);
+
+    // LENGTH stepper
+    tmLengthUpBtn.setButtonText ("+");
+    tmLengthUpBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff1a1a40));
+    tmLengthUpBtn.onClick = [this]()
+    {
+        audioProcessor.turingMachine.length = juce::jlimit (2, 16, audioProcessor.turingMachine.length + 1);
+        repaint();
+    };
+    addGen (tmLengthUpBtn);
+
+    tmLengthDnBtn.setButtonText ("-");
+    tmLengthDnBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff1a1a40));
+    tmLengthDnBtn.onClick = [this]()
+    {
+        audioProcessor.turingMachine.length = juce::jlimit (2, 16, audioProcessor.turingMachine.length - 1);
+        repaint();
+    };
+    addGen (tmLengthDnBtn);
+
+    // RESET
+    tmResetBtn.setButtonText ("RESET");
+    tmResetBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2a1a1a));
+    tmResetBtn.setColour (juce::TextButton::textColourOffId, juce::Colour (0xffcc4444));
+    tmResetBtn.onClick = [this]()
+    {
+        audioProcessor.resetTuringMachine();
+        syncTMControlsFromVoice();
+        repaint();
+    };
+    addGen (tmResetBtn);
+
+    // MODE: PITCH / GATE+PITCH
+    tmPitchModeBtn.setButtonText ("PITCH");
+    tmPitchModeBtn.onClick = [this]()
+    {
+        audioProcessor.turingMachine.affectGates = false;
+        tmPitchModeBtn    .setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2255aa));
+        tmGatePitchModeBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff161630));
+    };
+    addGen (tmPitchModeBtn);
+
+    tmGatePitchModeBtn.setButtonText ("GATE+PITCH");
+    tmGatePitchModeBtn.onClick = [this]()
+    {
+        audioProcessor.turingMachine.affectGates = true;
+        tmPitchModeBtn    .setColour (juce::TextButton::buttonColourId, juce::Colour (0xff161630));
+        tmGatePitchModeBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2255aa));
+    };
+    addGen (tmGatePitchModeBtn);
+
+    // WRITE toggle
+    tmWriteBtn.setButtonText ("WRITE");
+    tmWriteBtn.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff161630));
+    tmWriteBtn.setColour (juce::TextButton::textColourOffId,  juce::Colour (0xffe0e0e0));
+    tmWriteBtn.onClick = [this]()
+    {
+        auto& tm = audioProcessor.turingMachine;
+        tm.writeEnabled = !tm.writeEnabled;
+        tmWriteBtn.setColour (juce::TextButton::buttonColourId,
+            tm.writeEnabled ? juce::Colour (0xff006644) : juce::Colour (0xff161630));
+        tmWriteBtn.setColour (juce::TextButton::textColourOffId,
+            tm.writeEnabled ? juce::Colour (0xff00ffaa) : juce::Colour (0xffe0e0e0));
+    };
+    addGen (tmWriteBtn);
+
+    // CAPTURE
+    tmCaptureBtn.setButtonText ("CAPTURE");
+    tmCaptureBtn.setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff163016));
+    tmCaptureBtn.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff44ee44));
+    tmCaptureBtn.onClick = [this]()
+    {
+        audioProcessor.captureTuringMachine();
+        // captureTuringMachine() sets writeEnabled=false — reflect that in the WRITE button
+        tmWriteBtn.setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff161630));
+        tmWriteBtn.setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe0e0e0));
+        syncUIFromProcessor();
+    };
+    addGen (tmCaptureBtn);
+
+    // Bit register cells (16 clickable toggles)
+    for (int i = 0; i < 16; ++i)
+    {
+        tmBitBtn[i].setButtonText ("");
+        tmBitBtn[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff0e0e1c));
+        tmBitBtn[i].onClick = [this, i]()
+        {
+            auto& tm = audioProcessor.turingMachine;
+            tm.bits[i] = !tm.bits[i];
+            const juce::Colour vc = (audioProcessor.tmTargetVoice.load() == 0)
+                                    ? juce::Colour (0xff00aaff)
+                                    : juce::Colour (0xffaa44ff);
+            tmBitBtn[i].setColour (juce::TextButton::buttonColourId,
+                tm.bits[i] ? vc.withAlpha (0.7f) : juce::Colour (0xff0e0e1c));
+            repaint();
+        };
+        addGen (tmBitBtn[i]);
+    }
+
+    // Sync initial state
+    syncTMControlsFromVoice();
+}
+
+//==============================================================================
+void VoltageSeq2AudioProcessorEditor::syncTMControlsFromVoice()
+{
+    const auto& tm = audioProcessor.turingMachine;
+    const int   tv = audioProcessor.tmTargetVoice.load();
+    const juce::Colour vc = (tv == 0)
+        ? juce::Colour (0xff00aaff)
+        : juce::Colour (0xffaa44ff);
+
+    // Voice selector buttons
+    tmVoiceABtn.setColour (juce::TextButton::buttonColourId,
+        tv == 0 ? juce::Colour (0xff1a4a88) : juce::Colour (0xff161630));
+    tmVoiceBBtn.setColour (juce::TextButton::buttonColourId,
+        tv == 1 ? juce::Colour (0xff5a2488) : juce::Colour (0xff161630));
+
+    tmLockKnob.setValue (tm.lockAmount, juce::dontSendNotification);
+
+    // Mode buttons
+    tmPitchModeBtn    .setColour (juce::TextButton::buttonColourId,
+        !tm.affectGates ? juce::Colour (0xff2255aa) : juce::Colour (0xff161630));
+    tmGatePitchModeBtn.setColour (juce::TextButton::buttonColourId,
+         tm.affectGates ? juce::Colour (0xff2255aa) : juce::Colour (0xff161630));
+
+    // WRITE button
+    tmWriteBtn.setColour (juce::TextButton::buttonColourId,
+        tm.writeEnabled ? juce::Colour (0xff006644) : juce::Colour (0xff161630));
+    tmWriteBtn.setColour (juce::TextButton::textColourOffId,
+        tm.writeEnabled ? juce::Colour (0xff00ffaa) : juce::Colour (0xffe0e0e0));
+
+    // Bit cells
+    for (int i = 0; i < 16; ++i)
+        tmBitBtn[i].setColour (juce::TextButton::buttonColourId,
+            tm.bits[i] ? vc.withAlpha (0.7f) : juce::Colour (0xff0e0e1c));
 }
 
 //==============================================================================
@@ -1233,6 +1431,40 @@ void VoltageSeq2AudioProcessorEditor::layoutGenPage()
 
     // APPLY — prominent, below controls
     euclidApplyBtn   .setBounds (sliderX, panelY + 240, 150, 50);
+
+    // ── Turing Machine layout ────────────────────────────────────────────────
+    // TM section starts below euclidean (y ≈ panelY + 310)
+    constexpr int tmY       = panelY + 310;   // top of TM section
+    constexpr int knobSize  = 120;
+    constexpr int knobX     = panelX + 24;    // left-align with euclidean labels
+
+    // Large LOCK knob
+    tmLockKnob.setBounds (knobX, tmY + 30, knobSize, knobSize);
+
+    // TM voice selectors (above controls, same row as section title)
+    constexpr int tmCtrlX = knobX + knobSize + 18;
+    tmVoiceABtn      .setBounds (tmCtrlX,       tmY + 4,   90, 22);
+    tmVoiceBBtn      .setBounds (tmCtrlX + 96,  tmY + 4,   90, 22);
+
+    // Controls to the right of the knob
+    tmLengthDnBtn    .setBounds (tmCtrlX,       tmY + 34, 28, 26);
+    tmLengthUpBtn    .setBounds (tmCtrlX + 32,  tmY + 34, 28, 26);
+    tmResetBtn       .setBounds (tmCtrlX + 68,  tmY + 34, 70, 26);
+    tmPitchModeBtn   .setBounds (tmCtrlX,       tmY + 68, 70, 26);
+    tmGatePitchModeBtn.setBounds(tmCtrlX + 78,  tmY + 68, 90, 26);
+    tmWriteBtn       .setBounds (tmCtrlX,       tmY + 102, 90, 30);
+    tmCaptureBtn     .setBounds (tmCtrlX + 98,  tmY + 102, 90, 30);
+
+    // Bit register cells: 16 cells across the right portion, 3 rows below
+    constexpr int tmDisplayX = 530;
+    constexpr int tmDisplayW = 1480 - tmDisplayX;       // 950 px
+    const     int tmCellW    = tmDisplayW / 16;          // ~59 px
+    constexpr int tmCellH    = 52;
+    constexpr int tmBitRowY  = tmY + 28;
+
+    for (int i = 0; i < 16; ++i)
+        tmBitBtn[i].setBounds (tmDisplayX + i * tmCellW, tmBitRowY,
+                               tmCellW - 3, tmCellH);
 }
 
 //==============================================================================
@@ -1536,6 +1768,15 @@ void VoltageSeq2AudioProcessorEditor::showPage (int page)
     for (auto* c : patternPageComponents) c->setVisible (page == 1);
     for (auto* c : fxPageComponents)      c->setVisible (page == 2);
     for (auto* c : genPageComponents)     c->setVisible (page == 3);
+
+    // After bulk-showing pattern page components, correct seq/bank visibility per voice
+    // (showPage shows everything in patternPageComponents, then refreshPatPageView
+    //  hides whichever set — tiles OR seq controls — isn't active for each voice)
+    if (page == 1)
+    {
+        refreshPatPageView (0);
+        refreshPatPageView (1);
+    }
 
     const auto activeCol  = juce::Colour (0xff2255aa);
     const auto inactiveCol = juce::Colour (0xff161630);
@@ -1906,30 +2147,187 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
                   + "   ·   TARGET → " + targetLabel,
                   gridX, infoY, gridW, 12, juce::Justification::centredLeft);
 
-        // ── Turing Machine placeholder ─────────────────────────────────────────
-        constexpr int tmX = lblX;
-        const     int tmY = panelY + 310;
-        constexpr int tmW = 480;
-        constexpr int tmH = 130;
-        g.setColour (juce::Colour (0xff0a0a18));
-        g.fillRoundedRectangle ((float)tmX, (float)tmY, (float)tmW, (float)tmH, 5.f);
-        g.setColour (juce::Colour (0xff1c1c30));
-        g.drawRoundedRectangle ((float)tmX, (float)tmY, (float)tmW, (float)tmH, 5.f, 1.f);
+        // ── TURING MACHINE section ─────────────────────────────────────────────
+        {
+            constexpr int tmY       = panelY + 310;
+            constexpr int tmSectionX = panelX;
+            const     int tmSectionW = panelW;
 
-        g.setFont (juce::Font (10.f, juce::Font::bold));
-        g.setColour (dimColour.withAlpha (0.45f));
-        g.drawText ("TURING MACHINE", tmX + 14, tmY + 12, 280, 14, juce::Justification::centredLeft);
+            // Section separator line
+            g.setColour (juce::Colour (0xff1a1a30));
+            g.fillRect (tmSectionX, tmY, tmSectionW, 1);
 
-        g.setFont (juce::Font (8.5f));
-        g.setColour (dimColour.withAlpha (0.3f));
-        g.drawText ("Probabilistic shift-register looping  —  coming in v4.0",
-                    tmX + 14, tmY + 38, tmW - 20, 12, juce::Justification::centredLeft);
-        g.drawText ("LOCK 0% = pure chaos   ·   LOCK 50% = slowly evolving loop",
-                    tmX + 14, tmY + 58, tmW - 20, 12, juce::Justification::centredLeft);
-        g.drawText ("LOCK 100% = fully locked repeating pattern",
-                    tmX + 14, tmY + 78, tmW - 20, 12, juce::Justification::centredLeft);
-        g.drawText ("Assignable to Voice A or B (same target selector as Euclidean)",
-                    tmX + 14, tmY + 98, tmW - 20, 12, juce::Justification::centredLeft);
+            // Section title
+            g.setFont (juce::Font (11.f, juce::Font::bold));
+            g.setColour (accent.withAlpha (0.7f));
+            g.drawText ("TURING MACHINE", tmSectionX + 16, tmY + 8, 300, 14,
+                        juce::Justification::centredLeft);
+
+            // ── LOCK knob area (left of panel) ──────────────────────────────
+            constexpr int knobX    = panelX + 24;
+            constexpr int knobSize = 120;
+            constexpr int knobCX   = knobX + knobSize / 2;
+
+            // Knob labels
+            g.setFont (juce::Font (9.f, juce::Font::bold));
+            g.setColour (dimColour);
+            g.drawText ("LOCK",   knobX,  tmY + 30 + knobSize + 4, knobSize, 13,
+                        juce::Justification::centred);
+            g.setColour (dimColour.withAlpha (0.55f));
+            g.setFont (juce::Font (8.f));
+            g.drawText ("RANDOM", knobX - 8,  tmY + 30 + knobSize - 12, 52, 11,
+                        juce::Justification::centredLeft);
+            g.drawText ("LOCKED", knobX + knobSize - 44, tmY + 30 + knobSize - 12, 52, 11,
+                        juce::Justification::centredRight);
+
+            // LOCK value %
+            const int   tmVi = audioProcessor.tmTargetVoice.load();
+            const auto& tm   = audioProcessor.turingMachine;
+            g.setFont (juce::Font (10.f, juce::Font::bold));
+            g.setColour (accent);
+            g.drawText (juce::String ((int)std::round (tm.lockAmount * 100.f)) + "%",
+                        knobX, tmY + 30 + knobSize + 18, knobSize, 13,
+                        juce::Justification::centred);
+
+            // Controls area labels
+            constexpr int tmCtrlX = knobX + knobSize + 18;
+            g.setFont (juce::Font (9.f, juce::Font::bold));
+            g.setColour (dimColour);
+            g.drawText ("LENGTH",  tmCtrlX,      tmY + 22, 80, 10, juce::Justification::centredLeft);
+            g.drawText ("MODE",    tmCtrlX,      tmY + 56, 80, 10, juce::Justification::centredLeft);
+
+            // LENGTH value (between - and + buttons)
+            g.setFont (juce::Font (12.f, juce::Font::bold));
+            g.setColour (textColour);
+            g.drawText (juce::String (tm.length),
+                        tmCtrlX + 28, tmY + 34, 36, 26, juce::Justification::centred);
+
+            // ── Right side: bit register + previews ─────────────────────────
+            constexpr int tmDisplayX = 530;
+            constexpr int tmDisplayW = 1480 - tmDisplayX;
+            const     int tmCellW    = tmDisplayW / 16;
+            constexpr int tmCellH    = 52;
+            constexpr int tmBitRowY  = tmY + 28;
+
+            // Step number header
+            g.setFont (juce::Font (8.5f, juce::Font::bold));
+            for (int i = 0; i < 16; ++i)
+            {
+                const bool inLen = (i < tm.length);
+                g.setColour (inLen ? dimColour : dimColour.withAlpha (0.22f));
+                g.drawText (juce::String (i + 1),
+                            tmDisplayX + i * tmCellW, tmBitRowY - 16, tmCellW - 3, 13,
+                            juce::Justification::centred);
+            }
+
+            // Overlay dimming on cells outside LENGTH (bit buttons paint themselves)
+            for (int i = 0; i < 16; ++i)
+            {
+                if (i >= tm.length)
+                {
+                    g.setColour (juce::Colour (0x88000000));
+                    g.fillRect (tmDisplayX + i * tmCellW, tmBitRowY,
+                                tmCellW - 3, tmCellH);
+                }
+            }
+
+            // Active-step cursor ring on current step
+            {
+                const int cs = audioProcessor.voice[tmVi].currentStep;
+                if (cs >= 0 && cs < 16)
+                {
+                    g.setColour (accent.withAlpha (0.55f));
+                    g.drawRoundedRectangle (
+                        (float)(tmDisplayX + cs * tmCellW) - 1.f,
+                        (float)tmBitRowY - 1.f,
+                        (float)(tmCellW - 3) + 2.f,
+                        (float)tmCellH + 2.f,
+                        3.f, 2.f);
+                }
+            }
+
+            // ── Pitch preview bars ──────────────────────────────────────────
+            constexpr int pitchBarY = tmBitRowY + tmCellH + 12;
+            constexpr int pitchBarH = 54;
+
+            g.setFont (juce::Font (8.f));
+            g.setColour (dimColour.withAlpha (0.5f));
+            g.drawText ("PITCH", tmDisplayX - 58, pitchBarY, 54, pitchBarH,
+                        juce::Justification::centredRight);
+
+            g.setColour (juce::Colour (0xff0a0a18));
+            g.fillRect (tmDisplayX, pitchBarY, tmDisplayW, pitchBarH);
+            g.setColour (juce::Colour (0xff1a1a30));
+            g.drawRect (tmDisplayX, pitchBarY, tmDisplayW, pitchBarH, 1);
+
+            // 0 V reference line
+            const float zeroYpitch = (float)(pitchBarY + pitchBarH / 2);
+            g.setColour (juce::Colour (0xff333366));
+            g.drawLine ((float)tmDisplayX, zeroYpitch,
+                        (float)(tmDisplayX + tmDisplayW), zeroYpitch, 1.f);
+
+            for (int i = 0; i < 16; ++i)
+            {
+                const bool inLen = (i < tm.length);
+                const float v = tm.previewVoltages[i];          // -5..+5
+                const float norm = (v + 5.0f) / 10.0f;          // 0..1
+                const float barH = std::abs (norm - 0.5f) * (float)pitchBarH;
+                const float barY = (norm >= 0.5f)
+                    ? zeroYpitch - barH
+                    : zeroYpitch;
+                const int   bx   = tmDisplayX + i * tmCellW;
+                const int   bw   = tmCellW - 3;
+                g.setColour (inLen
+                    ? accent.withAlpha (0.65f)
+                    : dimColour.withAlpha (0.15f));
+                g.fillRect ((float)bx, barY, (float)bw, barH);
+            }
+
+            // ── Gate preview row ────────────────────────────────────────────
+            constexpr int gateBarY = pitchBarY + pitchBarH + 8;
+            constexpr int gateBarH = 22;
+
+            g.setFont (juce::Font (8.f));
+            g.setColour (dimColour.withAlpha (0.5f));
+            g.drawText ("GATE", tmDisplayX - 58, gateBarY, 54, gateBarH,
+                        juce::Justification::centredRight);
+
+            for (int i = 0; i < 16; ++i)
+            {
+                const bool inLen = (i < tm.length);
+                const bool gOn   = tm.previewGates[i];
+                const int  bx    = tmDisplayX + i * tmCellW;
+                const int  bw    = tmCellW - 3;
+
+                g.setColour (inLen && gOn
+                    ? gateOnColour.withAlpha (0.75f)
+                    : juce::Colour (0xff0e0e1c));
+                g.fillRoundedRectangle ((float)bx, (float)gateBarY,
+                                        (float)bw,  (float)gateBarH, 3.f);
+                if (inLen)
+                {
+                    g.setColour (inLen && gOn
+                        ? gateOnColour.withAlpha (0.3f)
+                        : juce::Colour (0xff1a1a28));
+                    g.drawRoundedRectangle ((float)bx, (float)gateBarY,
+                                            (float)bw, (float)gateBarH, 3.f, 1.f);
+                }
+            }
+
+            // Mode label
+            constexpr int modeLabelY = gateBarY + gateBarH + 6;
+            g.setFont (juce::Font (8.5f));
+            g.setColour (dimColour.withAlpha (0.45f));
+            g.drawText (
+                juce::String (tm.writeEnabled ? "■ WRITE ACTIVE  ·  " : "○ WRITE OFF  ·  ")
+                + "LENGTH " + juce::String (tm.length)
+                + "  ·  LOCK " + juce::String ((int)std::round (tm.lockAmount * 100.f)) + "%"
+                + "  ·  MODE: " + (tm.affectGates ? "GATE+PITCH" : "PITCH ONLY")
+                + "  ·  TARGET → " + targetLabel,
+                tmDisplayX, modeLabelY, tmDisplayW, 12,
+                juce::Justification::centredLeft);
+        }
+
         return;
     }
 
@@ -2363,7 +2761,7 @@ void VoltageSeq2AudioProcessorEditor::setupPatternSeqControls()
         patternPageComponents.push_back (&patSeqMidiBtn[v]);
 
         // ── Load timing toggle ────────────────────────────────────────────────
-        patSeqImmBtn[v].setButtonText ("QUEUED");
+        patSeqImmBtn[v].setButtonText (audioProcessor.patSeq[v].immediate ? "IMMEDIATE" : "QUEUED");
         patSeqImmBtn[v].onClick = [this, v]()
         {
             auto& ps = audioProcessor.patSeq[v];
@@ -2398,7 +2796,10 @@ void VoltageSeq2AudioProcessorEditor::setupPatternSeqControls()
             // Slot picker
             for (int s = 1; s <= 16; ++s)
                 patSeqSlotBox[v][i].addItem ("Slot " + juce::String(s), s);
-            patSeqSlotBox[v][i].setSelectedId (i + 1, juce::dontSendNotification);
+            // Sync from processor state — ensures correct display after state restore
+            // and also guarantees list[i] matches what the box shows from the start.
+            patSeqSlotBox[v][i].setSelectedId (audioProcessor.patSeq[v].list[i] + 1,
+                                               juce::dontSendNotification);
             patSeqSlotBox[v][i].setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff0e1020));
             patSeqSlotBox[v][i].setColour (juce::ComboBox::textColourId, juce::Colour (0xffe0e0e0));
             patSeqSlotBox[v][i].onChange = [this, v, i]()
@@ -2408,8 +2809,8 @@ void VoltageSeq2AudioProcessorEditor::setupPatternSeqControls()
             addChildComponent (patSeqSlotBox[v][i]);
             patternPageComponents.push_back (&patSeqSlotBox[v][i]);
 
-            // Loop count button (cycles 1→2→3→4→8→1)
-            patSeqLoopBtn[v][i].setButtonText ("x1");
+            // Loop count button (cycles 1→2→3→4→8→1) — sync from stored state
+            patSeqLoopBtn[v][i].setButtonText ("x" + juce::String (audioProcessor.patSeq[v].loopCount[i]));
             patSeqLoopBtn[v][i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff141428));
             patSeqLoopBtn[v][i].onClick = [this, v, i]()
             {
@@ -2573,6 +2974,20 @@ void VoltageSeq2AudioProcessorEditor::timerCallback()
             syncUIFromProcessor();
             repaint();
         }
+    }
+
+    if (audioProcessor.turingMachine.displayDirty.exchange (false))
+    {
+        // Update bit cell colours to reflect shifted register state
+        const auto& tm = audioProcessor.turingMachine;
+        const int   tv = audioProcessor.tmTargetVoice.load();
+        const juce::Colour vc = (tv == 0)
+            ? juce::Colour (0xff00aaff)
+            : juce::Colour (0xffaa44ff);
+        for (int i = 0; i < 16; ++i)
+            tmBitBtn[i].setColour (juce::TextButton::buttonColourId,
+                tm.bits[i] ? vc.withAlpha (0.7f) : juce::Colour (0xff0e0e1c));
+        repaint();
     }
 }
 

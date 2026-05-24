@@ -193,6 +193,9 @@ VoltageSeq2AudioProcessor::VoltageSeq2AudioProcessor()
         voice[vi].unipolar      = true;   // unipolar (0..5 V range)
         voice[vi].currentScale  = 8;      // Chromatic = effectively unquantized
     }
+
+    // Randomise Turing Machine register
+    resetTuringMachine();
 }
 
 VoltageSeq2AudioProcessor::~VoltageSeq2AudioProcessor() {}
@@ -1210,10 +1213,62 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
                             {
                                 ps.currentRepeat = 0;
                                 ps.currentEntry  = (ps.currentEntry + 1) % ps.listLength;
-                                loadPatternAudio (vi, ps.list[ps.currentEntry]);
+                                // resetPos=false: the advance fires at pos==0 so the new
+                                // pattern starts from step 1 naturally.  Resetting here
+                                // creates a second pos==0 event → immediate re-advance.
+                                loadPatternAudio (vi, ps.list[ps.currentEntry], false);
                             }
                         }
                     }
+                }
+            }
+
+            // ── Turing Machine ────────────────────────────────────────────────────
+            {
+                auto& tm = turingMachine;
+                if (tm.writeEnabled && vi == tmTargetVoice.load())
+                {
+                    const int   len    = juce::jlimit (2, 16, tm.length);
+                    const auto  maxInt = (1u << len) - 1u;
+
+                    // 1. Read current register → voltage for this step
+                    uint32_t regInt = 0;
+                    for (int b = 0; b < len; ++b)
+                        if (tm.bits[b]) regInt |= (1u << b);
+                    const float norm    = (maxInt > 0) ? (float)regInt / (float)maxInt : 0.5f;
+                    const float voltage = norm * 10.0f - 5.0f;
+
+                    // 2. Overwrite live voice step
+                    vp.stepVoltages[newStep] = voltage;
+                    if (tm.affectGates)
+                        vp.stepGates[newStep] = tm.bits[0];
+
+                    // 3. Shift register: MSB wraps to LSB with lock-weighted mutation
+                    const bool msb      = tm.bits[len - 1];
+                    for (int b = len - 1; b > 0; --b)
+                        tm.bits[b] = tm.bits[b - 1];
+                    const bool keepMsb  = juce::Random::getSystemRandom().nextFloat() < tm.lockAmount;
+                    tm.bits[0] = keepMsb ? msb
+                                         : (juce::Random::getSystemRandom().nextFloat() < 0.5f);
+
+                    // 4. Simulate next `len` locked shifts → preview arrays (no mutation)
+                    {
+                        bool sim[16] = {};
+                        for (int b = 0; b < 16; ++b) sim[b] = tm.bits[b];
+                        for (int step = 0; step < 16; ++step)
+                        {
+                            uint32_t si = 0;
+                            for (int b = 0; b < len; ++b)
+                                if (sim[b]) si |= (1u << b);
+                            const float sn = (maxInt > 0) ? (float)si / (float)maxInt : 0.5f;
+                            tm.previewVoltages[step] = sn * 10.0f - 5.0f;
+                            tm.previewGates   [step] = sim[0];
+                            const bool smb = sim[len - 1];
+                            for (int b = len - 1; b > 0; --b) sim[b] = sim[b - 1];
+                            sim[0] = smb;
+                        }
+                    }
+                    tm.displayDirty.store (true);
                 }
             }
 
@@ -2029,12 +2084,14 @@ void VoltageSeq2AudioProcessor::savePattern (int vi, int slot)
     const auto& v = voice[vi];
     p.used = true;
     for (int i = 0; i < numSteps; ++i) {
-        p.stepVoltages[i] = v.stepVoltages[i];
-        p.stepGates   [i] = v.stepGates   [i];
-        p.stepGlides  [i] = v.stepGlides  [i];
-        p.stepTied    [i] = v.stepTied    [i];
-        p.stepRepeats [i] = v.stepRepeats [i];
-        p.stepPulses  [i] = v.stepPulses  [i];
+        p.stepVoltages   [i] = v.stepVoltages   [i];
+        p.stepGates      [i] = v.stepGates      [i];
+        p.stepGlides     [i] = v.stepGlides     [i];
+        p.stepTied       [i] = v.stepTied       [i];
+        p.stepRepeats    [i] = v.stepRepeats    [i];
+        p.stepPulses     [i] = v.stepPulses     [i];
+        p.stepOctave     [i] = v.stepOctave     [i];
+        p.stepProbability[i] = v.stepProbability[i];
     }
     p.sequenceLength = v.sequenceLength;
     p.clockDivision  = v.clockDivision;
@@ -2054,12 +2111,14 @@ void VoltageSeq2AudioProcessor::loadPattern (int vi, int slot)
     if (!p.used) return;
     auto& v = voice[vi];
     for (int i = 0; i < numSteps; ++i) {
-        v.stepVoltages[i] = p.stepVoltages[i];
-        v.stepGates   [i] = p.stepGates   [i];
-        v.stepGlides  [i] = p.stepGlides  [i];
-        v.stepTied    [i] = p.stepTied    [i];
-        v.stepRepeats [i] = p.stepRepeats [i];
-        v.stepPulses  [i] = p.stepPulses  [i];
+        v.stepVoltages   [i] = p.stepVoltages   [i];
+        v.stepGates      [i] = p.stepGates      [i];
+        v.stepGlides     [i] = p.stepGlides     [i];
+        v.stepTied       [i] = p.stepTied       [i];
+        v.stepRepeats    [i] = p.stepRepeats    [i];
+        v.stepPulses     [i] = p.stepPulses     [i];
+        v.stepOctave     [i] = p.stepOctave     [i];
+        v.stepProbability[i] = p.stepProbability[i];
     }
     v.sequenceLength = p.sequenceLength;
     v.clockDivision  = p.clockDivision;
@@ -2151,6 +2210,15 @@ void VoltageSeq2AudioProcessor::getStateInformation (juce::MemoryBlock& destData
             voiceEl->setAttribute ("psLoop"  + juce::String(i), patSeq[vi].loopCount[i]);
         }
     }
+
+    // Turing Machine (single shared instance, saved at root level)
+    xml.setAttribute ("tmWrite",       (int)turingMachine.writeEnabled);
+    xml.setAttribute ("tmLock",        (double)turingMachine.lockAmount);
+    xml.setAttribute ("tmLen",         turingMachine.length);
+    xml.setAttribute ("tmGate",        (int)turingMachine.affectGates);
+    xml.setAttribute ("tmTargetVoice", tmTargetVoice.load());
+    for (int i = 0; i < 16; ++i)
+        xml.setAttribute ("tmBit" + juce::String(i), (int)turingMachine.bits[i]);
 
     // Pattern bank
     for (int vi = 0; vi < numVoices; ++vi)
@@ -2265,6 +2333,7 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
                         patSeq[vi].list[i]      = child->getIntAttribute ("psList"  + juce::String(i), i);
                         patSeq[vi].loopCount[i] = child->getIntAttribute ("psLoop"  + juce::String(i), 1);
                     }
+                    // TM state is now root-level; skip per-voice TM on load
                 }
             }
             else if (child->getTagName() == "PatternBank" && version >= 3)
@@ -2332,6 +2401,15 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
         loadVoiceFromXml (*xml, voice[0], numSteps);
         syncAPVTSFromVoice (0);
     }
+
+    // Turing Machine — single shared instance, stored at root level
+    turingMachine.writeEnabled = (bool)xml->getIntAttribute    ("tmWrite",       0);
+    turingMachine.lockAmount   = (float)xml->getDoubleAttribute ("tmLock",       0.75);
+    turingMachine.length       = xml->getIntAttribute           ("tmLen",        16);
+    turingMachine.affectGates  = (bool)xml->getIntAttribute    ("tmGate",        0);
+    tmTargetVoice.store (xml->getIntAttribute                   ("tmTargetVoice", 0));
+    for (int i = 0; i < 16; ++i)
+        turingMachine.bits[i] = (bool)xml->getIntAttribute ("tmBit" + juce::String(i), 0);
 
     // Load per-voice FX.  Supports both:
     //  - New format (v4+): two <FX voice="0/1"> child elements
@@ -2430,7 +2508,7 @@ void VoltageSeq2AudioProcessor::generateRandomSequence (int vi, bool doGates, bo
 // across n steps.  Returns a vector<int> of length n (1 = hit, 0 = rest).
 // Verified: E(3,8)=[1,0,0,1,0,0,1,0]  E(5,8)=[1,0,1,0,1,0,1,1]
 //==============================================================================
-void VoltageSeq2AudioProcessor::loadPatternAudio (int vi, int slot)
+void VoltageSeq2AudioProcessor::loadPatternAudio (int vi, int slot, bool resetPos)
 {
     if (vi < 0 || vi >= numVoices || slot < 0 || slot >= numPatternSlots) return;
     const auto& p = patternBank[vi][slot];
@@ -2456,9 +2534,87 @@ void VoltageSeq2AudioProcessor::loadPatternAudio (int vi, int slot)
     v.rootNote       = p.rootNote;
     v.currentScale   = p.currentScale;
     v.rangeVCA       = p.rangeVCA;
-    v.resetOnNextBlock.store (true);
+
+    // ── Immediately push APVTS atomics so processBlock reads the correct
+    // values on its very next call.  param->setValue() is audio-thread safe
+    // (it writes to the internal atomic via the normalised 0-1 range);
+    // it does NOT dispatch host notifications, but patternChangedForUI below
+    // ensures the 30-Hz timer calls syncAPVTSFromVoice on the message thread
+    // so that DAW automation lanes and UI sliders update shortly after.
+    {
+        const juce::String s = "_" + juce::String (vi);
+
+        // Step voltages (range -5 … +5 V)
+        for (int i = 0; i < numSteps; ++i)
+        {
+            const juce::String key = "step" + juce::String (i) + s;
+            if (auto* par = apvts.getParameter (key))
+                par->setValue (par->convertTo0to1 (v.stepVoltages[i]));
+        }
+
+        // Portamento time (0 … 2 s)
+        if (auto* par = apvts.getParameter ("porta" + s))
+            par->setValue (par->convertTo0to1 (v.portamentoTime));
+
+        // Output range / VCA level (0 … 1)
+        if (auto* par = apvts.getParameter ("range" + s))
+            par->setValue (par->convertTo0to1 (v.rangeVCA));
+    }
+
+    // resetPos=true  → restart from step 1 (manual slot click, MIDI trigger).
+    // resetPos=false → keep sampleCounter running (SEQ auto-advance): the
+    //   advance already fires at pos==0, so the new pattern starts naturally
+    //   from step 1 without a reset; resetting here would create a *second*
+    //   pos==0 event on the next block and cause the sequencer to skip ahead.
+    if (resetPos)
+        v.resetOnNextBlock.store (true);
+
     patternChangedForUI[vi].store (true);
     // Note: intentionally does NOT call syncAPVTSFromVoice — audio thread only
+}
+
+void VoltageSeq2AudioProcessor::resetTuringMachine()
+{
+    auto& tm  = turingMachine;
+    auto& rng = juce::Random::getSystemRandom();
+    for (int b = 0; b < 16; ++b)
+        tm.bits[b] = rng.nextFloat() < 0.5f;
+    tm.displayDirty.store (true);
+}
+
+void VoltageSeq2AudioProcessor::captureTuringMachine()
+{
+    // Called on the MESSAGE thread (button click).
+    // Snapshots the current TM output into the target voice, then disables WRITE
+    // so the captured pattern plays back without further TM mutation.
+    const int vi = tmTargetVoice.load();
+    auto& tm = turingMachine;
+    auto& vp = voice[vi];
+
+    // Disable WRITE immediately — capture and write are mutually exclusive
+    tm.writeEnabled = false;
+
+    const int    len    = juce::jlimit (2, 16, tm.length);
+    const uint32_t maxInt = (1u << len) - 1u;
+
+    bool sim[16] = {};
+    for (int b = 0; b < 16; ++b) sim[b] = tm.bits[b];
+
+    for (int step = 0; step < len; ++step)
+    {
+        uint32_t si = 0;
+        for (int b = 0; b < len; ++b)
+            if (sim[b]) si |= (1u << b);
+        const float norm = (maxInt > 0) ? (float)si / (float)maxInt : 0.5f;
+        vp.stepVoltages[step] = norm * 10.0f - 5.0f;
+        if (tm.affectGates)
+            vp.stepGates[step] = sim[0];
+        const bool smb = sim[len - 1];
+        for (int b = len - 1; b > 0; --b) sim[b] = sim[b - 1];
+        sim[0] = smb;
+    }
+    vp.sequenceLength = len;
+    syncAPVTSFromVoice (vi);
 }
 
 static std::vector<int> bjorklund (int k, int n)

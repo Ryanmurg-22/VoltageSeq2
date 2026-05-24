@@ -370,6 +370,17 @@ private:
     int              euclidR            = 1;   // current R state
     int              euclidTargetVoice  = 0;   // 0 = Voice A,  1 = Voice B
 
+    // ── Turing Machine (page 4) ───────────────────────────────────────────────
+    juce::TextButton tmVoiceABtn, tmVoiceBBtn;  // TM-specific A/B selectors
+    juce::Slider     tmLockKnob;
+    juce::TextButton tmLengthUpBtn, tmLengthDnBtn;
+    juce::TextButton tmResetBtn;
+    juce::TextButton tmPitchModeBtn, tmGatePitchModeBtn;
+    juce::TextButton tmWriteBtn;
+    juce::TextButton tmCaptureBtn;
+    juce::TextButton tmBitBtn[16];          // clickable shift-register cells
+    void             syncTMControlsFromVoice ();   // syncs UI to TM state
+
     void setupGenControls();
     void layoutGenPage();
 

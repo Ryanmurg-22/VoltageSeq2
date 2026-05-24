@@ -220,11 +220,14 @@ public:
     void loadPattern  (int voiceIdx, int slotIdx);
     void clearPattern (int voiceIdx, int slotIdx);
 
+    void resetTuringMachine   ();                 // randomises bits[]
+    void captureTuringMachine ();                 // snapshots TM output → target voice
+
     struct PatternSeqState
     {
         int  mode          = 0;    // 0=OFF  1=SEQ (auto-advance)  2=MIDI (note-triggered)
         bool immediate     = false; // false=queued (wait for full cycle), true=next step
-        int  list     [16] = {};   // bank slot indices (0-based)
+        int  list     [16] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};  // bank slot indices (0-based)
         int  loopCount[16] = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 };
         int  listLength    = 0;    // number of active playlist entries
         // Runtime (not serialised)
@@ -235,7 +238,32 @@ public:
     PatternSeqState patSeq[2];
     std::atomic<bool> patternChangedForUI[2] { false, false };
 
-    void loadPatternAudio (int vi, int slot);   // audio-thread-safe (no APVTS sync)
+    struct TuringMachineState
+    {
+        bool  writeEnabled = false;   // WRITE mode — overwrite voice steps in real-time
+        float lockAmount   = 0.75f;   // 0=fully random  1=locked loop
+        int   length       = 16;      // active register length (2-16)
+        bool  affectGates  = false;   // false=pitch only  true=gate+pitch
+        bool  bits[16]     = {};      // the shift register (initialised to random in ctor)
+
+        // Display mirror — written by audio thread, read by 30-Hz timer (message thread).
+        // Holds the PREDICTED output for each of the next 16 steps (locked simulation).
+        float previewVoltages[16] = {};
+        bool  previewGates   [16] = {};
+        std::atomic<bool> displayDirty { false };
+
+        // Copy/move deleted because of the atomic — use default-construct only
+        TuringMachineState() = default;
+        TuringMachineState (const TuringMachineState&)            = delete;
+        TuringMachineState& operator= (const TuringMachineState&) = delete;
+    };
+    TuringMachineState   turingMachine;           // single shared TM
+    std::atomic<int>     tmTargetVoice { 0 };    // which voice TM writes to (0=A, 1=B)
+
+    // audio-thread-safe (no APVTS sync).
+    // resetPos=false: keep sampleCounter running (use when called from SEQ mode
+    // so the cycle-0 trigger that just fired doesn't repeat on the next block).
+    void loadPatternAudio (int vi, int slot, bool resetPos = true);
 
     struct FxParams {
         // Per-voice bypass — when true, voice passes dry (no delay/reverb/chorus)
