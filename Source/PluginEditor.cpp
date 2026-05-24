@@ -392,9 +392,15 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     fxPageBtn.onClick = [this]() { showPage (2); };
     addAndMakeVisible (fxPageBtn);
 
+    genPageBtn.setButtonText ("GENERATE");
+    genPageBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff161630));
+    genPageBtn.onClick = [this]() { showPage (3); };
+    addAndMakeVisible (genPageBtn);
+
     // ── Capture all synth-page components (everything added so far except nav btns)
     for (auto* c : getChildren())
-        if (c != &synthPageBtn && c != &patternPageBtn && c != &fxPageBtn)
+        if (c != &synthPageBtn && c != &patternPageBtn
+         && c != &fxPageBtn    && c != &genPageBtn)
             synthPageComponents.push_back (c);
 
     // ── Pattern bank tiles (added invisible by default) ───────────────────────
@@ -453,9 +459,12 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     // ── FX page controls ─────────────────────────────────────────────────────
     setupFxControls();
 
+    // ── Generate page controls ────────────────────────────────────────────────
+    setupGenControls();
+
     // setSize LAST — triggers resized() which calls layoutVoice()
     setSize (1500, winH);
-    showPage (0);   // ensure FX / pattern controls start hidden
+    showPage (0);   // ensure FX / pattern / gen controls start hidden
     startTimerHz (30);
 }
 
@@ -1099,6 +1108,113 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
 }
 
 //==============================================================================
+// setupGenControls — wire up Page 4 GENERATE controls
+//==============================================================================
+void VoltageSeq2AudioProcessorEditor::setupGenControls()
+{
+    auto addGen = [&](juce::Component& c) {
+        addChildComponent (c);
+        c.setVisible (false);
+        genPageComponents.push_back (&c);
+    };
+
+    for (int v = 0; v < 2; ++v)
+    {
+        // ── N: Steps (2–16) ──────────────────────────────────────────────────
+        euclidStepsSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
+        euclidStepsSlider[v].setRange (2.0, 16.0, 1.0);
+        euclidStepsSlider[v].setValue (8.0, juce::dontSendNotification);
+        euclidStepsSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 30, 20);
+        euclidStepsSlider[v].setColour (juce::Slider::textBoxTextColourId,    juce::Colour (0xffe0e0e0));
+        euclidStepsSlider[v].setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (0x00000000));
+        euclidStepsSlider[v].onValueChange = [this, v]()
+        {
+            const int n = (int)euclidStepsSlider[v].getValue();
+            const int r = euclidR[v];
+            euclidHitsSlider[v].setRange (0.0, (double)(n * r), 1.0);
+            euclidHitsSlider[v].setValue (
+                juce::jlimit (0.0, (double)(n * r), euclidHitsSlider[v].getValue()),
+                juce::dontSendNotification);
+            repaint();
+        };
+        addGen (euclidStepsSlider[v]);
+
+        // ── K: Hits (0..N×R) ─────────────────────────────────────────────────
+        euclidHitsSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
+        euclidHitsSlider[v].setRange (0.0, 8.0, 1.0);   // max updated dynamically
+        euclidHitsSlider[v].setValue (4.0, juce::dontSendNotification);
+        euclidHitsSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 30, 20);
+        euclidHitsSlider[v].setColour (juce::Slider::textBoxTextColourId,    juce::Colour (0xffe0e0e0));
+        euclidHitsSlider[v].setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (0x00000000));
+        euclidHitsSlider[v].onValueChange = [this, v]() { repaint(); };
+        addGen (euclidHitsSlider[v]);
+
+        // ── R: Max Ratchets (1–4, cycling button) ────────────────────────────
+        euclidRatchetBtn[v].setButtonText ("1");
+        euclidRatchetBtn[v].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff1a1a40));
+        euclidRatchetBtn[v].onClick = [this, v]()
+        {
+            euclidR[v] = (euclidR[v] % 4) + 1;
+            euclidRatchetBtn[v].setButtonText (juce::String (euclidR[v]));
+            const int n = (int)euclidStepsSlider[v].getValue();
+            euclidHitsSlider[v].setRange (0.0, (double)(n * euclidR[v]), 1.0);
+            euclidHitsSlider[v].setValue (
+                juce::jlimit (0.0, (double)(n * euclidR[v]), euclidHitsSlider[v].getValue()),
+                juce::dontSendNotification);
+            repaint();
+        };
+        addGen (euclidRatchetBtn[v]);
+
+        // ── APPLY ─────────────────────────────────────────────────────────────
+        euclidApplyBtn[v].setButtonText ("APPLY");
+        euclidApplyBtn[v].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff163016));
+        euclidApplyBtn[v].setColour (juce::TextButton::textColourOffId, juce::Colour (0xff44ee44));
+        euclidApplyBtn[v].onClick = [this, v]()
+        {
+            const int n = (int)euclidStepsSlider[v].getValue();
+            const int k = (int)euclidHitsSlider[v].getValue();
+            const int r = euclidR[v];
+            audioProcessor.applyEuclidean (v, n, k, r);
+            syncUIFromProcessor();
+        };
+        addGen (euclidApplyBtn[v]);
+    }
+}
+
+//==============================================================================
+// layoutGenPage — position Page 4 controls
+//==============================================================================
+void VoltageSeq2AudioProcessorEditor::layoutGenPage()
+{
+    constexpr int panelX   = 10;
+    constexpr int panelH   = 310;
+    constexpr int panelGap = 12;
+    const int     panelY[2] = { headerH + 10, headerH + 10 + panelH + panelGap };
+
+    // Control column X / widths (left side of each panel)
+    constexpr int ctrlX  = panelX + 14;
+    constexpr int ctrlW  = 450;   // width for sliders
+    constexpr int sliderH = 24;
+
+    for (int v = 0; v < 2; ++v)
+    {
+        const int py = panelY[v];
+
+        // Steps slider
+        euclidStepsSlider[v].setBounds (ctrlX + 80, py + 46,  ctrlW, sliderH);
+
+        // Hits slider
+        euclidHitsSlider[v] .setBounds (ctrlX + 80, py + 96,  ctrlW, sliderH);
+
+        // Ratchet cycler button (4 labelled buttons: 1 / 2 / 3 / 4)
+        euclidRatchetBtn[v] .setBounds (ctrlX + 80, py + 146, 60, sliderH);
+
+        // APPLY button (tall, prominent)
+        euclidApplyBtn[v]   .setBounds (ctrlX + 80, py + 185, 120, 40);
+    }
+}
+
+//==============================================================================
 void VoltageSeq2AudioProcessorEditor::setupKnob (juce::Slider& s, double mn, double mx,
                                                   double val, double skew)
 {
@@ -1398,12 +1514,14 @@ void VoltageSeq2AudioProcessorEditor::showPage (int page)
     for (auto* c : synthPageComponents)   c->setVisible (page == 0);
     for (auto* c : patternPageComponents) c->setVisible (page == 1);
     for (auto* c : fxPageComponents)      c->setVisible (page == 2);
-    synthPageBtn  .setColour (juce::TextButton::buttonColourId,
-                              page == 0 ? juce::Colour(0xff2255aa) : juce::Colour(0xff161630));
-    patternPageBtn.setColour (juce::TextButton::buttonColourId,
-                              page == 1 ? juce::Colour(0xff2255aa) : juce::Colour(0xff161630));
-    fxPageBtn     .setColour (juce::TextButton::buttonColourId,
-                              page == 2 ? juce::Colour(0xff2255aa) : juce::Colour(0xff161630));
+    for (auto* c : genPageComponents)     c->setVisible (page == 3);
+
+    const auto activeCol  = juce::Colour (0xff2255aa);
+    const auto inactiveCol = juce::Colour (0xff161630);
+    synthPageBtn  .setColour (juce::TextButton::buttonColourId, page == 0 ? activeCol : inactiveCol);
+    patternPageBtn.setColour (juce::TextButton::buttonColourId, page == 1 ? activeCol : inactiveCol);
+    fxPageBtn     .setColour (juce::TextButton::buttonColourId, page == 2 ? activeCol : inactiveCol);
+    genPageBtn    .setColour (juce::TextButton::buttonColourId, page == 3 ? activeCol : inactiveCol);
     repaint();
 }
 
@@ -1551,6 +1669,158 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         // Master labels
         g.drawText ("DRIVE",  1290+10,  lblY, 52, 12, juce::Justification::centred);
         g.drawText ("GAIN",   1290+80,  lblY, 52, 12, juce::Justification::centred);
+        return;
+    }
+
+    // ── Generate page ─────────────────────────────────────────────────────────
+    if (currentPage == 3)
+    {
+        g.setColour (juce::Colour (0xff040410));
+        g.fillRect (0, headerH, getWidth(), winH - headerH);
+
+        // Bjorklund helper (reused for live preview)
+        auto bjorklundPreview = [](int k, int n) -> std::vector<int>
+        {
+            if (n <= 0 || k <= 0) return std::vector<int> (std::max (n, 0), 0);
+            k = std::min (k, n);
+            if (k == n) return std::vector<int> (n, 1);
+            const int q = n / k, r = n % k;
+            std::vector<int> res; res.reserve (n);
+            for (int i = 0; i < k; ++i) {
+                res.push_back (1);
+                for (int j = 0; j < q - 1 + (i < r ? 1 : 0); ++j) res.push_back (0);
+            }
+            return res;
+        };
+
+        // Per-voice panel
+        static const juce::Colour voiceAccents[2] = { juce::Colour(0xff00aaff), juce::Colour(0xffaa44ff) };
+        static const char* voiceLabels[2] = { "VOICE  A", "VOICE  B" };
+
+        constexpr int panelX  = 10;
+        constexpr int panelW  = 1480;
+        constexpr int panelH  = 310;
+        constexpr int panelGap = 12;
+        const     int panelY[2] = { headerH + 10, headerH + 10 + panelH + panelGap };
+
+        for (int v = 0; v < 2; ++v)
+        {
+            const int py = panelY[v];
+            const juce::Colour accent = voiceAccents[v];
+
+            // Panel background
+            g.setColour (juce::Colour (0xff0c0c18));
+            g.fillRoundedRectangle ((float)panelX, (float)py, (float)panelW, (float)panelH, 6.f);
+
+            // Accent bar + title
+            g.setColour (accent.withAlpha (0.7f));
+            g.fillRect (panelX, py, panelW, 3);
+            g.setFont (juce::Font (10.f, juce::Font::bold));
+            g.setColour (accent);
+            g.drawText (voiceLabels[v], panelX + 12, py + 8, 120, 14, juce::Justification::centredLeft);
+
+            // ── Section labels ────────────────────────────────────────────────
+            g.setFont (juce::Font (9.f, juce::Font::bold));
+            g.setColour (dimColour);
+            g.drawText ("EUCLIDEAN RHYTHM GENERATOR",  panelX + 12, py + 28, 400, 12, juce::Justification::centredLeft);
+
+            // ── Preview grid ─────────────────────────────────────────────────
+            // Compute pattern from current slider values
+            const int n = (int)euclidStepsSlider[v].getValue();
+            const int k = (int)euclidHitsSlider[v].getValue();
+            const int r = euclidR[v];
+
+            const auto slots    = bjorklundPreview (k, n * r);
+            const int  gridX    = 510;
+            const int  gridY    = py + 44;
+            const int  gridW    = panelW - gridX - 20;
+            const int  cellW    = gridW / 16;
+            const int  cellH    = r > 1 ? (200 / r) : 200;
+            const int  cellGap  = 2;
+
+            // Column headers (step numbers)
+            g.setFont (juce::Font (8.f));
+            g.setColour (dimColour.withAlpha (0.6f));
+            for (int i = 0; i < 16; ++i)
+            {
+                const int cx = gridX + i * cellW;
+                const bool inRange = (i < n);
+                g.setColour (inRange ? dimColour : dimColour.withAlpha (0.25f));
+                g.drawText (juce::String (i + 1), cx, gridY - 12, cellW - cellGap, 11,
+                            juce::Justification::centred);
+            }
+
+            // Grid cells
+            for (int i = 0; i < 16; ++i)
+            {
+                const int cx = gridX + i * cellW;
+                const bool inRange = (i < n);
+
+                for (int row = 0; row < r; ++row)
+                {
+                    const int cy = gridY + row * (cellH + cellGap);
+                    bool hit = inRange && slots[i * r + row];
+
+                    juce::Colour cellCol;
+                    if (!inRange)       cellCol = juce::Colour (0xff080810);
+                    else if (hit)       cellCol = accent.withAlpha (0.85f);
+                    else                cellCol = juce::Colour (0xff141424);
+
+                    g.setColour (cellCol);
+                    g.fillRoundedRectangle ((float)cx, (float)cy, (float)(cellW - cellGap), (float)cellH, 2.f);
+                }
+
+                // Ratchet count badge (bottom of column, for in-range steps)
+                if (inRange)
+                {
+                    int hitCount = 0;
+                    for (int row = 0; row < r; ++row)
+                        if (slots[i * r + row]) hitCount++;
+
+                    const int badgeY = gridY + r * (cellH + cellGap) + 4;
+                    if (hitCount > 0)
+                    {
+                        g.setColour (accent);
+                        g.setFont (juce::Font (9.f, juce::Font::bold));
+                        const juce::String badge = hitCount > 1 ? juce::String ("x") + juce::String (hitCount) : juce::String (L"•");
+                        g.drawText (badge, cx, badgeY, cellW - cellGap, 12, juce::Justification::centred);
+                    }
+                }
+            }
+
+            // Grid label
+            g.setFont (juce::Font (8.f, juce::Font::bold));
+            g.setColour (dimColour.withAlpha (0.5f));
+            const juce::String gridInfo = "STEPS: " + juce::String (n)
+                                        + "   HITS: " + juce::String (k)
+                                        + "   MAX RATCHETS: " + juce::String (r)
+                                        + "   DENSITY: " + juce::String ((int)juce::roundToInt (100.0 * k / (n * r))) + "%";
+            g.drawText (gridInfo, gridX, py + panelH - 18, gridW, 12, juce::Justification::centredLeft);
+
+            // Control labels
+            g.setFont (juce::Font (9.f, juce::Font::bold));
+            g.setColour (dimColour);
+            g.drawText ("STEPS",        panelX + 14, py + 54,  80, 12, juce::Justification::centredLeft);
+            g.drawText ("HITS",         panelX + 14, py + 104, 80, 12, juce::Justification::centredLeft);
+            g.drawText ("MAX RATCHETS", panelX + 14, py + 154, 120, 12, juce::Justification::centredLeft);
+
+            // Turing Machine placeholder
+            constexpr int tmX = panelX + 12;
+            const     int tmY = py + 210;
+            g.setColour (juce::Colour (0xff0e0e1a));
+            g.fillRoundedRectangle ((float)tmX, (float)tmY, 460.f, 80.f, 4.f);
+            g.setColour (juce::Colour (0xff1e1e30));
+            g.drawRoundedRectangle ((float)tmX, (float)tmY, 460.f, 80.f, 4.f, 1.f);
+            g.setFont (juce::Font (10.f, juce::Font::bold));
+            g.setColour (dimColour.withAlpha (0.4f));
+            g.drawText ("TURING MACHINE", tmX + 10, tmY + 8, 200, 14, juce::Justification::centredLeft);
+            g.setFont (juce::Font (9.f));
+            g.setColour (dimColour.withAlpha (0.3f));
+            g.drawText ("Probabilistic shift-register looping — coming in v4.0",
+                        tmX + 10, tmY + 30, 440, 12, juce::Justification::centredLeft);
+            g.drawText ("LOCK knob: 0% = chaos  ·  100% = locked loop  ·  50% = evolving pattern",
+                        tmX + 10, tmY + 50, 440, 12, juce::Justification::centredLeft);
+        }
         return;
     }
 
@@ -1775,16 +2045,18 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
 void VoltageSeq2AudioProcessorEditor::resized()
 {
     // Global header (always present)
-    synthPageBtn .setBounds (220,  3,  65, 22);
-    patternPageBtn.setBounds(290,  3,  80, 22);
-    fxPageBtn    .setBounds (375,  3,  55, 22);
-    savePresetBtn.setBounds (1305, 3,  85, 22);
-    loadPresetBtn.setBounds (1396, 3,  85, 22);
+    synthPageBtn  .setBounds (220, 3,  65, 22);
+    patternPageBtn.setBounds (290, 3,  80, 22);
+    fxPageBtn     .setBounds (375, 3,  55, 22);
+    genPageBtn    .setBounds (435, 3,  80, 22);
+    savePresetBtn .setBounds (1305, 3, 85, 22);
+    loadPresetBtn .setBounds (1396, 3, 85, 22);
 
     layoutVoice (0, seqAY, ctrlAY);
     layoutVoice (1, seqBY, ctrlBY);
     layoutPatternPage();
     layoutFxPage();
+    layoutGenPage();
 }
 
 //==============================================================================

@@ -2360,6 +2360,69 @@ void VoltageSeq2AudioProcessor::generateRandomSequence (int vi, bool doGates, bo
 }
 
 //==============================================================================
+// Bjorklund (Euclidean rhythm) — distributes k hits as evenly as possible
+// across n steps.  Returns a vector<int> of length n (1 = hit, 0 = rest).
+// Verified: E(3,8)=[1,0,0,1,0,0,1,0]  E(5,8)=[1,0,1,0,1,0,1,1]
+//==============================================================================
+static std::vector<int> bjorklund (int k, int n)
+{
+    if (n <= 0 || k <= 0) return std::vector<int> (std::max (n, 0), 0);
+    k = std::min (k, n);
+    if (k == n) return std::vector<int> (n, 1);
+
+    const int q = n / k;   // base zeros per hit-group
+    const int r = n % k;   // first r groups get one extra zero
+
+    std::vector<int> result;
+    result.reserve (n);
+    for (int i = 0; i < k; ++i)
+    {
+        result.push_back (1);
+        const int zeros = q - 1 + (i < r ? 1 : 0);
+        for (int j = 0; j < zeros; ++j)
+            result.push_back (0);
+    }
+    return result;
+}
+
+//==============================================================================
+void VoltageSeq2AudioProcessor::applyEuclidean (int vi, int steps, int hits, int maxRatchets)
+{
+    auto& vp = voice[vi];
+    steps       = juce::jlimit (2, 16, steps);
+    maxRatchets = juce::jlimit (1,  4, maxRatchets);
+    hits        = juce::jlimit (0, steps * maxRatchets, hits);
+
+    // Run Bjorklund on the expanded grid (steps × maxRatchets slots)
+    const auto slots = bjorklund (hits, steps * maxRatchets);
+
+    for (int i = 0; i < 16; ++i)
+    {
+        if (i >= steps)
+        {
+            vp.stepGates  [i] = false;
+            vp.stepRepeats[i] = 0;
+            continue;
+        }
+
+        // Count how many ratchet-slots fired for this step
+        int hitCount = 0;
+        for (int r = 0; r < maxRatchets; ++r)
+            if (slots[i * maxRatchets + r]) ++hitCount;
+
+        vp.stepGates  [i] = (hitCount > 0);
+        vp.stepRepeats[i] = std::max (0, hitCount - 1);   // 0=×1, 1=×2, 2=×3, 3=×4
+    }
+
+    vp.sequenceLength = steps;
+
+    // Push seqLen into APVTS so the page-1 slider updates
+    const juce::String lenKey = "seqLen" + juce::String (vi == 0 ? "A" : "B");
+    if (auto* p = apvts.getParameter (lenKey))
+        p->setValueNotifyingHost (p->convertTo0to1 ((float)steps));
+}
+
+//==============================================================================
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new VoltageSeq2AudioProcessor();

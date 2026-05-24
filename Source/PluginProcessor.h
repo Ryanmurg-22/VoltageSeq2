@@ -272,6 +272,11 @@ public:
     // doGates: randomise gate pattern / length.  doPitch: randomise step voltages.
     void generateRandomSequence (int vi, bool doGates = true, bool doPitch = true);
 
+    // Apply a Euclidean (Bjorklund) rhythm to voice vi.
+    // steps: sequence length (2-16), hits: total events (1..steps*maxRatchets),
+    // maxRatchets: 1=standard binary, 2-4=ratchet density per step.
+    void applyEuclidean (int vi, int steps, int hits, int maxRatchets);
+
     // Shared between both voices
     double            internalBPM = 120.0;
     std::atomic<bool> autoRun     { true };

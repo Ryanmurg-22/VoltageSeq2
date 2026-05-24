@@ -350,11 +350,25 @@ private:
     juce::Slider     masterDriveSlider;
     juce::Slider     masterGainSlider;
 
-    // ── Page 3 navigation ────────────────────────────────────────────────────
+    // ── Page 3 — FX ───────────────────────────────────────────────────────────
     juce::TextButton fxPageBtn;
     std::vector<juce::Component*> fxPageComponents;
     void layoutFxPage();
     void setupFxControls();
+
+    // ── Page 4 — GENERATE ─────────────────────────────────────────────────────
+    juce::TextButton              genPageBtn;
+    std::vector<juce::Component*> genPageComponents;
+
+    // Per-voice Euclidean controls
+    juce::Slider     euclidStepsSlider [2];   // N: sequence length (2-16)
+    juce::Slider     euclidHitsSlider  [2];   // K: total hits (0..N×R)
+    juce::TextButton euclidRatchetBtn  [2];   // R cycler: 1 → 2 → 3 → 4 → 1
+    juce::TextButton euclidApplyBtn    [2];   // writes to processor + syncs page 1
+    int              euclidR           [2] = { 1, 1 };  // current R state per voice
+
+    void setupGenControls();
+    void layoutGenPage();
 
     // ── FX page voice selector ─────────────────────────────────────────────
     int              fxVoiceTab = 0;    // 0 = Voice A FX,  1 = Voice B FX
