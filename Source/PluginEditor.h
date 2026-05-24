@@ -305,7 +305,10 @@ private:
     std::unique_ptr<WavetableDisplayComponent> wavetableDisplay [2];
 
     // ── Shared controls (single instance, sits in Voice A panel) ──────────────
-    juce::TextButton autoBtn;
+    juce::TextButton randomBtn[2];          // trigger: fires RAND
+    juce::TextButton randModeBtn[2];        // cycles: GATE → PITCH → BOTH
+    int              randMode[2] = { 0, 0 }; // 0=GATE, 1=PITCH, 2=BOTH
+    juce::TextButton patTransposeUpBtn[2], patTransposeDnBtn[2];
     juce::TextButton savePresetBtn, loadPresetBtn;
     std::unique_ptr<juce::FileChooser> fileChooser;
 

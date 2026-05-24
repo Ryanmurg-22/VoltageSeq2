@@ -901,10 +901,45 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                 juce::MidiMessage::noteOff (ch, vs.midiPolyEvictNote, (juce::uint8)0), s);
                             vs.midiPolyEvict = false;
                         }
-                        // New note on
+
                         if (vs.midiStepNote >= 0)
-                            midiMessages.addEvent (
-                                juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                        {
+                            // After the MIDI register shift, midiPolyNotes[1] holds the
+                            // previous slot-0 note — use it as the glide "from" pitch.
+                            const int prevNote = vs.midiPolyNotes[1];
+                            const bool doGlide = vs.midiStepGlide
+                                                 && prevNote >= 0
+                                                 && prevNote != vs.midiStepNote;
+
+                            if (doGlide)
+                            {
+                                const float initBend = juce::jlimit (-kPbRange, kPbRange,
+                                    (float)(prevNote - vs.midiStepNote));
+                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101,  0), s);
+                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100,  0), s);
+                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,   6, (int)kPbRange), s);
+                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,  38,  0), s);
+                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101, 127), s);
+                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100, 127), s);
+                                midiMessages.addEvent (
+                                    juce::MidiMessage::pitchWheel (ch, semToPB (initBend, kPbRange)), s);
+                                midiMessages.addEvent (
+                                    juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                                vs.midiGlideActive = true;
+                                vs.midiGlideBend   = initBend;
+                                vs.midiGlideTick   = 0;
+                            }
+                            else
+                            {
+                                if (vs.midiGlideActive)
+                                {
+                                    vs.midiGlideActive = false;
+                                    midiMessages.addEvent (juce::MidiMessage::pitchWheel (ch, 0), s);
+                                }
+                                midiMessages.addEvent (
+                                    juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                            }
+                        }
                     }
                 }
                 else
@@ -1131,9 +1166,14 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
             vp.currentStep = newStep;
 
             vs.midiStepFired = true;
-            vs.midiStepGate  = vp.stepGates[vp.currentStep];
+            // Per-step probability gate
+            const float _prob = vp.stepProbability[vp.currentStep];
+            const bool gateWithProb = vp.stepGates[vp.currentStep] &&
+                (_prob >= 99.9f || juce::Random::getSystemRandom().nextFloat() * 100.f < _prob);
+            vs.midiStepGate  = gateWithProb;
             vs.midiStepNote  = vs.midiStepGate
-                               ? voltageToMidiNote (vp, vp.stepVoltages[vp.currentStep])
+                               ? juce::jlimit (0, 127, voltageToMidiNote (vp, vp.stepVoltages[vp.currentStep])
+                                               + vp.stepOctave[vp.currentStep] * 12)
                                : -1;
             vs.midiStepTied  = vp.stepTied[vp.currentStep];
 
@@ -1158,14 +1198,27 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
                 vs.midiPolyNotes[0] = vs.midiStepNote;   // -1 on gate-off
 
                 vs.slots[0].assignedVoltage = vp.stepVoltages[vp.currentStep];
-                if (vp.stepGates[vp.currentStep])
+                if (gateWithProb)
                 {
                     float baseFreq = voltageToQuantizedFreq (vp, vp.stepVoltages[vp.currentStep]);
-                    vs.slots[0].currentFreq1 = baseFreq * (float)std::pow (2.0, (double)vp.osc1Octave);
-                    vs.slots[0].currentFreq2 = baseFreq * (float)std::pow (2.0, (double)vp.osc2Octave);
-                    vs.slots[0].osc1PhaseInc = vs.slots[0].currentFreq1 / currentSampleRate;
-                    vs.slots[0].osc2PhaseInc = vs.slots[0].currentFreq2 / currentSampleRate;
-                    vs.slots[0].glideActive  = false;
+                    baseFreq *= std::pow (2.0f, (float)vp.stepOctave[vp.currentStep]);
+                    const bool doGlide = (vp.portamentoTime > 0.001f && vp.stepGlides[vp.currentStep]);
+
+                    // After the register shift, slot[0] still holds its previous freq —
+                    // set only the TARGET so the per-sample IIR portamento eases to it.
+                    vs.slots[0].targetFreq1 = baseFreq * (float)std::pow (2.0, (double)vp.osc1Octave);
+                    vs.slots[0].targetFreq2 = baseFreq * (float)std::pow (2.0, (double)vp.osc2Octave);
+                    vs.slots[0].glideActive = doGlide;
+
+                    if (!doGlide)
+                    {
+                        vs.slots[0].currentFreq1 = vs.slots[0].targetFreq1;
+                        vs.slots[0].currentFreq2 = vs.slots[0].targetFreq2;
+                        vs.slots[0].osc1PhaseInc = vs.slots[0].currentFreq1 / currentSampleRate;
+                        vs.slots[0].osc2PhaseInc = vs.slots[0].currentFreq2 / currentSampleRate;
+                    }
+
+                    vs.midiStepGlide = doGlide;
 
                     if (!vp.stepTied[vp.currentStep])
                     {
@@ -1181,13 +1234,13 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
                 }
                 else
                 {
+                    vs.slots[0].glideActive = false;
+                    vs.midiStepGlide = false;
                     vs.adsr.noteOff();
                     vs.filterEnv.noteOff();
                     if (!vp.modEnv.clockSync)
                         vs.modEnvAdsr.noteOff();
                 }
-
-                vs.midiStepGlide = false;
 
                 // Ratchet setup (poly mode — uses shared envelope)
                 {
@@ -1202,9 +1255,10 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
             else
             {
                 // MONO or UNISON: all slots get same base freq, triggered simultaneously
-                if (vp.stepGates[vp.currentStep])
+                if (gateWithProb)
                 {
                     float baseFreq = voltageToQuantizedFreq (vp, vp.stepVoltages[vp.currentStep]);
+                    baseFreq *= std::pow (2.0f, (float)vp.stepOctave[vp.currentStep]);
                     const bool doGlide = (vp.portamentoTime > 0.001f && vp.stepGlides[vp.currentStep]);
 
                     for (int si = 0; si < nSlots; ++si)
@@ -1710,6 +1764,8 @@ static void saveVoiceToXml (juce::XmlElement& el,
         el.setAttribute ("ti" + juce::String (i), vp.stepTied  [i]);
         el.setAttribute ("rt" + juce::String (i), vp.stepRepeats[i]);
         el.setAttribute ("pl" + juce::String (i), vp.stepPulses [i]);
+        el.setAttribute ("oc" + juce::String (i), vp.stepOctave[i]);
+        el.setAttribute ("pr" + juce::String (i), (double)vp.stepProbability[i]);
     }
     el.setAttribute ("porta",    (double)vp.portamentoTime);
     el.setAttribute ("swing",    (double)vp.swingAmount);
@@ -1819,6 +1875,8 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
         vp.stepTied    [i] = getB (("ti" + juce::String (i)).toRawUTF8(), false);
         vp.stepRepeats [i] = getI (("rt" + juce::String (i)).toRawUTF8(), 0);
         vp.stepPulses  [i] = juce::jlimit (1, 8, getI (("pl" + juce::String (i)).toRawUTF8(), 1));
+        vp.stepOctave  [i] = juce::jlimit (-4, 4, getI (("oc" + juce::String (i)).toRawUTF8(), 0));
+        vp.stepProbability[i] = juce::jlimit (0.f, 100.f, getF (("pr" + juce::String (i)).toRawUTF8(), 100.f));
     }
     vp.portamentoTime   = getF ("porta",    vp.portamentoTime);
     vp.swingAmount      = getF ("swing",    vp.swingAmount);
@@ -2056,7 +2114,7 @@ void VoltageSeq2AudioProcessor::getStateInformation (juce::MemoryBlock& destData
             slotEl->setAttribute ("uni",    (int)p.unipolar);
             slotEl->setAttribute ("range",  p.rangeVCA);
             // Step data as comma-separated strings
-            juce::String volts, gates, glides, ties, repeats;
+            juce::String volts, gates, glides, ties, repeats, octs, probs;
             for (int i = 0; i < numSteps; ++i)
             {
                 volts   += juce::String (p.stepVoltages[i], 4) + (i < 15 ? "," : "");
@@ -2064,12 +2122,16 @@ void VoltageSeq2AudioProcessor::getStateInformation (juce::MemoryBlock& destData
                 glides  += juce::String ((int)p.stepGlides[i]) + (i < 15 ? "," : "");
                 ties    += juce::String ((int)p.stepTied[i])   + (i < 15 ? "," : "");
                 repeats += juce::String (p.stepRepeats[i])     + (i < 15 ? "," : "");
+                octs    += juce::String (p.stepOctave[i])      + (i < 15 ? "," : "");
+                probs   += juce::String (p.stepProbability[i], 1) + (i < 15 ? "," : "");
             }
             slotEl->setAttribute ("volts",   volts);
             slotEl->setAttribute ("gates",   gates);
             slotEl->setAttribute ("glides",  glides);
             slotEl->setAttribute ("ties",    ties);
             slotEl->setAttribute ("repeats", repeats);
+            slotEl->setAttribute ("octs",    octs);
+            slotEl->setAttribute ("probs",   probs);
         }
     }
 
@@ -2180,6 +2242,20 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
                     parseBools  (slotEl->getStringAttribute ("glides"),  p.stepGlides,   numSteps);
                     parseBools  (slotEl->getStringAttribute ("ties"),    p.stepTied,     numSteps);
                     parseInts   (slotEl->getStringAttribute ("repeats"), p.stepRepeats,  numSteps);
+                    // parse octs
+                    {
+                        juce::StringArray toks;
+                        toks.addTokens (slotEl->getStringAttribute ("octs"), ",", "");
+                        for (int i = 0; i < juce::jmin (toks.size(), numSteps); ++i)
+                            p.stepOctave[i] = juce::jlimit (-4, 4, toks[i].getIntValue());
+                    }
+                    // parse probs
+                    {
+                        juce::StringArray toks;
+                        toks.addTokens (slotEl->getStringAttribute ("probs"), ",", "");
+                        for (int i = 0; i < juce::jmin (toks.size(), numSteps); ++i)
+                            p.stepProbability[i] = juce::jlimit (0.f, 100.f, (float)toks[i].getDoubleValue());
+                    }
                 }
             }
         }
@@ -2230,6 +2306,56 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
                                       voice[vi].modEnv.sustain, voice[vi].modEnv.release };
         vstate[vi].modEnvAdsr.setParameters (mep3);
         voice[vi].resetOnNextBlock.store (true);
+    }
+}
+
+//==============================================================================
+void VoltageSeq2AudioProcessor::generateRandomSequence (int vi, bool doGates, bool doPitch)
+{
+    auto& vp  = voice[vi];
+    juce::Random rng;
+    const juce::String voiceSuffix = "_" + juce::String (vi);
+
+    if (doGates)
+        vp.sequenceLength = 4 + rng.nextInt (13);   // 4–16 steps
+
+    for (int i = 0; i < 16; ++i)
+    {
+        const bool inLen = (i < vp.sequenceLength);
+
+        if (doGates)
+        {
+            vp.stepGates   [i] = inLen && (rng.nextFloat() < 0.72f);
+            vp.stepOctave  [i] = inLen
+                                 ? ([&]{ float r = rng.nextFloat(); return r < 0.12f ? -1 : r > 0.88f ? 1 : 0; }())
+                                 : 0;
+            vp.stepRepeats [i] = (inLen && rng.nextFloat() < 0.15f) ? 1 : 0;
+            vp.stepPulses  [i] = 1;
+            vp.stepGlides  [i] = inLen && vp.stepGates[i] && (rng.nextFloat() < 0.20f);
+            vp.stepTied    [i] = inLen && vp.stepGates[i] && (rng.nextFloat() < 0.08f);
+            vp.stepProbability[i] = (inLen && rng.nextFloat() < 0.18f)
+                                    ? (25.f + rng.nextFloat() * 70.f) : 100.f;
+            if (!inLen) vp.stepGates[i] = false;
+        }
+
+        if (doPitch)
+        {
+            // Use APVTS so the slider UI updates and the value sticks
+            const float rawV = vp.unipolar
+                               ? rng.nextFloat() * 5.0f
+                               : rng.nextFloat() * 10.0f - 5.0f;
+            const juce::String key = "step" + juce::String (i) + voiceSuffix;
+            if (auto* param = apvts.getParameter (key))
+                param->setValueNotifyingHost (param->convertTo0to1 (rawV));
+        }
+    }
+
+    if (doGates)
+    {
+        // Push seqLen to APVTS so UI slider updates
+        const juce::String lenKey = juce::String ("seqLen") + (vi == 0 ? "A" : "B");
+        if (auto* p = apvts.getParameter (lenKey))
+            p->setValueNotifyingHost (p->convertTo0to1 ((float)vp.sequenceLength));
     }
 }
 

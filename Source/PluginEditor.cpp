@@ -171,6 +171,21 @@ void VoltageSeq2AudioProcessorEditor::GateBtnListener::mouseDown (const juce::Mo
         menu.addItem (10 + p, juce::String (p) + (p == 1 ? " pulse  (default)" : " pulses"),
                       true, vp.stepPulses[step] == p);
 
+    // ── Octave shift ─────────────────────────────────────────────────────────
+    menu.addSeparator();
+    menu.addSectionHeader ("OCTAVE SHIFT");
+    const char* octLabels[] = { "-4", "-3", "-2", "-1", "0", "+1", "+2", "+3", "+4" };
+    for (int o = 0; o < 9; ++o)
+        menu.addItem (100 + o, octLabels[o], true, vp.stepOctave[step] == (o - 4));
+
+    // ── Probability ──────────────────────────────────────────────────────────
+    menu.addSeparator();
+    menu.addSectionHeader ("PROBABILITY");
+    const int probVals[]      = { 100, 90, 75, 50, 25, 10, 0 };
+    const char* probLabels[]  = { "100%", "90%", "75%", "50%", "25%", "10%", "0% (mute)" };
+    for (int p = 0; p < 7; ++p)
+        menu.addItem (200 + p, probLabels[p], true, (int)vp.stepProbability[step] == probVals[p]);
+
     menu.showMenuAsync (
         juce::PopupMenu::Options{}.withTargetComponent (&ed.gateBtn[vi][step]),
         [this](int result)
@@ -179,6 +194,13 @@ void VoltageSeq2AudioProcessorEditor::GateBtnListener::mouseDown (const juce::Mo
                 ed.audioProcessor.voice[vi].stepRepeats[step] = result - 1;
             else if (result >= 11 && result <= 18)
                 ed.audioProcessor.voice[vi].stepPulses[step] = result - 10;
+            else if (result >= 100 && result <= 108)
+                ed.audioProcessor.voice[vi].stepOctave[step] = (result - 100) - 4;
+            else if (result >= 200 && result <= 206)
+            {
+                const int pv[] = { 100, 90, 75, 50, 25, 10, 0 };
+                ed.audioProcessor.voice[vi].stepProbability[step] = (float)pv[result - 200];
+            }
             if (result > 0)
                 ed.refreshGateBtn (vi, step);
         });
@@ -189,22 +211,33 @@ void VoltageSeq2AudioProcessorEditor::GateBtnListener::mouseDown (const juce::Mo
 //==============================================================================
 void VoltageSeq2AudioProcessorEditor::refreshGateBtn (int v, int i)
 {
-    const auto& vp = audioProcessor.voice[v];
-    const bool  g  = vp.stepGates  [i];
-    const bool  t  = vp.stepTied   [i];
-    const int   r  = vp.stepRepeats[i];   // 0=1× … 3=4×
+    const auto& vp  = audioProcessor.voice[v];
+    const bool  g   = vp.stepGates      [i];
+    const bool  t   = vp.stepTied       [i];
+    const int   r   = vp.stepRepeats    [i];   // 0=1× … 3=4×
+    const int   oct = vp.stepOctave     [i];
+    const float prob= vp.stepProbability[i];
 
-    // Display priority: tied > ratchet count > normal
+    // Display priority: tied > ratchet count > octave+prob combined
     juce::String txt;
-    if      (t)    txt = "~";
-    else if (r > 0) txt = juce::String (r + 1);   // "2", "3", "4"
-    else           txt = "";
+    if (t)
+        txt = "~";
+    else if (r > 0)
+        txt = juce::String (r + 1);   // "2", "3", "4"
+    else
+    {
+        if (oct != 0)
+            txt = (oct > 0 ? "+" : "") + juce::String (oct);
+        if (prob < 99.f)
+            txt += "%";
+    }
 
     juce::Colour col;
-    if      (!g)   col = gateOffColour;
-    else if (t)    col = tieColour;
+    if      (!g)    col = gateOffColour;
+    else if (t)     col = tieColour;
     else if (r > 0) col = ratchetColour;
-    else           col = gateOnColour;
+    else if (prob < 99.f) col = juce::Colour (0xff2a5080);
+    else            col = gateOnColour;
 
     gateBtn[v][i].setButtonText (txt);
     gateBtn[v][i].setColour (juce::TextButton::buttonColourId, col);
@@ -243,21 +276,55 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     // SHARED / GLOBAL CONTROLS
     //==========================================================================
 
-    // AUTO button
+    // RAND mode + trigger buttons (one pair per voice)
+    for (int v = 0; v < 2; ++v)
     {
-        bool isAuto = audioProcessor.autoRun.load();
-        autoBtn.setButtonText ("AUTO");
-        autoBtn.setToggleState (isAuto, juce::dontSendNotification);
-        autoBtn.setClickingTogglesState (true);
-        autoBtn.setColour (juce::TextButton::buttonColourId,   isAuto ? gateOnColour : gateOffColour);
-        autoBtn.setColour (juce::TextButton::buttonOnColourId, gateOnColour);
-        autoBtn.onClick = [this]()
+        // ── Mode cycler: GATE → PITCH → BOTH ─────────────────────────────────
+        randModeBtn[v].setButtonText ("GATE");
+        randModeBtn[v].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff1a1a40));
+        randModeBtn[v].onClick = [this, v]()
         {
-            bool s = autoBtn.getToggleState();
-            audioProcessor.autoRun.store (s);
-            autoBtn.setColour (juce::TextButton::buttonColourId, s ? gateOnColour : gateOffColour);
+            randMode[v] = (randMode[v] + 1) % 3;
+            static const char* labels[] = { "GATE", "PITCH", "BOTH" };
+            randModeBtn[v].setButtonText (labels[randMode[v]]);
         };
-        addAndMakeVisible (autoBtn);
+        addAndMakeVisible (randModeBtn[v]);
+
+        // ── Trigger: fires randomise with current mode ────────────────────────
+        randomBtn[v].setButtonText ("RAND");
+        randomBtn[v].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff1a3040));
+        randomBtn[v].onClick = [this, v]()
+        {
+            const bool doG = (randMode[v] == 0 || randMode[v] == 2);
+            const bool doP = (randMode[v] == 1 || randMode[v] == 2);
+            audioProcessor.generateRandomSequence (v, doG, doP);
+            syncUIFromProcessor();
+        };
+        addAndMakeVisible (randomBtn[v]);
+    }
+
+    // Pattern transpose buttons (per voice) — configured here, added to page components below
+    for (int v = 0; v < 2; ++v)
+    {
+        patTransposeUpBtn[v].setButtonText ("+8va");
+        patTransposeUpBtn[v].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff203040));
+        patTransposeUpBtn[v].onClick = [this, v]()
+        {
+            auto& vp = audioProcessor.voice[v];
+            for (int i = 0; i < 16; ++i)
+                vp.stepOctave[i] = juce::jlimit (-4, 4, vp.stepOctave[i] + 1);
+            syncUIFromProcessor();
+        };
+
+        patTransposeDnBtn[v].setButtonText ("-8va");
+        patTransposeDnBtn[v].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff203040));
+        patTransposeDnBtn[v].onClick = [this, v]()
+        {
+            auto& vp = audioProcessor.voice[v];
+            for (int i = 0; i < 16; ++i)
+                vp.stepOctave[i] = juce::jlimit (-4, 4, vp.stepOctave[i] - 1);
+            syncUIFromProcessor();
+        };
     }
 
     // Preset Save
@@ -375,6 +442,12 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
         };
         addChildComponent (saveBtn[vi]);
         patternPageComponents.push_back (&saveBtn[vi]);
+
+        // Transpose buttons are already added as visible in constructor — register for pattern page
+        addChildComponent (patTransposeUpBtn[vi]);
+        patternPageComponents.push_back (&patTransposeUpBtn[vi]);
+        addChildComponent (patTransposeDnBtn[vi]);
+        patternPageComponents.push_back (&patTransposeDnBtn[vi]);
     }
 
     // ── FX page controls ─────────────────────────────────────────────────────
@@ -443,7 +516,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
         }
 
         bool sOn = vp.stepGlides[i];
-        slideBtn[v][i].setButtonText ("");
+        slideBtn[v][i].setButtonText (juce::String (i + 1));   // step number always visible
         slideBtn[v][i].setToggleState (sOn, juce::dontSendNotification);
         slideBtn[v][i].setClickingTogglesState (true);
         slideBtn[v][i].setColour (juce::TextButton::buttonColourId,   sOn ? slideOnColour : gateOffColour);
@@ -966,6 +1039,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     };
     addAndMakeVisible (midiOutBtn[v]);
     synthPageComponents.push_back (&midiOutBtn[v]);
+    synthPageComponents.push_back (&randModeBtn[v]);
 
     for (int ch = 1; ch <= 16; ++ch)
         midiOutChBox[v].addItem ("Ch " + juce::String (ch), ch);
@@ -1368,6 +1442,10 @@ void VoltageSeq2AudioProcessorEditor::layoutPatternPage()
         saveToBox[vi].setBounds (getWidth() - 202, labelY, 130, 18);
         saveBtn  [vi].setBounds (getWidth() -  68, labelY,  60, 18);
 
+        // Pattern transpose buttons
+        patTransposeUpBtn[vi].setBounds (getWidth() - 340, labelY, 60, 18);
+        patTransposeDnBtn[vi].setBounds (getWidth() - 275, labelY, 60, 18);
+
         for (int s = 0; s < 16; ++s)
         {
             const int col = s % 8;
@@ -1544,19 +1622,14 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
             }
         }
 
-        // Step numbers
+        // Pulse pips (step numbers now live on the slide buttons)
         g.setFont (juce::Font (8.0f));
         for (int i = 0; i < 16; ++i)
         {
             const int pulses = audioProcessor.voice[v].stepPulses[i];
             const bool multiPulse = (pulses > 1);
 
-            // Step number — dimmer when default, accent colour when multi-pulse
-            g.setColour (multiPulse ? juce::Colour (0xff00d4aa) : dimColour);
-            g.drawText (juce::String (i + 1), seqX + i * stepStride + 4, sY + seqH - 10,
-                        stepStride - 8, 10, juce::Justification::centred);
-
-            // Pulse pips — small squares just above the step number
+            // Pulse pips — small squares just above the slide button
             if (multiPulse)
             {
                 const int pipW = 4, pipH = 3, pipGap = 2;
@@ -1577,14 +1650,18 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         g.fillRoundedRectangle ((float)seqX, (float)sbY, (float)seqW, (float)subH, 3.0f);
         g.setColour (dimColour);
         g.setFont (juce::Font (8.5f, juce::Font::bold));
-        g.drawText ("LEN",   14,  sbY + 3, 40, 10, juce::Justification::centredLeft);
-        g.drawText ("ORDER", 112, sbY + 3, 50, 10, juce::Justification::centredLeft);
-        g.drawText ("NUDGE", 384, sbY + 3, 46, 10, juce::Justification::centred);
-        g.drawText ("SWING", 492, sbY + 3, 50, 10, juce::Justification::centredLeft);
-
-        // Voice-A-only labels
-        if (v == 0)
-            g.drawText ("AUTO", 665, sbY + 3, 40, 10, juce::Justification::centredLeft);
+        g.drawText ("LEN",    14,   sbY + 3, 40,  10, juce::Justification::centredLeft);
+        g.drawText ("ORDER",  112,  sbY + 3, 50,  10, juce::Justification::centredLeft);
+        g.drawText ("NUDGE",  384,  sbY + 3, 46,  10, juce::Justification::centred);
+        g.drawText ("SWING",  492,  sbY + 3, 50,  10, juce::Justification::centredLeft);
+        g.drawText ("MODE",   608,  sbY + 3, 52,  10, juce::Justification::centred);
+        g.drawText ("RAND",   663,  sbY + 3, 50,  10, juce::Justification::centred);
+        g.drawText ("MIDI",   730,  sbY + 3, 80,  10, juce::Justification::centred);
+        g.drawText ("VOICE",  900,  sbY + 3, 68,  10, juce::Justification::centred);
+        g.drawText ("SLOTS",  974,  sbY + 3, 28,  10, juce::Justification::centred);
+        g.drawText ("SPREAD", 1008, sbY + 3, 90,  10, juce::Justification::centred);
+        g.drawText ("WIDTH",  1104, sbY + 3, 90,  10, juce::Justification::centred);
+        g.drawText ("RUN",    1204, sbY + 3, 54,  10, juce::Justification::centred);
 
         // ── Control panels row ────────────────────────────────────────────────
         auto drawPanel = [&](int px, int pw, const juce::String& title)
@@ -1701,7 +1778,6 @@ void VoltageSeq2AudioProcessorEditor::resized()
     synthPageBtn .setBounds (220,  3,  65, 22);
     patternPageBtn.setBounds(290,  3,  80, 22);
     fxPageBtn    .setBounds (375,  3,  55, 22);
-    autoBtn      .setBounds (530,  3,  55, 22);
     savePresetBtn.setBounds (1305, 3,  85, 22);
     loadPresetBtn.setBounds (1396, 3,  85, 22);
 
@@ -1748,10 +1824,10 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     nudgeLeftBtn [v]  .setBounds (384, sbCY,  22, 18);
     nudgeRightBtn[v]  .setBounds (408, sbCY,  22, 18);
     swingSlider  [v]  .setBounds (490, sbCY, 110, 18);
-    runStopBtn [v]    .setBounds (608, sbCY, 50, 18);
 
-    if (v == 0)
-        autoBtn.setBounds (665, sbCY, 50, 18);   // shared — only show in Voice A sub-strip
+    // RAND: mode cycler + trigger
+    randModeBtn[v].setBounds (608, sbCY, 52, 18);
+    randomBtn  [v].setBounds (663, sbCY, 50, 18);
 
     // ── MIDI Out — right side of sub-strip ────────────────────────────────────
     midiOutBtn  [v].setBounds (730, sbCY,  80, 18);
@@ -1762,6 +1838,9 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     uniCountBtn    [v].setBounds (974,  sbCY, 28, 18);
     uniSpreadSlider[v].setBounds (1008, sbCY, 90, 18);
     uniWidthSlider [v].setBounds (1104, sbCY, 90, 18);
+
+    // RUN/STOP moved to far-right end of sub-strip
+    runStopBtn [v]    .setBounds (1204, sbCY, 54, 18);
 
     // ── SEQ panel ─────────────────────────────────────────────────────────────
     rangeSlider[v]  .setBounds (pSeqX + 5,                     cy1 - 2, pSeqW - 10, 22);
@@ -1909,10 +1988,6 @@ void VoltageSeq2AudioProcessorEditor::timerCallback()
 void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
 {
 
-
-    const bool isAuto = audioProcessor.autoRun.load();
-    autoBtn.setToggleState (isAuto, juce::dontSendNotification);
-    autoBtn.setColour (juce::TextButton::buttonColourId, isAuto ? gateOnColour : gateOffColour);
 
     for (int v = 0; v < 2; ++v)
     {

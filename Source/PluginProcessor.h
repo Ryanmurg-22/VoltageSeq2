@@ -80,6 +80,9 @@ public:
         bool  stepTied    [16] = {};   // true = sustain gate from prev step, no envelope retrigger
         int   stepRepeats [16] = {};   // 0=1× 1=2× 2=3× 3=4× — ratchet count
         int   stepPulses  [16] = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 };  // 1–8 clock pulses per step
+        int   stepOctave  [16] = {};                                      // −4..+4, default 0
+        float stepProbability[16] = { 100.f,100.f,100.f,100.f,100.f,100.f,100.f,100.f,
+                                      100.f,100.f,100.f,100.f,100.f,100.f,100.f,100.f };
         bool  envReset         = false;   // true = hard-reset envelopes on every retrigger
         bool  pulseLengthMode  = false;   // true = reset after fixed pulse count, not stage count
         int   pulseLength      = 16;      // target total pulses before reset (pulse mode only)
@@ -195,6 +198,9 @@ public:
         bool  stepTied    [16] = {};
         int   stepRepeats [16] = {};   // 0=1× 1=2× 2=3× 3=4×
         int   stepPulses  [16] = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 };  // 1–8 clock pulses per step
+        int   stepOctave  [16] = {};                                      // −4..+4, default 0
+        float stepProbability[16] = { 100.f,100.f,100.f,100.f,100.f,100.f,100.f,100.f,
+                                      100.f,100.f,100.f,100.f,100.f,100.f,100.f,100.f };
         int   sequenceLength   = 16;
         int   clockDivision    = 2;
         float swingAmount      = 0.5f;
@@ -261,6 +267,10 @@ public:
 
     // Push current VoiceParams values into APVTS (call after loadPattern / old-format restore).
     void syncAPVTSFromVoice (int vi);
+
+    // Generate a random sequence for voice vi.
+    // doGates: randomise gate pattern / length.  doPitch: randomise step voltages.
+    void generateRandomSequence (int vi, bool doGates = true, bool doPitch = true);
 
     // Shared between both voices
     double            internalBPM = 120.0;
