@@ -462,6 +462,9 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     // ── Generate page controls ────────────────────────────────────────────────
     setupGenControls();
 
+    // ── Pattern sequencer controls ────────────────────────────────────────────
+    setupPatternSeqControls();
+
     // setSize LAST — triggers resized() which calls layoutVoice()
     setSize (1500, winH);
     showPage (0);   // ensure FX / pattern / gen controls start hidden
@@ -1591,6 +1594,7 @@ void VoltageSeq2AudioProcessorEditor::layoutPatternPage()
             patternSlot[vi][s]->setBounds (x, y, slotW, slotH);
         }
     }
+    layoutPatternSeqControls();
 }
 
 //==============================================================================
@@ -1636,6 +1640,70 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         g.fillRect (0, 334, getWidth(), 1);
         g.setColour (voiceBColour);
         g.drawText ("VOICE B — PATTERN BANK", 8, 337, 600, 14, juce::Justification::centredLeft);
+
+        // ── Sequencer view panels (one per voice) ─────────────────────────────
+        for (int v = 0; v < 2; ++v)
+        {
+            if (patPageView[v] == 1)
+            {
+                const int py = (v == 0) ? 72 : 354;
+                g.setColour (juce::Colour (0xff080818));
+                g.fillRect (8, py, getWidth() - 16, 250);
+
+                const int m = audioProcessor.patSeq[v].mode;
+                const int activeLen = audioProcessor.patSeq[v].listLength;
+
+                if (m == 2) // MIDI mode — draw note map
+                {
+                    g.setFont (juce::Font (9.f, juce::Font::bold));
+                    g.setColour (dimColour);
+                    g.drawText ("MIDI TRIGGER MAP  (notes C2 – D#3 trigger pattern slots 1–16)",
+                                8 + 300, py + 4, 800, 14, juce::Justification::centredLeft);
+
+                    static const char* noteNames[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+                    const int mapX = 8 + 300, mapY = py + 22;
+                    const int cellW = 80, cellH = 28, cellGap = 3;
+                    for (int i = 0; i < 16; ++i)
+                    {
+                        const int col = i % 8, row = i / 8;
+                        const int cx = mapX + col * (cellW + cellGap);
+                        const int cy = mapY + row * (cellH + cellGap);
+                        g.setColour (juce::Colour (0xff141428));
+                        g.fillRoundedRectangle ((float)cx, (float)cy, (float)cellW, (float)cellH, 3.f);
+                        const int midiNote = 36 + i;
+                        const juce::String noteName = juce::String(noteNames[midiNote % 12])
+                                                    + juce::String(midiNote / 12 - 1);
+                        g.setFont (juce::Font (8.f));
+                        g.setColour (dimColour);
+                        g.drawText (noteName + " \xe2\x86\x92 Slot " + juce::String(i + 1),
+                                    cx + 4, cy, cellW - 8, cellH, juce::Justification::centredLeft);
+                    }
+                }
+                else if (m == 1 && activeLen > 0) // SEQ mode — draw position indicator
+                {
+                    const int curEntry = audioProcessor.patSeq[v].currentEntry;
+                    const int entryW = 85, entryGap = 4, margin2 = 8;
+                    for (int i = 0; i < activeLen; ++i)
+                    {
+                        const int row = i / 8, col = i % 8;
+                        const int ex = margin2 + col * (entryW + entryGap);
+                        const int ey = py + 32 + row * 50;
+                        if (i == curEntry)
+                        {
+                            g.setColour (juce::Colour (0xff00d4aa).withAlpha (0.3f));
+                            g.fillRoundedRectangle ((float)ex - 2, (float)ey - 2,
+                                                   (float)entryW + 4, 48.f, 3.f);
+                        }
+                    }
+                }
+
+                // List length label at right edge
+                const juce::String lenStr = "LIST: " + juce::String(juce::jmax(1, activeLen)) + " steps";
+                g.setFont (juce::Font (9.f));
+                g.setColour (dimColour);
+                g.drawText (lenStr, getWidth() - 200, py + 4, 180, 14, juce::Justification::centredRight);
+            }
+        }
 
         // Bottom hint
         g.setFont (juce::Font (8.5f));
@@ -2242,6 +2310,210 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
 }
 
 //==============================================================================
+// Pattern Sequencer Controls
+//==============================================================================
+void VoltageSeq2AudioProcessorEditor::setupPatternSeqControls()
+{
+    for (int v = 0; v < 2; ++v)
+    {
+        // ── Bank / Sequencer sub-tabs ─────────────────────────────────────────
+        patBankTabBtn[v].setButtonText ("BANK");
+        patBankTabBtn[v].onClick = [this, v]()
+        {
+            patPageView[v] = 0;
+            refreshPatPageView (v);
+        };
+        addChildComponent (patBankTabBtn[v]);
+        patternPageComponents.push_back (&patBankTabBtn[v]);
+
+        patSeqTabBtn[v].setButtonText ("SEQUENCER");
+        patSeqTabBtn[v].onClick = [this, v]()
+        {
+            patPageView[v] = 1;
+            refreshPatPageView (v);
+        };
+        addChildComponent (patSeqTabBtn[v]);
+        patternPageComponents.push_back (&patSeqTabBtn[v]);
+
+        // ── Mode buttons ──────────────────────────────────────────────────────
+        patSeqOffBtn[v].setButtonText ("OFF");
+        patSeqOffBtn[v].onClick = [this, v]() {
+            audioProcessor.patSeq[v].mode = 0;
+            refreshPatSeqMode (v);
+        };
+        addChildComponent (patSeqOffBtn[v]);
+        patternPageComponents.push_back (&patSeqOffBtn[v]);
+
+        patSeqAutoBtn[v].setButtonText ("SEQ");
+        patSeqAutoBtn[v].onClick = [this, v]() {
+            audioProcessor.patSeq[v].mode = 1;
+            audioProcessor.patSeq[v].currentEntry  = 0;
+            audioProcessor.patSeq[v].currentRepeat = 0;
+            refreshPatSeqMode (v);
+        };
+        addChildComponent (patSeqAutoBtn[v]);
+        patternPageComponents.push_back (&patSeqAutoBtn[v]);
+
+        patSeqMidiBtn[v].setButtonText ("MIDI");
+        patSeqMidiBtn[v].onClick = [this, v]() {
+            audioProcessor.patSeq[v].mode = 2;
+            refreshPatSeqMode (v);
+        };
+        addChildComponent (patSeqMidiBtn[v]);
+        patternPageComponents.push_back (&patSeqMidiBtn[v]);
+
+        // ── Load timing toggle ────────────────────────────────────────────────
+        patSeqImmBtn[v].setButtonText ("QUEUED");
+        patSeqImmBtn[v].onClick = [this, v]()
+        {
+            auto& ps = audioProcessor.patSeq[v];
+            ps.immediate = !ps.immediate;
+            patSeqImmBtn[v].setButtonText (ps.immediate ? "IMMEDIATE" : "QUEUED");
+        };
+        addChildComponent (patSeqImmBtn[v]);
+        patternPageComponents.push_back (&patSeqImmBtn[v]);
+
+        // ── List length +/- buttons ───────────────────────────────────────────
+        patSeqLenUpBtn[v].setButtonText ("+");
+        patSeqLenUpBtn[v].onClick = [this, v]()
+        {
+            auto& ps = audioProcessor.patSeq[v];
+            if (ps.listLength < 16) { ps.listLength++; refreshPatPageView (v); }
+        };
+        addChildComponent (patSeqLenUpBtn[v]);
+        patternPageComponents.push_back (&patSeqLenUpBtn[v]);
+
+        patSeqLenDnBtn[v].setButtonText ("-");
+        patSeqLenDnBtn[v].onClick = [this, v]()
+        {
+            auto& ps = audioProcessor.patSeq[v];
+            if (ps.listLength > 1) { ps.listLength--; refreshPatPageView (v); }
+        };
+        addChildComponent (patSeqLenDnBtn[v]);
+        patternPageComponents.push_back (&patSeqLenDnBtn[v]);
+
+        // ── Playlist entries ──────────────────────────────────────────────────
+        for (int i = 0; i < 16; ++i)
+        {
+            // Slot picker
+            for (int s = 1; s <= 16; ++s)
+                patSeqSlotBox[v][i].addItem ("Slot " + juce::String(s), s);
+            patSeqSlotBox[v][i].setSelectedId (i + 1, juce::dontSendNotification);
+            patSeqSlotBox[v][i].setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff0e1020));
+            patSeqSlotBox[v][i].setColour (juce::ComboBox::textColourId, juce::Colour (0xffe0e0e0));
+            patSeqSlotBox[v][i].onChange = [this, v, i]()
+            {
+                audioProcessor.patSeq[v].list[i] = patSeqSlotBox[v][i].getSelectedId() - 1;
+            };
+            addChildComponent (patSeqSlotBox[v][i]);
+            patternPageComponents.push_back (&patSeqSlotBox[v][i]);
+
+            // Loop count button (cycles 1→2→3→4→8→1)
+            patSeqLoopBtn[v][i].setButtonText ("x1");
+            patSeqLoopBtn[v][i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff141428));
+            patSeqLoopBtn[v][i].onClick = [this, v, i]()
+            {
+                static const int seq[] = { 1, 2, 3, 4, 8 };
+                auto& lc = audioProcessor.patSeq[v].loopCount[i];
+                int idx = 0;
+                for (int j = 0; j < 5; ++j) if (seq[j] == lc) { idx = j; break; }
+                lc = seq[(idx + 1) % 5];
+                patSeqLoopBtn[v][i].setButtonText ("x" + juce::String(lc));
+            };
+            addChildComponent (patSeqLoopBtn[v][i]);
+            patternPageComponents.push_back (&patSeqLoopBtn[v][i]);
+        }
+    }
+    refreshPatSeqMode (0);
+    refreshPatSeqMode (1);
+}
+
+void VoltageSeq2AudioProcessorEditor::refreshPatSeqMode (int vi)
+{
+    const int m = audioProcessor.patSeq[vi].mode;
+    const auto activeCol   = juce::Colour (0xff2255aa);
+    const auto inactiveCol = juce::Colour (0xff161630);
+    patSeqOffBtn [vi].setColour (juce::TextButton::buttonColourId, m == 0 ? activeCol : inactiveCol);
+    patSeqAutoBtn[vi].setColour (juce::TextButton::buttonColourId, m == 1 ? activeCol : inactiveCol);
+    patSeqMidiBtn[vi].setColour (juce::TextButton::buttonColourId, m == 2 ? activeCol : inactiveCol);
+    repaint();
+}
+
+void VoltageSeq2AudioProcessorEditor::refreshPatPageView (int vi)
+{
+    const bool showBank = (patPageView[vi] == 0);
+    const auto activeCol   = juce::Colour (0xff2255aa);
+    const auto inactiveCol = juce::Colour (0xff161630);
+    patBankTabBtn[vi].setColour (juce::TextButton::buttonColourId,  showBank ? activeCol : inactiveCol);
+    patSeqTabBtn [vi].setColour (juce::TextButton::buttonColourId, !showBank ? activeCol : inactiveCol);
+
+    // Bank tiles visibility
+    for (int s = 0; s < 16; ++s)
+        patternSlot[vi][s]->setVisible (showBank);
+
+    // Sequencer controls visibility
+    const bool showSeq = !showBank;
+    patSeqOffBtn  [vi].setVisible (showSeq);
+    patSeqAutoBtn [vi].setVisible (showSeq);
+    patSeqMidiBtn [vi].setVisible (showSeq);
+    patSeqImmBtn  [vi].setVisible (showSeq);
+    patSeqLenUpBtn[vi].setVisible (showSeq);
+    patSeqLenDnBtn[vi].setVisible (showSeq);
+
+    const int activeLen = juce::jmax (1, audioProcessor.patSeq[vi].listLength);
+    for (int i = 0; i < 16; ++i)
+    {
+        const bool entryVisible = showSeq && (i < activeLen);
+        patSeqSlotBox[vi][i].setVisible (entryVisible);
+        patSeqLoopBtn[vi][i].setVisible (entryVisible);
+    }
+    repaint();
+}
+
+void VoltageSeq2AudioProcessorEditor::layoutPatternSeqControls()
+{
+    // Y positions per voice (same zones as the tile rows)
+    const int panelY[2]  = { 72, 354 };
+    const int labelY[2]  = { 54, 336 };
+    constexpr int margin = 8;
+
+    for (int v = 0; v < 2; ++v)
+    {
+        const int ly = labelY[v];
+        const int py = panelY[v];
+
+        // Tab buttons in the label row
+        patBankTabBtn[v].setBounds (margin,      ly, 55, 18);
+        patSeqTabBtn [v].setBounds (margin + 62, ly, 90, 18);
+
+        // Mode + timing controls  (top of sequencer panel)
+        patSeqOffBtn  [v].setBounds (margin,       py,      44, 22);
+        patSeqAutoBtn [v].setBounds (margin + 50,  py,      44, 22);
+        patSeqMidiBtn [v].setBounds (margin + 100, py,      44, 22);
+        patSeqImmBtn  [v].setBounds (margin + 180, py,     110, 22);
+
+        // List length +/- buttons at far right
+        patSeqLenUpBtn[v].setBounds (getWidth() - 60, py,  26, 22);
+        patSeqLenDnBtn[v].setBounds (getWidth() - 30, py,  26, 22);
+
+        // Playlist entries — two rows of 8, each entry 85px wide
+        const int entryW = 85, entryGap = 4;
+        const int row1Y  = py + 32;
+        const int row2Y  = py + 32 + 50;
+
+        for (int i = 0; i < 16; ++i)
+        {
+            const int row = i / 8;
+            const int col = i % 8;
+            const int ex  = margin + col * (entryW + entryGap);
+            const int ey  = (row == 0) ? row1Y : row2Y;
+            patSeqSlotBox[v][i].setBounds (ex,      ey,      entryW, 22);
+            patSeqLoopBtn[v][i].setBounds (ex,      ey + 24, entryW, 20);
+        }
+    }
+}
+
+//==============================================================================
 // TIMER CALLBACK
 //==============================================================================
 void VoltageSeq2AudioProcessorEditor::timerCallback()
@@ -2292,6 +2564,15 @@ void VoltageSeq2AudioProcessorEditor::timerCallback()
         const bool isRunning = vp.sequencerRunning.load();
         runStopBtn[v].setColour (juce::TextButton::buttonColourId, isRunning ? stopColour : runColour);
         runStopBtn[v].setButtonText (isRunning ? "STOP" : "RUN");
+    }
+
+    for (int vi = 0; vi < 2; ++vi)
+    {
+        if (audioProcessor.patternChangedForUI[vi].exchange (false))
+        {
+            syncUIFromProcessor();
+            repaint();
+        }
     }
 }
 

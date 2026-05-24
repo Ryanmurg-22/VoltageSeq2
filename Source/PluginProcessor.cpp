@@ -811,6 +811,29 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
     }
 
+    // ── Scan incoming MIDI for pattern triggers ───────────────────────────────
+    {
+        const bool anyMidiMode = (patSeq[0].mode == 2 || patSeq[1].mode == 2);
+        if (anyMidiMode)
+        {
+            juce::MidiBuffer passThrough;
+            for (const auto meta : midiMessages)
+            {
+                const auto msg  = meta.getMessage();
+                const int  note = msg.getNoteNumber();
+                const bool isTrig = (note >= 36 && note <= 51)
+                                 && (msg.isNoteOn() || msg.isNoteOff());
+                if (msg.isNoteOn() && note >= 36 && note <= 51)
+                    for (int vi = 0; vi < 2; ++vi)
+                        if (patSeq[vi].mode == 2)
+                            patSeq[vi].pendingSlot = note - 36;
+                if (!isTrig)
+                    passThrough.addEvent (msg, meta.samplePosition);
+            }
+            midiMessages.swapWith (passThrough);
+        }
+    }
+
     //--------------------------------------------------------------------------
     // SAMPLE LOOP — Voice A → channels 0/1, Voice B → channels 2/3
     //--------------------------------------------------------------------------
@@ -1164,6 +1187,35 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
                 newStep = stepOrder[pos];
             }
             vp.currentStep = newStep;
+
+            // ── Pattern sequencer ─────────────────────────────────────────────
+            {
+                auto& ps = patSeq[vi];
+                if (ps.mode != 0)
+                {
+                    const bool isNewCycle = (pos == 0);
+                    const bool fireNow    = ps.immediate ? true : isNewCycle;
+                    if (fireNow)
+                    {
+                        if (ps.mode == 2 && ps.pendingSlot >= 0)
+                        {
+                            const int slot     = ps.pendingSlot;
+                            ps.pendingSlot     = -1;
+                            loadPatternAudio (vi, slot);
+                        }
+                        else if (ps.mode == 1 && ps.listLength > 0 && isNewCycle)
+                        {
+                            ps.currentRepeat++;
+                            if (ps.currentRepeat >= ps.loopCount[ps.currentEntry])
+                            {
+                                ps.currentRepeat = 0;
+                                ps.currentEntry  = (ps.currentEntry + 1) % ps.listLength;
+                                loadPatternAudio (vi, ps.list[ps.currentEntry]);
+                            }
+                        }
+                    }
+                }
+            }
 
             vs.midiStepFired = true;
             // Per-step probability gate
@@ -2091,6 +2143,13 @@ void VoltageSeq2AudioProcessor::getStateInformation (juce::MemoryBlock& destData
         auto* voiceEl = xml.createNewChildElement ("Voice");
         voiceEl->setAttribute ("index", vi);
         saveVoiceToXml (*voiceEl, voice[vi], numSteps);
+        voiceEl->setAttribute ("psMode",      patSeq[vi].mode);
+        voiceEl->setAttribute ("psImmediate", (int)patSeq[vi].immediate);
+        voiceEl->setAttribute ("psLen",       patSeq[vi].listLength);
+        for (int i = 0; i < 16; ++i) {
+            voiceEl->setAttribute ("psList"  + juce::String(i), patSeq[vi].list[i]);
+            voiceEl->setAttribute ("psLoop"  + juce::String(i), patSeq[vi].loopCount[i]);
+        }
     }
 
     // Pattern bank
@@ -2199,6 +2258,13 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
                     // host sees them and the UI attachments reflect them.
                     if (version < 4)
                         syncAPVTSFromVoice (vi);
+                    patSeq[vi].mode        = child->getIntAttribute   ("psMode",      0);
+                    patSeq[vi].immediate   = (bool)child->getIntAttribute ("psImmediate", 0);
+                    patSeq[vi].listLength  = child->getIntAttribute   ("psLen",       0);
+                    for (int i = 0; i < 16; ++i) {
+                        patSeq[vi].list[i]      = child->getIntAttribute ("psList"  + juce::String(i), i);
+                        patSeq[vi].loopCount[i] = child->getIntAttribute ("psLoop"  + juce::String(i), 1);
+                    }
                 }
             }
             else if (child->getTagName() == "PatternBank" && version >= 3)
@@ -2364,6 +2430,37 @@ void VoltageSeq2AudioProcessor::generateRandomSequence (int vi, bool doGates, bo
 // across n steps.  Returns a vector<int> of length n (1 = hit, 0 = rest).
 // Verified: E(3,8)=[1,0,0,1,0,0,1,0]  E(5,8)=[1,0,1,0,1,0,1,1]
 //==============================================================================
+void VoltageSeq2AudioProcessor::loadPatternAudio (int vi, int slot)
+{
+    if (vi < 0 || vi >= numVoices || slot < 0 || slot >= numPatternSlots) return;
+    const auto& p = patternBank[vi][slot];
+    if (!p.used) return;
+    auto& v = voice[vi];
+    for (int i = 0; i < numSteps; ++i)
+    {
+        v.stepVoltages   [i] = p.stepVoltages   [i];
+        v.stepGates      [i] = p.stepGates      [i];
+        v.stepGlides     [i] = p.stepGlides     [i];
+        v.stepTied       [i] = p.stepTied       [i];
+        v.stepRepeats    [i] = p.stepRepeats    [i];
+        v.stepPulses     [i] = p.stepPulses     [i];
+        v.stepOctave     [i] = p.stepOctave     [i];
+        v.stepProbability[i] = p.stepProbability[i];
+    }
+    v.sequenceLength = p.sequenceLength;
+    v.clockDivision  = p.clockDivision;
+    v.swingAmount    = p.swingAmount;
+    v.portamentoTime = p.portamentoTime;
+    v.playOrder      = p.playOrder;
+    v.unipolar       = p.unipolar;
+    v.rootNote       = p.rootNote;
+    v.currentScale   = p.currentScale;
+    v.rangeVCA       = p.rangeVCA;
+    v.resetOnNextBlock.store (true);
+    patternChangedForUI[vi].store (true);
+    // Note: intentionally does NOT call syncAPVTSFromVoice — audio thread only
+}
+
 static std::vector<int> bjorklund (int k, int n)
 {
     if (n <= 0 || k <= 0) return std::vector<int> (std::max (n, 0), 0);

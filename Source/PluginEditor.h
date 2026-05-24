@@ -423,6 +423,27 @@ private:
     std::unique_ptr<SliderAtt> fmRatioAttach  [2], fmDepthAttach [2];
     std::unique_ptr<SliderAtt> portaAttach    [2], rangeAttach   [2];
 
+    // ── Pattern sequencer controls (page 2) ──────────────────────────────────
+    int              patPageView   [2] = { 0, 0 };   // 0=BANK  1=SEQUENCER
+    juce::TextButton patBankTabBtn [2];
+    juce::TextButton patSeqTabBtn  [2];
+
+    juce::TextButton patSeqOffBtn  [2];
+    juce::TextButton patSeqAutoBtn [2];
+    juce::TextButton patSeqMidiBtn [2];
+    juce::TextButton patSeqImmBtn  [2];   // shows "QUEUED" or "IMMEDIATE"
+
+    juce::ComboBox   patSeqSlotBox [2][16];
+    juce::TextButton patSeqLoopBtn [2][16];
+
+    juce::TextButton patSeqLenUpBtn[2];
+    juce::TextButton patSeqLenDnBtn[2];
+
+    void setupPatternSeqControls();
+    void layoutPatternSeqControls();
+    void refreshPatSeqMode (int vi);
+    void refreshPatPageView (int vi);
+
     // ── Helpers ───────────────────────────────────────────────────────────────
     void setupVoice (int v);                          // wire up all controls for one voice
     void layoutVoice (int v, int seqTopY, int ctrlTopY); // position all controls for one voice

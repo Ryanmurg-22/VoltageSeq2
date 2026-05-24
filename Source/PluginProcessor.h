@@ -220,6 +220,23 @@ public:
     void loadPattern  (int voiceIdx, int slotIdx);
     void clearPattern (int voiceIdx, int slotIdx);
 
+    struct PatternSeqState
+    {
+        int  mode          = 0;    // 0=OFF  1=SEQ (auto-advance)  2=MIDI (note-triggered)
+        bool immediate     = false; // false=queued (wait for full cycle), true=next step
+        int  list     [16] = {};   // bank slot indices (0-based)
+        int  loopCount[16] = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 };
+        int  listLength    = 0;    // number of active playlist entries
+        // Runtime (not serialised)
+        int  currentEntry  = 0;
+        int  currentRepeat = 0;
+        int  pendingSlot   = -1;   // MIDI mode: next slot to load, -1=none
+    };
+    PatternSeqState patSeq[2];
+    std::atomic<bool> patternChangedForUI[2] { false, false };
+
+    void loadPatternAudio (int vi, int slot);   // audio-thread-safe (no APVTS sync)
+
     struct FxParams {
         // Per-voice bypass — when true, voice passes dry (no delay/reverb/chorus)
         bool  fxBypass      = false;
