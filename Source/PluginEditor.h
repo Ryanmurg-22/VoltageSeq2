@@ -228,6 +228,7 @@ private:
     juce::Slider      plaitsMorphSlider[2];// MORPH
     juce::Slider      plaitsAuxSlider  [2];// AUX BLEND
     juce::TextButton  plaitsTrigBtn    [2];// TRIG mode (internal LPG vs free-running)
+    juce::ComboBox    plaitsOctBox     [2];// octave transpose -2..+2
     void              refreshPlaitsMode (int v); // show/hide plaits vs osc controls
 
     // ── OSC 1 ─────────────────────────────────────────────────────────────────

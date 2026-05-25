@@ -1194,6 +1194,23 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     addAndMakeVisible (plaitsTrigBtn[v]);
     synthPageComponents.push_back (&plaitsTrigBtn[v]);
 
+    // ── Plaits octave transpose ───────────────────────────────────────────────
+    plaitsOctBox[v].addItem ("-2 oct", 1);
+    plaitsOctBox[v].addItem ("-1 oct", 2);
+    plaitsOctBox[v].addItem (" 0  oct", 3);
+    plaitsOctBox[v].addItem ("+1 oct", 4);
+    plaitsOctBox[v].addItem ("+2 oct", 5);
+    plaitsOctBox[v].setSelectedId (audioProcessor.voice[v].plaitsOctave + 3,
+                                   juce::dontSendNotification);
+    plaitsOctBox[v].setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff0c0c1c));
+    plaitsOctBox[v].setColour (juce::ComboBox::textColourId,       juce::Colour (0xffcc88ff));
+    plaitsOctBox[v].onChange = [this, v]()
+    {
+        audioProcessor.voice[v].plaitsOctave = plaitsOctBox[v].getSelectedId() - 3;
+    };
+    addAndMakeVisible (plaitsOctBox[v]);
+    synthPageComponents.push_back (&plaitsOctBox[v]);
+
     refreshPlaitsMode (v);
 }
 
@@ -1215,8 +1232,9 @@ void VoltageSeq2AudioProcessorEditor::refreshPlaitsMode (int v)
     plaitsMorphSlider  [v].setVisible (on);
     plaitsAuxSlider    [v].setVisible (on);
 
-    // TRIG button — visible only when Plaits is on; lit amber when TRIG mode is active
-    plaitsTrigBtn[v].setVisible (on);
+    // Octave transpose box + TRIG button — visible only when Plaits is on
+    plaitsOctBox  [v].setVisible (on);
+    plaitsTrigBtn [v].setVisible (on);
     plaitsTrigBtn[v].setColour (juce::TextButton::buttonColourId,
         trig ? juce::Colour (0xff442200) : juce::Colour (0xff161630));
     plaitsTrigBtn[v].setColour (juce::TextButton::textColourOffId,
@@ -2799,8 +2817,9 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     plaitsMorphSlider[v].setBounds (pO1X + pkSp * 2 + 4,  pkY, pkSz, pkSz);
     plaitsAuxSlider  [v].setBounds (pO1X + pkSp * 3 + 4,  pkY, pkSz, pkSz);
 
-    // TRIG mode button — below the 4 Plaits knobs
-    plaitsTrigBtn    [v].setBounds (pO1X + 4, ctrlTopY + 112, 84, 22);
+    // TRIG mode button + octave transpose — below the 4 Plaits knobs
+    plaitsTrigBtn [v].setBounds (pO1X + 4,  ctrlTopY + 112, 84, 22);
+    plaitsOctBox  [v].setBounds (pO1X + 96, ctrlTopY + 112, 90, 22);
 
     // ── OSC 2 ─────────────────────────────────────────────────────────────────
     osc2PosSlider   [v].setBounds (pO2X + 5,   ctrlTopY + 26,  kSz, kSz);
@@ -3281,6 +3300,7 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
         plaitsTimSlider [v].setValue (audioProcessor.voice[v].plaitsTimbre,    juce::dontSendNotification);
         plaitsMorphSlider[v].setValue(audioProcessor.voice[v].plaitsMorph,     juce::dontSendNotification);
         plaitsAuxSlider [v].setValue (audioProcessor.voice[v].plaitsAuxBlend,  juce::dontSendNotification);
+        plaitsOctBox    [v].setSelectedId (audioProcessor.voice[v].plaitsOctave + 3, juce::dontSendNotification);
         refreshPlaitsMode (v);
     }
 

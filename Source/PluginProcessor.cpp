@@ -1315,16 +1315,24 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
             // Update Plaits note + trigger when a new step fires
             if (vp.plaitsEnabled && plaitsState[vi].initialized)
             {
-                const int mn = juce::jlimit (0, 127,
+                auto& ps = plaitsState[vi];
+                // baseNote: quantised MIDI note + per-step octave + global Plaits octave transpose
+                ps.baseNote = (float)juce::jlimit (0, 127,
                     voltageToMidiNote (vp, vp.stepVoltages[vp.currentStep])
-                    + vp.stepOctave[vp.currentStep] * 12);
-                plaitsState[vi].patch.note   = (float)mn;
-                plaitsState[vi].patch.engine = vp.plaitsEngine;
-                plaitsState[vi].patch.harmonics = vp.plaitsHarmonics;
-                plaitsState[vi].patch.timbre    = vp.plaitsTimbre;
-                plaitsState[vi].patch.morph     = vp.plaitsMorph;
+                    + vp.stepOctave[vp.currentStep] * 12
+                    + vp.plaitsOctave * 12);
+
+                // Snap smoothedNote immediately when no glide is active on this step
+                const bool doGlide = vp.portamentoTime > 0.001f && vp.stepGlides[vp.currentStep];
+                if (!doGlide)
+                    ps.smoothedNote = ps.baseNote;
+
+                ps.patch.engine   = vp.plaitsEngine;
+                ps.patch.harmonics = vp.plaitsHarmonics;
+                ps.patch.timbre    = vp.plaitsTimbre;
+                ps.patch.morph     = vp.plaitsMorph;
                 if (gateWithProb)
-                    plaitsState[vi].triggerPending = true;
+                    ps.triggerPending = true;
             }
             vs.midiStepNote  = vs.midiStepGate
                                ? juce::jlimit (0, 127, voltageToMidiNote (vp, vp.stepVoltages[vp.currentStep])
@@ -1495,6 +1503,13 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
                 vs.filterEnv.noteOff(); vs.filterEnv.noteOn();
                 vs.ratchetNoteOff   = false;
                 vs.midiRatchetOn    = true;
+
+                // Retrigger Plaits internal LPG on ratchet sub-steps (TRIG mode only)
+                if (vp.plaitsEnabled && plaitsState[vi].initialized && vp.plaitsTrigMode)
+                {
+                    plaitsState[vi].triggerPending = true;
+                    plaitsState[vi].frameIdx = PlaitsState::kBufSize; // force immediate re-render
+                }
             }
         }
 
@@ -1634,8 +1649,21 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
     {
         // ── Plaits block render ──────────────────────────────────────────
         auto& ps = plaitsState[vi];
+
+        // Portamento: IIR-smooth toward baseNote when glide is active
+        if (vs.slots[0].glideActive)
+            ps.smoothedNote = ps.smoothedNote * glideCoeff
+                            + ps.baseNote     * (1.0f - glideCoeff);
+        else
+            ps.smoothedNote = ps.baseNote;
+
         if (ps.frameIdx >= PlaitsState::kBufSize)
         {
+            // Apply pitch LFO: pitchMod is a frequency ratio — convert to semitones
+            const float pitchLFOSemitones = std::log2 (pitchMod) * 12.0f;
+            ps.patch.note = juce::jlimit (0.0f, 127.0f,
+                                          ps.smoothedNote + pitchLFOSemitones);
+
             // Trigger mode: LPG fired by gate (pluck/drum behaviour)
             // Free mode:    LPG bypassed, ADSR shapes amplitude externally
             ps.mods.trigger_patched = vp.plaitsTrigMode;
@@ -2284,6 +2312,7 @@ void VoltageSeq2AudioProcessor::getStateInformation (juce::MemoryBlock& destData
         voiceEl->setAttribute ("plaitsMrph", (double)voice[vi].plaitsMorph);
         voiceEl->setAttribute ("plaitsAux",  (double)voice[vi].plaitsAuxBlend);
         voiceEl->setAttribute ("plaitsTrig", (int)voice[vi].plaitsTrigMode);
+        voiceEl->setAttribute ("plaitsOct",  voice[vi].plaitsOctave);
         voiceEl->setAttribute ("psMode",      patSeq[vi].mode);
         voiceEl->setAttribute ("psImmediate", (int)patSeq[vi].immediate);
         voiceEl->setAttribute ("psLen",       patSeq[vi].listLength);
@@ -2415,6 +2444,7 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
                     voice[vi].plaitsMorph     = (float)child->getDoubleAttribute ("plaitsMrph", 0.5);
                     voice[vi].plaitsAuxBlend  = (float)child->getDoubleAttribute ("plaitsAux",  0.0);
                     voice[vi].plaitsTrigMode  = (bool)child->getIntAttribute    ("plaitsTrig", 0);
+                    voice[vi].plaitsOctave    = child->getIntAttribute           ("plaitsOct",  0);
                     patSeq[vi].mode        = child->getIntAttribute   ("psMode",      0);
                     patSeq[vi].immediate   = (bool)child->getIntAttribute ("psImmediate", 0);
                     patSeq[vi].listLength  = child->getIntAttribute   ("psLen",       0);

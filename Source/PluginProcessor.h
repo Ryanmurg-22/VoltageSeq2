@@ -120,13 +120,14 @@ public:
         float crossModDepth = 0.0f;   // cross-mod from other voice [0..1]
 
         // ── Plaits ───────────────────────────────────────────────────────────────
-        bool  plaitsEnabled  = false;
-        int   plaitsEngine   = 8;      // default: VirtualAnalog (engine index 8)
+        bool  plaitsEnabled   = false;
+        int   plaitsEngine    = 8;     // default: VirtualAnalog (engine index 8)
         float plaitsHarmonics = 0.5f;
         float plaitsTimbre    = 0.5f;
         float plaitsMorph     = 0.5f;
         float plaitsAuxBlend  = 0.0f;  // 0=main output, 1=aux output
         bool  plaitsTrigMode  = false; // false=free-running (ADSR shapes amp), true=internal LPG triggered
+        int   plaitsOctave    = 0;     // -2..+2 octave transpose
 
         // ── Filter ───────────────────────────────────────────────────────────
         float filterCutoff    = 2000.0f;
@@ -279,9 +280,11 @@ public:
         char                  memory[32768];
         static constexpr int  kBufSize = 24;
         plaits::Voice::Frame  frames[24];
-        int                   frameIdx  = 24;    // start exhausted → triggers first render
+        int                   frameIdx       = 24;   // start exhausted → triggers first render
         bool                  triggerPending = false;
-        bool                  initialized = false;
+        bool                  initialized    = false;
+        float                 baseNote       = 60.0f; // quantised target note (set on step advance)
+        float                 smoothedNote   = 60.0f; // portamento-smoothed version of baseNote
         // Non-copyable due to allocator
         PlaitsState() = default;
         PlaitsState(const PlaitsState&) = delete;
