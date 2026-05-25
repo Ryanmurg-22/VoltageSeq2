@@ -32,13 +32,16 @@
 		08AF2EEABF444179702220BE /* VST3 Manifest Helper */ = {isa = PBXBuildFile; fileRef = AD0952DDE2AC1688E7D23FEF; };
 		0B31620C56D8393A89FF0E8D /* include_juce_gui_basics.mm */ = {isa = PBXBuildFile; fileRef = F76A35D800E07B5AE78DA8D7; };
 		10C76D40F1AA6BFCCA484797 /* AudioToolbox.framework */ = {isa = PBXBuildFile; fileRef = 63E38D64F3ABBBAF4A4EEC7D; };
+		19943E9A2597AB419964141F /* PlaitsWrapper.cpp */ = {isa = PBXBuildFile; fileRef = C9F9B0367310E309C010FC8B; };
 		1BA680FA2845FCEA5F88B4A6 /* include_juce_core.mm */ = {isa = PBXBuildFile; fileRef = CA92871BBD4DAD90E8B49A6C; };
+		1C15EE138B2166B141F50FD8 /* PlaitsEngines2.cpp */ = {isa = PBXBuildFile; fileRef = BCC05273A6FC2417767CD415; };
 		231C523F515000FD95D37FA7 /* Foundation.framework */ = {isa = PBXBuildFile; fileRef = EFB62465611EA62BD3D3068A; };
 		290350E82FC1946DEB76C100 /* RecentFilesMenuTemplate.nib */ = {isa = PBXBuildFile; fileRef = 05201791728A99E6E5D24FC8; };
 		32BAEACF5A8AACF068A57707 /* include_juce_audio_processors_headless.mm */ = {isa = PBXBuildFile; fileRef = 1782BC8551C289C184A5766A; };
 		32E3A2586EE9A3D3DF22B4F4 /* include_juce_audio_basics.mm */ = {isa = PBXBuildFile; fileRef = E25D9D9A4DD8770C213A8A27; };
 		38388382F7858A8F2A9436B4 /* PluginProcessor.cpp */ = {isa = PBXBuildFile; fileRef = 198A016B89CF4860C7DA0E4B; };
 		384C682991C692B7F5187FD8 /* include_juce_events.mm */ = {isa = PBXBuildFile; fileRef = 34BAA96F69FDA43E4A334496; };
+		3B40C54798AD5D1CE98D6AC7 /* PlaitsEngines.cpp */ = {isa = PBXBuildFile; fileRef = 0085EDA64F6DDE904BDC4119; };
 		3B754A5FE4F28B76DAEA5BDF /* include_juce_audio_plugin_client_ARA.cpp */ = {isa = PBXBuildFile; fileRef = 944692E1261C8E3A453D7E1D; };
 		3C1524B626F15E8C52211A3D /* QuartzCore.framework */ = {isa = PBXBuildFile; fileRef = 2FB1229C3E34A3174F90917C; };
 		4393767266C75C3DFF9E722D /* juce_VST3ManifestHelper.mm */ = {isa = PBXBuildFile; fileRef = 392EBA75637777AA7099F24A; settings = { COMPILER_FLAGS = "-w -DJUCE_SKIP_PRECOMPILED_HEADER"; }; };
@@ -57,6 +60,7 @@
 		84CAD4CAB1790237F0DC5652 /* DiscRecording.framework */ = {isa = PBXBuildFile; fileRef = 294D2F2A9475AD16AA18AEE9; };
 		891CDF8CB0434C51744D1067 /* Accelerate.framework */ = {isa = PBXBuildFile; fileRef = C651F8A28FE5FD455873AF4C; };
 		A0A31E56A3A029FF06A1FED2 /* include_juce_audio_plugin_client_AU_1.mm */ = {isa = PBXBuildFile; fileRef = 5B5F5557000673C85D60D01E; };
+		A416174AAC8099078F4742D1 /* PlaitsDSP.cpp */ = {isa = PBXBuildFile; fileRef = 272531859EF0157754DD2223; };
 		A83CC5338A51ACB5D336318C /* include_juce_graphics_Harfbuzz.cpp */ = {isa = PBXBuildFile; fileRef = 259CD0DCB9EF662471F953B0; };
 		B374089BE2C3C17634964458 /* include_juce_audio_devices.mm */ = {isa = PBXBuildFile; fileRef = D02F2EAF39B6E7253762DFF1; };
 		B85D9EA1DE1E5EB756546DCE /* CoreAudioKit.framework */ = {isa = PBXBuildFile; fileRef = F35EBF2D6F4C99E019E47226; };
@@ -74,6 +78,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0085EDA64F6DDE904BDC4119 /* PlaitsEngines.cpp */ /* PlaitsEngines.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PlaitsEngines.cpp; path = ../../Source/PlaitsEngines.cpp; sourceTree = SOURCE_ROOT; };
 		05201791728A99E6E5D24FC8 /* RecentFilesMenuTemplate.nib */ /* RecentFilesMenuTemplate.nib */ = {isa = PBXFileReference; lastKnownFileType = file.nib; name = RecentFilesMenuTemplate.nib; path = RecentFilesMenuTemplate.nib; sourceTree = SOURCE_ROOT; };
 		0E7BC4714122AF5A90123119 /* juce_audio_plugin_client */ /* juce_audio_plugin_client */ = {isa = PBXFileReference; lastKnownFileType = folder; name = juce_audio_plugin_client; path = /Applications/JUCE/modules/juce_audio_plugin_client; sourceTree = "<absolute>"; };
 		16F4AC86975BB6D3C9148977 /* Info-Standalone_Plugin.plist */ /* Info-Standalone_Plugin.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "Info-Standalone_Plugin.plist"; path = "Info-Standalone_Plugin.plist"; sourceTree = SOURCE_ROOT; };
@@ -83,6 +88,7 @@
 		21860953E43E34EFD554FD40 /* include_juce_graphics.mm */ /* include_juce_graphics.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = include_juce_graphics.mm; path = ../../JuceLibraryCode/include_juce_graphics.mm; sourceTree = SOURCE_ROOT; };
 		226E608188C56ADDE52E3D1F /* include_juce_data_structures.mm */ /* include_juce_data_structures.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = include_juce_data_structures.mm; path = ../../JuceLibraryCode/include_juce_data_structures.mm; sourceTree = SOURCE_ROOT; };
 		259CD0DCB9EF662471F953B0 /* include_juce_graphics_Harfbuzz.cpp */ /* include_juce_graphics_Harfbuzz.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = include_juce_graphics_Harfbuzz.cpp; path = ../../JuceLibraryCode/include_juce_graphics_Harfbuzz.cpp; sourceTree = SOURCE_ROOT; };
+		272531859EF0157754DD2223 /* PlaitsDSP.cpp */ /* PlaitsDSP.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PlaitsDSP.cpp; path = ../../Source/PlaitsDSP.cpp; sourceTree = SOURCE_ROOT; };
 		294D2F2A9475AD16AA18AEE9 /* DiscRecording.framework */ /* DiscRecording.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = DiscRecording.framework; path = System/Library/Frameworks/DiscRecording.framework; sourceTree = SDKROOT; };
 		2FB1229C3E34A3174F90917C /* QuartzCore.framework */ /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		326558FED542E43602FE54B4 /* juce_audio_formats */ /* juce_audio_formats */ = {isa = PBXFileReference; lastKnownFileType = folder; name = juce_audio_formats; path = /Applications/JUCE/modules/juce_audio_formats; sourceTree = "<absolute>"; };
@@ -116,11 +122,13 @@
 		B1263FBC0878AEB6224DD218 /* Security.framework */ /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		B3F2683FDA8719904D573F38 /* juce_gui_basics */ /* juce_gui_basics */ = {isa = PBXFileReference; lastKnownFileType = folder; name = juce_gui_basics; path = /Applications/JUCE/modules/juce_gui_basics; sourceTree = "<absolute>"; };
 		B92826149E064252252817C0 /* Cocoa.framework */ /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		BCC05273A6FC2417767CD415 /* PlaitsEngines2.cpp */ /* PlaitsEngines2.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PlaitsEngines2.cpp; path = ../../Source/PlaitsEngines2.cpp; sourceTree = SOURCE_ROOT; };
 		BF73CBC9FEA924406B672063 /* include_juce_core_CompilationTime.cpp */ /* include_juce_core_CompilationTime.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = include_juce_core_CompilationTime.cpp; path = ../../JuceLibraryCode/include_juce_core_CompilationTime.cpp; sourceTree = SOURCE_ROOT; };
 		C0FA5CA9623D1FCAE0D9BB9D /* AudioUnit.framework */ /* AudioUnit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioUnit.framework; path = System/Library/Frameworks/AudioUnit.framework; sourceTree = SDKROOT; };
 		C11E15E313C66C998CC3B75E /* PluginEditor.cpp */ /* PluginEditor.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PluginEditor.cpp; path = ../../Source/PluginEditor.cpp; sourceTree = SOURCE_ROOT; };
 		C1AB3499A57D3B0A5F0BD56C /* Standalone Plugin */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoltageSeq2.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C651F8A28FE5FD455873AF4C /* Accelerate.framework */ /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = System/Library/Frameworks/Accelerate.framework; sourceTree = SDKROOT; };
+		C9F9B0367310E309C010FC8B /* PlaitsWrapper.cpp */ /* PlaitsWrapper.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PlaitsWrapper.cpp; path = ../../Source/PlaitsWrapper.cpp; sourceTree = SOURCE_ROOT; };
 		CA92871BBD4DAD90E8B49A6C /* include_juce_core.mm */ /* include_juce_core.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = include_juce_core.mm; path = ../../JuceLibraryCode/include_juce_core.mm; sourceTree = SOURCE_ROOT; };
 		CC7AE252D6DED6F036FA06AE /* juce_audio_processors */ /* juce_audio_processors */ = {isa = PBXFileReference; lastKnownFileType = folder; name = juce_audio_processors; path = /Applications/JUCE/modules/juce_audio_processors; sourceTree = "<absolute>"; };
 		CFE66060112B8F3345DFC755 /* Shared Code */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libVoltageSeq2.a; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -251,6 +259,10 @@
 				D71BC678E00658FC8B628D80,
 				C11E15E313C66C998CC3B75E,
 				E399F73C3E83525B9CC991B1,
+				C9F9B0367310E309C010FC8B,
+				0085EDA64F6DDE904BDC4119,
+				BCC05273A6FC2417767CD415,
+				272531859EF0157754DD2223,
 			);
 			name = Source;
 			sourceTree = "<group>";
@@ -697,6 +709,10 @@
 			files = (
 				38388382F7858A8F2A9436B4,
 				4ED1156092E6F7A6BEF31DD7,
+				19943E9A2597AB419964141F,
+				3B40C54798AD5D1CE98D6AC7,
+				1C15EE138B2166B141F50FD8,
+				A416174AAC8099078F4742D1,
 				32E3A2586EE9A3D3DF22B4F4,
 				B374089BE2C3C17634964458,
 				7F43AECB8D3FBFBFBE27981A,
@@ -925,6 +941,7 @@
 				HEADER_SEARCH_PATHS = (
 					"/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK",
 					"$(SRCROOT)/../../JuceLibraryCode",
+					"$(SRCROOT)/../../Source",
 					"/Applications/JUCE/modules",
 					"/Applications/JUCE/modules/juce_audio_plugin_client/AU",
 					"$(inherited)",
@@ -936,6 +953,8 @@
 				LLVM_LTO = YES;
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				MTL_HEADER_SEARCH_PATHS = "/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK $(SRCROOT)/../../JuceLibraryCode /Applications/JUCE/modules /Applications/JUCE/modules/juce_audio_plugin_client/AU";
+				OTHER_CFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
+				OTHER_CPLUSPLUSFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
 				OTHER_LDFLAGS = "-bundle -lVoltageSeq2";
 				OTHER_REZFLAGS = "-d ppc_$ppc -d i386_$i386 -d ppc64_$ppc64 -d x86_64_$x86_64 -d arm64_$arm64 -I /System/Library/Frameworks/CoreServices.framework/Frameworks/CarbonCore.framework/Versions/A/Headers -I \"$(DEVELOPER_DIR)/Extras/CoreAudio/AudioUnits/AUPublic/AUBase\" -I \"$(DEVELOPER_DIR)/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/AudioUnit.framework/Headers\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.MurgatroydInstruments.VoltageSeq2;
@@ -1086,6 +1105,7 @@
 				HEADER_SEARCH_PATHS = (
 					"/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK",
 					"$(SRCROOT)/../../JuceLibraryCode",
+					"$(SRCROOT)/../../Source",
 					"/Applications/JUCE/modules",
 					"/Applications/JUCE/modules/juce_audio_plugin_client/AU",
 					"$(inherited)",
@@ -1096,6 +1116,8 @@
 				LIBRARY_STYLE = Bundle;
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				MTL_HEADER_SEARCH_PATHS = "/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK $(SRCROOT)/../../JuceLibraryCode /Applications/JUCE/modules /Applications/JUCE/modules/juce_audio_plugin_client/AU";
+				OTHER_CFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
+				OTHER_CPLUSPLUSFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
 				OTHER_LDFLAGS = "-bundle -lVoltageSeq2";
 				PRODUCT_BUNDLE_IDENTIFIER = com.MurgatroydInstruments.VoltageSeq2;
 				PRODUCT_NAME = "VoltageSeq2";
@@ -1196,6 +1218,7 @@
 				HEADER_SEARCH_PATHS = (
 					"/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK",
 					"$(SRCROOT)/../../JuceLibraryCode",
+					"$(SRCROOT)/../../Source",
 					"/Applications/JUCE/modules",
 					"/Applications/JUCE/modules/juce_audio_plugin_client/AU",
 					"$(inherited)",
@@ -1204,6 +1227,8 @@
 				INFOPLIST_PREPROCESS = NO;
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				MTL_HEADER_SEARCH_PATHS = "/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK $(SRCROOT)/../../JuceLibraryCode /Applications/JUCE/modules /Applications/JUCE/modules/juce_audio_plugin_client/AU";
+				OTHER_CFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
+				OTHER_CPLUSPLUSFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
 				PRODUCT_BUNDLE_IDENTIFIER = com.MurgatroydInstruments.VoltageSeq2;
 				PRODUCT_NAME = "juce_vst3_helper";
 				USE_HEADERMAP = NO;
@@ -1302,6 +1327,7 @@
 				HEADER_SEARCH_PATHS = (
 					"/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK",
 					"$(SRCROOT)/../../JuceLibraryCode",
+					"$(SRCROOT)/../../Source",
 					"/Applications/JUCE/modules",
 					"/Applications/JUCE/modules/juce_audio_plugin_client/AU",
 					"$(inherited)",
@@ -1311,6 +1337,8 @@
 				LLVM_LTO = YES;
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				MTL_HEADER_SEARCH_PATHS = "/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK $(SRCROOT)/../../JuceLibraryCode /Applications/JUCE/modules /Applications/JUCE/modules/juce_audio_plugin_client/AU";
+				OTHER_CFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
+				OTHER_CPLUSPLUSFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
 				OTHER_LDFLAGS = "-lVoltageSeq2";
 				PRODUCT_BUNDLE_IDENTIFIER = com.MurgatroydInstruments.VoltageSeq2;
 				PRODUCT_NAME = "VoltageSeq2";
@@ -1411,6 +1439,7 @@
 				HEADER_SEARCH_PATHS = (
 					"/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK",
 					"$(SRCROOT)/../../JuceLibraryCode",
+					"$(SRCROOT)/../../Source",
 					"/Applications/JUCE/modules",
 					"/Applications/JUCE/modules/juce_audio_plugin_client/AU",
 					"$(inherited)",
@@ -1422,6 +1451,8 @@
 				LLVM_LTO = YES;
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				MTL_HEADER_SEARCH_PATHS = "/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK $(SRCROOT)/../../JuceLibraryCode /Applications/JUCE/modules /Applications/JUCE/modules/juce_audio_plugin_client/AU";
+				OTHER_CFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
+				OTHER_CPLUSPLUSFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
 				OTHER_LDFLAGS = "-bundle -lVoltageSeq2";
 				PRODUCT_BUNDLE_IDENTIFIER = com.MurgatroydInstruments.VoltageSeq2;
 				PRODUCT_NAME = "VoltageSeq2";
@@ -1522,6 +1553,7 @@
 				HEADER_SEARCH_PATHS = (
 					"/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK",
 					"$(SRCROOT)/../../JuceLibraryCode",
+					"$(SRCROOT)/../../Source",
 					"/Applications/JUCE/modules",
 					"/Applications/JUCE/modules/juce_audio_plugin_client/AU",
 					"$(inherited)",
@@ -1530,6 +1562,8 @@
 				INFOPLIST_PREPROCESS = NO;
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				MTL_HEADER_SEARCH_PATHS = "/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK $(SRCROOT)/../../JuceLibraryCode /Applications/JUCE/modules /Applications/JUCE/modules/juce_audio_plugin_client/AU";
+				OTHER_CFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
+				OTHER_CPLUSPLUSFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
 				OTHER_LDFLAGS = "-lVoltageSeq2";
 				PRODUCT_BUNDLE_IDENTIFIER = com.MurgatroydInstruments.VoltageSeq2;
 				PRODUCT_NAME = "VoltageSeq2";
@@ -1638,6 +1672,7 @@
 				HEADER_SEARCH_PATHS = (
 					"/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK",
 					"$(SRCROOT)/../../JuceLibraryCode",
+					"$(SRCROOT)/../../Source",
 					"/Applications/JUCE/modules",
 					"/Applications/JUCE/modules/juce_audio_plugin_client/AU",
 					"$(inherited)",
@@ -1646,6 +1681,8 @@
 				LLVM_LTO = YES;
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				MTL_HEADER_SEARCH_PATHS = "/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK $(SRCROOT)/../../JuceLibraryCode /Applications/JUCE/modules /Applications/JUCE/modules/juce_audio_plugin_client/AU";
+				OTHER_CFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
+				OTHER_CPLUSPLUSFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
 				PRODUCT_BUNDLE_IDENTIFIER = com.MurgatroydInstruments.VoltageSeq2;
 				PRODUCT_NAME = "VoltageSeq2";
 				SKIP_INSTALL = YES;
@@ -1746,6 +1783,7 @@
 				HEADER_SEARCH_PATHS = (
 					"/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK",
 					"$(SRCROOT)/../../JuceLibraryCode",
+					"$(SRCROOT)/../../Source",
 					"/Applications/JUCE/modules",
 					"/Applications/JUCE/modules/juce_audio_plugin_client/AU",
 					"$(inherited)",
@@ -1756,6 +1794,8 @@
 				LIBRARY_STYLE = Bundle;
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				MTL_HEADER_SEARCH_PATHS = "/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK $(SRCROOT)/../../JuceLibraryCode /Applications/JUCE/modules /Applications/JUCE/modules/juce_audio_plugin_client/AU";
+				OTHER_CFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
+				OTHER_CPLUSPLUSFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
 				OTHER_LDFLAGS = "-bundle -lVoltageSeq2";
 				OTHER_REZFLAGS = "-d ppc_$ppc -d i386_$i386 -d ppc64_$ppc64 -d x86_64_$x86_64 -d arm64_$arm64 -I /System/Library/Frameworks/CoreServices.framework/Frameworks/CarbonCore.framework/Versions/A/Headers -I \"$(DEVELOPER_DIR)/Extras/CoreAudio/AudioUnits/AUPublic/AUBase\" -I \"$(DEVELOPER_DIR)/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/AudioUnit.framework/Headers\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.MurgatroydInstruments.VoltageSeq2;
@@ -1858,6 +1898,7 @@
 				HEADER_SEARCH_PATHS = (
 					"/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK",
 					"$(SRCROOT)/../../JuceLibraryCode",
+					"$(SRCROOT)/../../Source",
 					"/Applications/JUCE/modules",
 					"/Applications/JUCE/modules/juce_audio_plugin_client/AU",
 					"$(inherited)",
@@ -1865,6 +1906,8 @@
 				INSTALL_PATH = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				MTL_HEADER_SEARCH_PATHS = "/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK $(SRCROOT)/../../JuceLibraryCode /Applications/JUCE/modules /Applications/JUCE/modules/juce_audio_plugin_client/AU";
+				OTHER_CFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
+				OTHER_CPLUSPLUSFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
 				PRODUCT_BUNDLE_IDENTIFIER = com.MurgatroydInstruments.VoltageSeq2;
 				PRODUCT_NAME = "VoltageSeq2";
 				SKIP_INSTALL = YES;
@@ -1972,6 +2015,7 @@
 				HEADER_SEARCH_PATHS = (
 					"/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK",
 					"$(SRCROOT)/../../JuceLibraryCode",
+					"$(SRCROOT)/../../Source",
 					"/Applications/JUCE/modules",
 					"/Applications/JUCE/modules/juce_audio_plugin_client/AU",
 					"$(inherited)",
@@ -1981,6 +2025,8 @@
 				LLVM_LTO = YES;
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				MTL_HEADER_SEARCH_PATHS = "/Applications/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK $(SRCROOT)/../../JuceLibraryCode /Applications/JUCE/modules /Applications/JUCE/modules/juce_audio_plugin_client/AU";
+				OTHER_CFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
+				OTHER_CPLUSPLUSFLAGS = "-DTEST -Wno-unused-function -Wno-unused-variable";
 				PRODUCT_BUNDLE_IDENTIFIER = com.MurgatroydInstruments.VoltageSeq2;
 				PRODUCT_NAME = "juce_vst3_helper";
 				USE_HEADERMAP = NO;

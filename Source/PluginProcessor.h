@@ -1,5 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
+#include "plaits/dsp/voice.h"
+#include "stmlib/utils/buffer_allocator.h"
 
 class VoltageSeq2AudioProcessor : public juce::AudioProcessor
 {
@@ -116,6 +118,15 @@ public:
         float fmDepth = 0.0f;    // OSC2 → OSC1 FM depth [0..1]
         float fmRatio = 1.0f;    // FM ratio: 0.25 … 8.0 (continuous)
         float crossModDepth = 0.0f;   // cross-mod from other voice [0..1]
+
+        // ── Plaits ───────────────────────────────────────────────────────────────
+        bool  plaitsEnabled  = false;
+        int   plaitsEngine   = 8;      // default: VirtualAnalog (engine index 8)
+        float plaitsHarmonics = 0.5f;
+        float plaitsTimbre    = 0.5f;
+        float plaitsMorph     = 0.5f;
+        float plaitsAuxBlend  = 0.0f;  // 0=main output, 1=aux output
+        bool  plaitsTrigMode  = false; // false=free-running (ADSR shapes amp), true=internal LPG triggered
 
         // ── Filter ───────────────────────────────────────────────────────────
         float filterCutoff    = 2000.0f;
@@ -259,6 +270,27 @@ public:
     };
     TuringMachineState   turingMachine;           // single shared TM
     std::atomic<int>     tmTargetVoice { 0 };    // which voice TM writes to (0=A, 1=B)
+
+    struct PlaitsState {
+        plaits::Voice         voice;
+        plaits::Patch         patch    = {};
+        plaits::Modulations   mods     = {};
+        stmlib::BufferAllocator allocator;
+        char                  memory[32768];
+        static constexpr int  kBufSize = 24;
+        plaits::Voice::Frame  frames[24];
+        int                   frameIdx  = 24;    // start exhausted → triggers first render
+        bool                  triggerPending = false;
+        bool                  initialized = false;
+        // Non-copyable due to allocator
+        PlaitsState() = default;
+        PlaitsState(const PlaitsState&) = delete;
+        PlaitsState& operator=(const PlaitsState&) = delete;
+    };
+    PlaitsState plaitsState[2];
+
+    // Engine name table (24 entries, indexed by engine number)
+    static const char* const kPlaitsEngineNames[24];
 
     // audio-thread-safe (no APVTS sync).
     // resetPos=false: keep sampleCounter running (use when called from SEQ mode

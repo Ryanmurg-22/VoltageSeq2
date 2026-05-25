@@ -58,6 +58,15 @@ static inline float fxAP (std::vector<float>& b, int& wp, int len, float in, flo
 constexpr double VoltageSeq2AudioProcessor::ppqDivTable[7];
 constexpr double VoltageSeq2AudioProcessor::cenvDivBars[8];
 
+const char* const VoltageSeq2AudioProcessor::kPlaitsEngineNames[24] = {
+    "VA + VCF", "Phase Distortion", "6-op FM A", "6-op FM B", "6-op FM C",
+    "Wave Terrain", "String Machine", "Chiptune",
+    "Virtual Analog", "Waveshaping", "2-op FM", "Grain", "Additive",
+    "Wavetable", "Chord", "Speech",
+    "Swarm", "Noise", "Particle", "String (Karplus)",
+    "Modal / Resonator", "Bass Drum", "Snare Drum", "Hi-Hat"
+};
+
 //==============================================================================
 // Scale tables (chromatic intervals from root; -1 = unused slot)
 //==============================================================================
@@ -317,6 +326,31 @@ void VoltageSeq2AudioProcessor::prepareToPlay (double sampleRate, int samplesPer
     }
 
     prepareFx (sampleRate);
+
+    // Initialise Plaits for each voice
+    for (int vi = 0; vi < numVoices; ++vi)
+    {
+        auto& ps = plaitsState[vi];
+        ps.allocator.Init (ps.memory, sizeof(ps.memory));
+        ps.voice.Init (&ps.allocator);
+        ps.patch = {};
+        ps.patch.engine     = voice[vi].plaitsEngine;
+        ps.patch.harmonics  = voice[vi].plaitsHarmonics;
+        ps.patch.timbre     = voice[vi].plaitsTimbre;
+        ps.patch.morph      = voice[vi].plaitsMorph;
+        ps.patch.decay      = 0.0f;
+        ps.patch.lpg_colour = 0.5f;
+        ps.patch.frequency_modulation_amount = 0.0f;
+        ps.patch.timbre_modulation_amount    = 0.0f;
+        ps.patch.morph_modulation_amount     = 0.0f;
+        ps.patch.note       = 48.0f;
+        ps.mods = {};
+        ps.mods.trigger_patched  = false;  // free-running by default; ADSR shapes amplitude
+        ps.mods.level_patched    = false;
+        ps.mods.level            = 1.0f;
+        ps.frameIdx = PlaitsState::kBufSize; // force first render
+        ps.initialized = true;
+    }
 
     // Pre-size Voice B temp buffers to avoid allocation in the audio thread.
     voiceBTempL.assign (samplesPerBlock + 64, 0.f);
@@ -1278,6 +1312,20 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
             const bool gateWithProb = vp.stepGates[vp.currentStep] &&
                 (_prob >= 99.9f || juce::Random::getSystemRandom().nextFloat() * 100.f < _prob);
             vs.midiStepGate  = gateWithProb;
+            // Update Plaits note + trigger when a new step fires
+            if (vp.plaitsEnabled && plaitsState[vi].initialized)
+            {
+                const int mn = juce::jlimit (0, 127,
+                    voltageToMidiNote (vp, vp.stepVoltages[vp.currentStep])
+                    + vp.stepOctave[vp.currentStep] * 12);
+                plaitsState[vi].patch.note   = (float)mn;
+                plaitsState[vi].patch.engine = vp.plaitsEngine;
+                plaitsState[vi].patch.harmonics = vp.plaitsHarmonics;
+                plaitsState[vi].patch.timbre    = vp.plaitsTimbre;
+                plaitsState[vi].patch.morph     = vp.plaitsMorph;
+                if (gateWithProb)
+                    plaitsState[vi].triggerPending = true;
+            }
             vs.midiStepNote  = vs.midiStepGate
                                ? juce::jlimit (0, 127, voltageToMidiNote (vp, vp.stepVoltages[vp.currentStep])
                                                + vp.stepOctave[vp.currentStep] * 12)
@@ -1582,41 +1630,68 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
     float sumL = 0.0f, sumR = 0.0f;
     float primaryOsc1Raw = 0.0f;  // slot 0 for scope + cross-mod
 
-    for (int si = 0; si < nSlots; ++si)
+    if (vp.plaitsEnabled && plaitsState[vi].initialized)
     {
-        UnisonSlot& slot = vs.slots[si];
+        // ── Plaits block render ──────────────────────────────────────────
+        auto& ps = plaitsState[vi];
+        if (ps.frameIdx >= PlaitsState::kBufSize)
+        {
+            // Trigger mode: LPG fired by gate (pluck/drum behaviour)
+            // Free mode:    LPG bypassed, ADSR shapes amplitude externally
+            ps.mods.trigger_patched = vp.plaitsTrigMode;
+            ps.mods.trigger         = (vp.plaitsTrigMode && ps.triggerPending) ? 1.0f : 0.0f;
+            ps.patch.decay          = vp.plaitsTrigMode ? 0.5f : 0.0f;
+            ps.triggerPending = false;
+            ps.voice.Render (ps.patch, ps.mods, ps.frames, PlaitsState::kBufSize);
+            ps.frameIdx = 0;
+        }
+        const float mainOut = ps.frames[ps.frameIdx].out / 32768.0f;
+        const float auxOut  = ps.frames[ps.frameIdx].aux / 32768.0f;
+        ++ps.frameIdx;
+        const float plaitsOut = mainOut * (1.0f - vp.plaitsAuxBlend)
+                              + auxOut  * vp.plaitsAuxBlend;
+        sumL = plaitsOut;
+        sumR = plaitsOut;
+        primaryOsc1Raw = plaitsOut;
+    }
+    else
+    {
+        for (int si = 0; si < nSlots; ++si)
+        {
+            UnisonSlot& slot = vs.slots[si];
 
-        // Drift — independent per slot
-        slot.osc1DriftVal = std::sin (slot.osc1DriftPhase * juce::MathConstants<float>::twoPi)
-                            * vp.driftAmount * maxDriftCents;
-        slot.osc2DriftVal = std::sin (slot.osc2DriftPhase * juce::MathConstants<float>::twoPi)
-                            * vp.driftAmount * maxDriftCents;
-        slot.osc1DriftPhase += slot.osc1DriftRate / (float)currentSampleRate;
-        if (slot.osc1DriftPhase >= 1.0f) slot.osc1DriftPhase -= 1.0f;
-        slot.osc2DriftPhase += slot.osc2DriftRate / (float)currentSampleRate;
-        if (slot.osc2DriftPhase >= 1.0f) slot.osc2DriftPhase -= 1.0f;
-        const float drift1Ratio = std::pow (2.0f, slot.osc1DriftVal / 1200.0f);
-        const float drift2Ratio = std::pow (2.0f, slot.osc2DriftVal / 1200.0f);
+            // Drift — independent per slot
+            slot.osc1DriftVal = std::sin (slot.osc1DriftPhase * juce::MathConstants<float>::twoPi)
+                                * vp.driftAmount * maxDriftCents;
+            slot.osc2DriftVal = std::sin (slot.osc2DriftPhase * juce::MathConstants<float>::twoPi)
+                                * vp.driftAmount * maxDriftCents;
+            slot.osc1DriftPhase += slot.osc1DriftRate / (float)currentSampleRate;
+            if (slot.osc1DriftPhase >= 1.0f) slot.osc1DriftPhase -= 1.0f;
+            slot.osc2DriftPhase += slot.osc2DriftRate / (float)currentSampleRate;
+            if (slot.osc2DriftPhase >= 1.0f) slot.osc2DriftPhase -= 1.0f;
+            const float drift1Ratio = std::pow (2.0f, slot.osc1DriftVal / 1200.0f);
+            const float drift2Ratio = std::pow (2.0f, slot.osc2DriftVal / 1200.0f);
 
-        // OSC2
-        const double osc2Inc = (effectiveFMDepth > 0.001f && fmRatioVal > 0.0f)
-            ? (slot.currentFreq1 * (double)fmRatioVal * pitchMod * (double)drift2Ratio) / currentSampleRate
-            : slot.osc2PhaseInc * pitchMod * (double)drift2Ratio;
-        const float osc2Raw = generateOsc2Sample (slot, vp, osc2Inc);
+            // OSC2
+            const double osc2Inc = (effectiveFMDepth > 0.001f && fmRatioVal > 0.0f)
+                ? (slot.currentFreq1 * (double)fmRatioVal * pitchMod * (double)drift2Ratio) / currentSampleRate
+                : slot.osc2PhaseInc * pitchMod * (double)drift2Ratio;
+            const float osc2Raw = generateOsc2Sample (slot, vp, osc2Inc);
 
-        // OSC1 with FM + feedback
-        const double fmDev = slot.osc1PhaseInc * (double)(effectiveFMDepth * osc2Raw * 3.0f
-                             + vp.crossModDepth * crossModIn * 3.0f);
-        const double fbDev = slot.osc1PhaseInc * (double)(vp.osc1Feedback * slot.osc1FeedbackSample * 2.0f);
-        const float osc1Raw = generateOsc1Sample (slot, vp,
-            slot.osc1PhaseInc * pitchMod * (double)drift1Ratio + fmDev + fbDev, vs.pulseWidth);
-        slot.osc1FeedbackSample = juce::jlimit (-1.0f, 1.0f, osc1Raw);
+            // OSC1 with FM + feedback
+            const double fmDev = slot.osc1PhaseInc * (double)(effectiveFMDepth * osc2Raw * 3.0f
+                                 + vp.crossModDepth * crossModIn * 3.0f);
+            const double fbDev = slot.osc1PhaseInc * (double)(vp.osc1Feedback * slot.osc1FeedbackSample * 2.0f);
+            const float osc1Raw = generateOsc1Sample (slot, vp,
+                slot.osc1PhaseInc * pitchMod * (double)drift1Ratio + fmDev + fbDev, vs.pulseWidth);
+            slot.osc1FeedbackSample = juce::jlimit (-1.0f, 1.0f, osc1Raw);
 
-        if (si == 0) primaryOsc1Raw = osc1Raw;
+            if (si == 0) primaryOsc1Raw = osc1Raw;
 
-        float slotOut = (osc1Raw * vp.osc1Level) + (osc2Raw * vp.osc2Level);
-        sumL += slotOut * slot.panL;
-        sumR += slotOut * slot.panR;
+            float slotOut = (osc1Raw * vp.osc1Level) + (osc2Raw * vp.osc2Level);
+            sumL += slotOut * slot.panL;
+            sumR += slotOut * slot.panR;
+        }
     }
 
     // Scope (slot 0 only, pre-filter)
@@ -2202,6 +2277,13 @@ void VoltageSeq2AudioProcessor::getStateInformation (juce::MemoryBlock& destData
         auto* voiceEl = xml.createNewChildElement ("Voice");
         voiceEl->setAttribute ("index", vi);
         saveVoiceToXml (*voiceEl, voice[vi], numSteps);
+        voiceEl->setAttribute ("plaitsOn",   (int)voice[vi].plaitsEnabled);
+        voiceEl->setAttribute ("plaitsEng",  voice[vi].plaitsEngine);
+        voiceEl->setAttribute ("plaitsHarm", (double)voice[vi].plaitsHarmonics);
+        voiceEl->setAttribute ("plaitsTimb", (double)voice[vi].plaitsTimbre);
+        voiceEl->setAttribute ("plaitsMrph", (double)voice[vi].plaitsMorph);
+        voiceEl->setAttribute ("plaitsAux",  (double)voice[vi].plaitsAuxBlend);
+        voiceEl->setAttribute ("plaitsTrig", (int)voice[vi].plaitsTrigMode);
         voiceEl->setAttribute ("psMode",      patSeq[vi].mode);
         voiceEl->setAttribute ("psImmediate", (int)patSeq[vi].immediate);
         voiceEl->setAttribute ("psLen",       patSeq[vi].listLength);
@@ -2326,6 +2408,13 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
                     // host sees them and the UI attachments reflect them.
                     if (version < 4)
                         syncAPVTSFromVoice (vi);
+                    voice[vi].plaitsEnabled   = (bool)child->getIntAttribute    ("plaitsOn",   0);
+                    voice[vi].plaitsEngine    = child->getIntAttribute           ("plaitsEng",  8);
+                    voice[vi].plaitsHarmonics = (float)child->getDoubleAttribute ("plaitsHarm", 0.5);
+                    voice[vi].plaitsTimbre    = (float)child->getDoubleAttribute ("plaitsTimb", 0.5);
+                    voice[vi].plaitsMorph     = (float)child->getDoubleAttribute ("plaitsMrph", 0.5);
+                    voice[vi].plaitsAuxBlend  = (float)child->getDoubleAttribute ("plaitsAux",  0.0);
+                    voice[vi].plaitsTrigMode  = (bool)child->getIntAttribute    ("plaitsTrig", 0);
                     patSeq[vi].mode        = child->getIntAttribute   ("psMode",      0);
                     patSeq[vi].immediate   = (bool)child->getIntAttribute ("psImmediate", 0);
                     patSeq[vi].listLength  = child->getIntAttribute   ("psLen",       0);

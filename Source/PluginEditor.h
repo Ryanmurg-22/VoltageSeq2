@@ -220,6 +220,16 @@ private:
     juce::ComboBox   rootBox   [2];
     juce::ComboBox   scaleBox  [2];
 
+    // ── Plaits (per voice) ──────────────────────────────────────────────────────
+    juce::TextButton  plaitsBtn    [2];    // PLAITS ON/OFF toggle
+    juce::ComboBox    plaitsEngBox [2];    // engine selector 0-23
+    juce::Slider      plaitsHarmSlider[2]; // HARMONICS
+    juce::Slider      plaitsTimSlider [2]; // TIMBRE
+    juce::Slider      plaitsMorphSlider[2];// MORPH
+    juce::Slider      plaitsAuxSlider  [2];// AUX BLEND
+    juce::TextButton  plaitsTrigBtn    [2];// TRIG mode (internal LPG vs free-running)
+    void              refreshPlaitsMode (int v); // show/hide plaits vs osc controls
+
     // ── OSC 1 ─────────────────────────────────────────────────────────────────
     juce::ComboBox osc1WaveBox   [2];
     juce::Slider   osc1LevelSlider [2];

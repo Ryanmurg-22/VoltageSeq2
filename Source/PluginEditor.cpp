@@ -1120,6 +1120,124 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     };
     addAndMakeVisible (uniWidthSlider[v]);
     synthPageComponents.push_back (&uniWidthSlider[v]);
+
+    // ── PLAITS toggle ─────────────────────────────────────────────────────────
+    plaitsBtn[v].setButtonText ("PLAITS");
+    plaitsBtn[v].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff161630));
+    plaitsBtn[v].setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe0e0e0));
+    plaitsBtn[v].onClick = [this, v]()
+    {
+        audioProcessor.voice[v].plaitsEnabled = !audioProcessor.voice[v].plaitsEnabled;
+        refreshPlaitsMode (v);
+    };
+    addAndMakeVisible (plaitsBtn[v]);
+    synthPageComponents.push_back (&plaitsBtn[v]);
+
+    // ── Engine selector ───────────────────────────────────────────────────────
+    for (int i = 0; i < 24; ++i)
+        plaitsEngBox[v].addItem (juce::String(i + 1) + "  " +
+                                 VoltageSeq2AudioProcessor::kPlaitsEngineNames[i], i + 1);
+    plaitsEngBox[v].setSelectedId (audioProcessor.voice[v].plaitsEngine + 1,
+                                   juce::dontSendNotification);
+    plaitsEngBox[v].onChange = [this, v]()
+    {
+        audioProcessor.voice[v].plaitsEngine = plaitsEngBox[v].getSelectedId() - 1;
+    };
+    plaitsEngBox[v].setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff0c0c1c));
+    plaitsEngBox[v].setColour (juce::ComboBox::textColourId,       juce::Colour (0xffe0e0e0));
+    addAndMakeVisible (plaitsEngBox[v]);
+    synthPageComponents.push_back (&plaitsEngBox[v]);
+
+    // ── Plaits parameter sliders ──────────────────────────────────────────────
+    auto setupPlaitsSlider = [&](juce::Slider& sl, float val)
+    {
+        sl.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+        sl.setRange (0.0, 1.0, 0.001);
+        sl.setValue (val, juce::dontSendNotification);
+        sl.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        sl.setColour (juce::Slider::rotarySliderFillColourId,    juce::Colour (0xff00d4aa));
+        sl.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (0xff1a3030));
+        addAndMakeVisible (sl);
+    };
+
+    setupPlaitsSlider (plaitsHarmSlider[v], audioProcessor.voice[v].plaitsHarmonics);
+    plaitsHarmSlider[v].onValueChange = [this, v]()
+        { audioProcessor.voice[v].plaitsHarmonics = (float)plaitsHarmSlider[v].getValue(); };
+    synthPageComponents.push_back (&plaitsHarmSlider[v]);
+
+    setupPlaitsSlider (plaitsTimSlider[v], audioProcessor.voice[v].plaitsTimbre);
+    plaitsTimSlider[v].onValueChange = [this, v]()
+        { audioProcessor.voice[v].plaitsTimbre = (float)plaitsTimSlider[v].getValue(); };
+    synthPageComponents.push_back (&plaitsTimSlider[v]);
+
+    setupPlaitsSlider (plaitsMorphSlider[v], audioProcessor.voice[v].plaitsMorph);
+    plaitsMorphSlider[v].onValueChange = [this, v]()
+        { audioProcessor.voice[v].plaitsMorph = (float)plaitsMorphSlider[v].getValue(); };
+    synthPageComponents.push_back (&plaitsMorphSlider[v]);
+
+    setupPlaitsSlider (plaitsAuxSlider[v], audioProcessor.voice[v].plaitsAuxBlend);
+    plaitsAuxSlider[v].onValueChange = [this, v]()
+        { audioProcessor.voice[v].plaitsAuxBlend = (float)plaitsAuxSlider[v].getValue(); };
+    synthPageComponents.push_back (&plaitsAuxSlider[v]);
+
+    // ── TRIG mode button ──────────────────────────────────────────────────────
+    // OFF (default) = free-running: Plaits outputs continuously, ADSR shapes amplitude.
+    // ON            = triggered:    Plaits fires its internal LPG on each gate (strings/modal/drums).
+    plaitsTrigBtn[v].setButtonText ("TRIG");
+    plaitsTrigBtn[v].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff161630));
+    plaitsTrigBtn[v].setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe0e0e0));
+    plaitsTrigBtn[v].onClick = [this, v]()
+    {
+        audioProcessor.voice[v].plaitsTrigMode = !audioProcessor.voice[v].plaitsTrigMode;
+        refreshPlaitsMode (v);
+    };
+    addAndMakeVisible (plaitsTrigBtn[v]);
+    synthPageComponents.push_back (&plaitsTrigBtn[v]);
+
+    refreshPlaitsMode (v);
+}
+
+void VoltageSeq2AudioProcessorEditor::refreshPlaitsMode (int v)
+{
+    const bool on   = audioProcessor.voice[v].plaitsEnabled;
+    const bool trig = audioProcessor.voice[v].plaitsTrigMode;
+
+    // PLAITS toggle button colour
+    plaitsBtn[v].setColour (juce::TextButton::buttonColourId,
+        on ? juce::Colour (0xff2a0055) : juce::Colour (0xff161630));
+    plaitsBtn[v].setColour (juce::TextButton::textColourOffId,
+        on ? juce::Colour (0xffcc88ff) : juce::Colour (0xffe0e0e0));
+
+    // Show Plaits engine selector + parameter knobs only when active
+    plaitsEngBox       [v].setVisible (on);
+    plaitsHarmSlider   [v].setVisible (on);
+    plaitsTimSlider    [v].setVisible (on);
+    plaitsMorphSlider  [v].setVisible (on);
+    plaitsAuxSlider    [v].setVisible (on);
+
+    // TRIG button — visible only when Plaits is on; lit amber when TRIG mode is active
+    plaitsTrigBtn[v].setVisible (on);
+    plaitsTrigBtn[v].setColour (juce::TextButton::buttonColourId,
+        trig ? juce::Colour (0xff442200) : juce::Colour (0xff161630));
+    plaitsTrigBtn[v].setColour (juce::TextButton::textColourOffId,
+        trig ? juce::Colour (0xffff8844) : juce::Colour (0xffe0e0e0));
+
+    // Hide native OSC1 / OSC2 / FM controls when Plaits is active (they overlap)
+    osc1WaveBox        [v].setVisible (!on);
+    osc1LevelSlider    [v].setVisible (!on);
+    osc1OctaveBox      [v].setVisible (!on);
+    osc1PWMSlider      [v].setVisible (!on);
+    osc1FeedbackSlider [v].setVisible (!on);
+    driftSlider        [v].setVisible (!on);
+    osc2PosSlider      [v].setVisible (!on);
+    osc2LevelSlider    [v].setVisible (!on);
+    osc2OctaveBox      [v].setVisible (!on);
+    wavetableDisplay   [v]->setVisible (!on);
+    fmDepthSlider      [v].setVisible (!on);
+    fmRatioSlider      [v].setVisible (!on);
+    crossModSlider     [v].setVisible (!on);
+
+    repaint();
 }
 
 //==============================================================================
@@ -1768,6 +1886,14 @@ void VoltageSeq2AudioProcessorEditor::showPage (int page)
     for (auto* c : patternPageComponents) c->setVisible (page == 1);
     for (auto* c : fxPageComponents)      c->setVisible (page == 2);
     for (auto* c : genPageComponents)     c->setVisible (page == 3);
+
+    // The bulk-show above makes every synthPageComponent visible on page 0.
+    // Re-apply per-voice Plaits vs OSC visibility so controls don't overlap.
+    if (page == 0)
+    {
+        for (int v = 0; v < 2; ++v)
+            refreshPlaitsMode (v);
+    }
 
     // After bulk-showing pattern page components, correct seq/bank visibility per voice
     // (showPage shows everything in patternPageComponents, then refreshPatPageView
@@ -2451,8 +2577,8 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         };
         drawPanel (pSeqX,  pSeqW,  "SEQ");
         drawPanel (pQntX,  pQntW,  "QUANTIZER");
-        drawPanel (pO1X,   pO1W,   "OSC 1");
-        drawPanel (pO2X,   pO2W,   "OSC 2");
+        drawPanel (pO1X,   pO1W,   audioProcessor.voice[v].plaitsEnabled ? "PLAITS" : "OSC 1");
+        drawPanel (pO2X,   pO2W,   audioProcessor.voice[v].plaitsEnabled ? ""       : "OSC 2");
         drawPanel (pFltX,  pFltW,  "FILTER");
         drawPanel (pAEX,   pAEW,   "AMP ENV");
         drawPanel (pLfo1X, pLfoW, "LFO 1");
@@ -2487,22 +2613,40 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         // QUANT
         g.drawText ("ROOT",     pQntX,  lY1, pQntW, 12, juce::Justification::centred);
         g.drawText ("SCALE",    pQntX,  lY2, pQntW, 12, juce::Justification::centred);
-        // OSC 1
-        g.drawText ("WAVE",    pO1X,    cY+14,  pO1W, 12, juce::Justification::centred);
-        g.drawText ("LEVEL",   pO1X,    cY+54,  46,   12, juce::Justification::centred);
-        g.drawText ("OCT",     pO1X+46, cY+54,  78,   12, juce::Justification::centred);
-        g.drawText ("FEEDBK",  pO1X+118,cY+54,  52,   12, juce::Justification::centred);
-        g.drawText ("PWM",   pO1X+4,  cY+108, kSz, 12, juce::Justification::centred);
-        g.drawText ("DRIFT", pO1X+46, cY+108, kSz, 12, juce::Justification::centred);
-        g.drawText ("SCOPE", pO1X+88, cY+108, pO1W-93, 11, juce::Justification::centred);
-        // OSC 2
-        g.drawText ("WT POS",  pO2X,    cY+14,  50,   12, juce::Justification::centred);
-        g.drawText ("LEVEL",   pO2X+55, cY+14,  kSz,  12, juce::Justification::centred);
-        g.drawText ("FM DPT",  pO2X+100,cY+14,  55,   12, juce::Justification::centred);
-        g.drawText ("RATIO",   pO2X,    cY+68,  100,  12, juce::Justification::centredLeft);
-        g.drawText ("OCT",     pO2X,    cY+106, 65,   12, juce::Justification::centred);
-        g.drawText ("XMOD",    pO2X+80, cY+106, kSz,  12, juce::Justification::centred);
-        g.drawText ("WT",      pO2X,    cY+142, pO2W, 11, juce::Justification::centred);
+        if (audioProcessor.voice[v].plaitsEnabled)
+        {
+            // ── Plaits labels ─────────────────────────────────────────────────
+            g.setFont (juce::Font (8.5f, juce::Font::bold));
+            g.setColour (dimColour);
+            g.drawText ("ENGINE", pO1X, cY+14, pO1W + pO2W, 12, juce::Justification::centred);
+            const int pkLblY = cY + 60 + 46;
+            const int pkSp   = (pO1W + pO2W) / 4;
+            g.drawText ("HARM",  pO1X + pkSp * 0, pkLblY, pkSp, 11, juce::Justification::centred);
+            g.drawText ("TIMBRE",pO1X + pkSp * 1, pkLblY, pkSp, 11, juce::Justification::centred);
+            g.drawText ("MORPH", pO1X + pkSp * 2, pkLblY, pkSp, 11, juce::Justification::centred);
+            g.drawText ("AUX",   pO1X + pkSp * 3, pkLblY, pkSp, 11, juce::Justification::centred);
+            g.drawText ("TRIG",  pO1X + 4, cY + 100, 84, 11, juce::Justification::centred);
+        }
+        else
+        {
+            // ── OSC 1 labels ──────────────────────────────────────────────────
+            g.drawText ("WAVE",    pO1X,    cY+14,  pO1W, 12, juce::Justification::centred);
+            g.drawText ("LEVEL",   pO1X,    cY+54,  46,   12, juce::Justification::centred);
+            g.drawText ("OCT",     pO1X+46, cY+54,  78,   12, juce::Justification::centred);
+            g.drawText ("FEEDBK",  pO1X+118,cY+54,  52,   12, juce::Justification::centred);
+            g.drawText ("PWM",   pO1X+4,  cY+108, kSz, 12, juce::Justification::centred);
+            g.drawText ("DRIFT", pO1X+46, cY+108, kSz, 12, juce::Justification::centred);
+            g.drawText ("SCOPE", pO1X+88, cY+108, pO1W-93, 11, juce::Justification::centred);
+
+            // ── OSC 2 labels ──────────────────────────────────────────────────
+            g.drawText ("WT POS",  pO2X,    cY+14,  50,   12, juce::Justification::centred);
+            g.drawText ("LEVEL",   pO2X+55, cY+14,  kSz,  12, juce::Justification::centred);
+            g.drawText ("FM DPT",  pO2X+100,cY+14,  55,   12, juce::Justification::centred);
+            g.drawText ("RATIO",   pO2X,    cY+68,  100,  12, juce::Justification::centredLeft);
+            g.drawText ("OCT",     pO2X,    cY+106, 65,   12, juce::Justification::centred);
+            g.drawText ("XMOD",    pO2X+80, cY+106, kSz,  12, juce::Justification::centred);
+            g.drawText ("WT",      pO2X,    cY+142, pO2W, 11, juce::Justification::centred);
+        }
         // Filter
         g.drawText ("CUTOFF",  pFltX+5,  lY1, kSz, 12, juce::Justification::centred);
         g.drawText ("RES",     pFltX+48, lY1, kSz, 12, juce::Justification::centred);
@@ -2638,6 +2782,25 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     osc1PWMSlider      [v].setBounds (pO1X + 4,   ctrlTopY + 122, kSz, kSz);
     driftSlider        [v].setBounds (pO1X + 46,  ctrlTopY + 122, kSz, kSz);
     oscScope           [v]->setBounds(pO1X + 88,  ctrlTopY + 122, pO1W - 93, 52);
+
+    // ── PLAITS mode controls (overlay the OSC1/O2 area) ──────────────────────
+    // PLAITS toggle: top of OSC1 panel header row
+    plaitsBtn[v].setBounds (pO1X + pO1W - 62, ctrlTopY + 2, 58, 20);
+
+    // Engine combobox spanning OSC1+OSC2 width
+    plaitsEngBox[v].setBounds (pO1X, ctrlTopY + 28, pO1W + pO2W - 5, 24);
+
+    // 4 knobs in a row below the combobox: HARM, TIMBRE, MORPH, AUX
+    const int pkY  = ctrlTopY + 60;
+    const int pkSz = 44;
+    const int pkSp = (pO1W + pO2W) / 4;
+    plaitsHarmSlider [v].setBounds (pO1X + pkSp * 0 + 4,  pkY, pkSz, pkSz);
+    plaitsTimSlider  [v].setBounds (pO1X + pkSp * 1 + 4,  pkY, pkSz, pkSz);
+    plaitsMorphSlider[v].setBounds (pO1X + pkSp * 2 + 4,  pkY, pkSz, pkSz);
+    plaitsAuxSlider  [v].setBounds (pO1X + pkSp * 3 + 4,  pkY, pkSz, pkSz);
+
+    // TRIG mode button — below the 4 Plaits knobs
+    plaitsTrigBtn    [v].setBounds (pO1X + 4, ctrlTopY + 112, 84, 22);
 
     // ── OSC 2 ─────────────────────────────────────────────────────────────────
     osc2PosSlider   [v].setBounds (pO2X + 5,   ctrlTopY + 26,  kSz, kSz);
@@ -3108,6 +3271,17 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
         uniCountBtn    [v].setButtonText (vp.unisonCount == 2 ? "2V" : "4V");
         uniSpreadSlider[v].setValue (vp.unisonSpread, juce::dontSendNotification);
         uniWidthSlider [v].setValue (vp.unisonWidth,  juce::dontSendNotification);
+    }
+
+    for (int v = 0; v < 2; ++v)
+    {
+        plaitsBtn[v].setButtonText (audioProcessor.voice[v].plaitsEnabled ? "PLAITS ●" : "PLAITS");
+        plaitsEngBox[v].setSelectedId (audioProcessor.voice[v].plaitsEngine + 1, juce::dontSendNotification);
+        plaitsHarmSlider[v].setValue (audioProcessor.voice[v].plaitsHarmonics, juce::dontSendNotification);
+        plaitsTimSlider [v].setValue (audioProcessor.voice[v].plaitsTimbre,    juce::dontSendNotification);
+        plaitsMorphSlider[v].setValue(audioProcessor.voice[v].plaitsMorph,     juce::dontSendNotification);
+        plaitsAuxSlider [v].setValue (audioProcessor.voice[v].plaitsAuxBlend,  juce::dontSendNotification);
+        refreshPlaitsMode (v);
     }
 
     // FX page — refresh whichever voice tab is currently selected
