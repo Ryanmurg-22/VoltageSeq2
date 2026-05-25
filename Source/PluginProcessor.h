@@ -285,6 +285,8 @@ public:
         bool                  initialized    = false;
         float                 baseNote       = 60.0f; // quantised target note (set on step advance)
         float                 smoothedNote   = 60.0f; // portamento-smoothed version of baseNote
+        float                 stepVoltage    = 0.0f;  // raw step voltage (stored so range-LFO can recompute)
+        int                   stepOctShift   = 0;     // stepOctave + plaitsOctave for current step
         // Non-copyable due to allocator
         PlaitsState() = default;
         PlaitsState(const PlaitsState&) = delete;
@@ -516,7 +518,8 @@ private:
                               float input, float effectiveCutoff);
     float voltageToQuantizedFreq (const VoiceParams& vp, float voltage,
                                   float rangeOverride = -1.0f);
-    int   voltageToMidiNote      (const VoiceParams& vp, float voltage) const;
+    int   voltageToMidiNote      (const VoiceParams& vp, float voltage,
+                                  float rangeOverride = -1.0f) const;
     int   quantizeNoteToScale    (int midiNote, int rootNote, int scale) const;
     float processModEnv          (const ModEnvParams& p, VoiceState& vs,
                                   bool gateOn, double bpm);

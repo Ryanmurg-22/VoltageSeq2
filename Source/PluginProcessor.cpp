@@ -1316,11 +1316,13 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
             if (vp.plaitsEnabled && plaitsState[vi].initialized)
             {
                 auto& ps = plaitsState[vi];
-                // baseNote: quantised MIDI note + per-step octave + global Plaits octave transpose
+                // Store raw voltage + combined octave shift so the render block
+                // can recompute baseNote live when an LFO modulates RANGE.
+                ps.stepVoltage  = vp.stepVoltages[vp.currentStep];
+                ps.stepOctShift = vp.stepOctave[vp.currentStep] * 12 + vp.plaitsOctave * 12;
+                // baseNote: quantised MIDI note using current rangeVCA (no LFO yet)
                 ps.baseNote = (float)juce::jlimit (0, 127,
-                    voltageToMidiNote (vp, vp.stepVoltages[vp.currentStep])
-                    + vp.stepOctave[vp.currentStep] * 12
-                    + vp.plaitsOctave * 12);
+                    voltageToMidiNote (vp, ps.stepVoltage) + ps.stepOctShift);
 
                 // Snap smoothedNote immediately when no glide is active on this step
                 const bool doGlide = vp.portamentoTime > 0.001f && vp.stepGlides[vp.currentStep];
@@ -1650,6 +1652,15 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
         // ── Plaits block render ──────────────────────────────────────────
         auto& ps = plaitsState[vi];
 
+        // Range modulation: recompute baseNote live so LFO→Range produces the
+        // same pitch-scaling effect it does on the native oscillators.
+        if (std::abs (totalRangeMod) > 0.001f)
+        {
+            const float effRange = juce::jlimit (0.0f, 2.0f, vp.rangeVCA + totalRangeMod);
+            ps.baseNote = (float)juce::jlimit (0, 127,
+                voltageToMidiNote (vp, ps.stepVoltage, effRange) + ps.stepOctShift);
+        }
+
         // Portamento: IIR-smooth toward baseNote when glide is active
         if (vs.slots[0].glideActive)
             ps.smoothedNote = ps.smoothedNote * glideCoeff
@@ -1908,9 +1919,12 @@ float VoltageSeq2AudioProcessor::voltageToQuantizedFreq (const VoiceParams& vp, 
 
 // voltageToMidiNote — same pitch calculation as voltageToQuantizedFreq but
 // returns the MIDI note number directly (avoids a round-trip through frequency).
-int VoltageSeq2AudioProcessor::voltageToMidiNote (const VoiceParams& vp, float voltage) const
+// rangeOverride < 0 → use vp.rangeVCA (same convention as voltageToQuantizedFreq).
+int VoltageSeq2AudioProcessor::voltageToMidiNote (const VoiceParams& vp, float voltage,
+                                                   float rangeOverride) const
 {
-    float scaledV = voltage * vp.rangeVCA;
+    float range   = (rangeOverride >= 0.0f) ? rangeOverride : vp.rangeVCA;
+    float scaledV = voltage * range;
     float rawMidi = juce::jlimit (0.0f, 127.0f, 60.0f + (float)vp.rootNote + scaledV * 4.8f);
     return quantizeNoteToScale ((int)std::round (rawMidi), vp.rootNote, vp.currentScale);
 }
