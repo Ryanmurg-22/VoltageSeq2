@@ -174,6 +174,17 @@ VoltageSeq2AudioProcessor::createParameterLayout()
         params.push_back (std::make_unique<juce::AudioParameterFloat> (
             juce::ParameterID ("range" + s, 1), "Range " + vn,
             juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 1.0f));
+
+        // ── Plaits timbral controls (DAW-automatable) ─────────────────────────
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("plaitsHarm" + s, 1), "Plaits Harmonics " + vn,
+            juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.5f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("plaitsTimb" + s, 1), "Plaits Timbre " + vn,
+            juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.5f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("plaitsMorph" + s, 1), "Plaits Morph " + vn,
+            juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.5f));
     }
 
     return { params.begin(), params.end() };
@@ -198,6 +209,7 @@ VoltageSeq2AudioProcessor::VoltageSeq2AudioProcessor()
             voice[vi].stepVoltages[i] = 0.0f;
             voice[vi].stepGates[i]    = false;  // all gates off by default (clean slate)
             voice[vi].stepGlides[i]   = false;
+            voice[vi].stepAccents[i]  = false;
         }
         voice[vi].unipolar      = true;   // unipolar (0..5 V range)
         voice[vi].currentScale  = 8;      // Chromatic = effectively unquantized
@@ -650,6 +662,9 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         vp.fmDepth                 = apvts.getRawParameterValue ("fmDepth"  + s)->load();
         vp.portamentoTime          = apvts.getRawParameterValue ("porta"    + s)->load();
         vp.rangeVCA                = apvts.getRawParameterValue ("range"    + s)->load();
+        vp.plaitsHarmonics         = apvts.getRawParameterValue ("plaitsHarm"  + s)->load();
+        vp.plaitsTimbre            = apvts.getRawParameterValue ("plaitsTimb"  + s)->load();
+        vp.plaitsMorph             = apvts.getRawParameterValue ("plaitsMorph" + s)->load();
     }
 
     //--------------------------------------------------------------------------
@@ -938,67 +953,55 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 if (vp.voiceMode == VoiceParams::Poly)
                 {
                     // ── POLY: shift-register polyphony ─────────────────────────
-                    if (!vs.midiStepGate)
+                    // Eviction always fires — on both gate-on and gate-off steps.
+                    // A gate-off step pushes -1 into slot 0, so the oldest real note
+                    // drifts to the evict position and is retired one slot at a time.
+                    // This mirrors the audio register: the chord decays slot-by-slot
+                    // rather than being hard-cleared the instant a rest step fires.
+                    if (vs.midiPolyEvict && vs.midiPolyEvictNote >= 0)
                     {
-                        // Gate off: silence every held note
+                        midiMessages.addEvent (
+                            juce::MidiMessage::noteOff (ch, vs.midiPolyEvictNote, (juce::uint8)0), s);
                         vs.midiPolyEvict = false;
-                        for (int si = 0; si < VoiceState::kMaxSlots; ++si)
-                        {
-                            if (vs.midiPolyNotes[si] >= 0)
-                            {
-                                midiMessages.addEvent (
-                                    juce::MidiMessage::noteOff (ch, vs.midiPolyNotes[si], (juce::uint8)0), s);
-                                vs.midiPolyNotes[si] = -1;
-                            }
-                        }
                     }
-                    else
+
+                    // NoteOn only when a gate is active for this step
+                    if (vs.midiStepGate && vs.midiStepNote >= 0)
                     {
-                        // Evict oldest note when register is full
-                        if (vs.midiPolyEvict && vs.midiPolyEvictNote >= 0)
+                        // After the MIDI register shift, midiPolyNotes[1] holds the
+                        // previous slot-0 note — use it as the glide "from" pitch.
+                        const int prevNote = vs.midiPolyNotes[1];
+                        const bool doGlide = vs.midiStepGlide
+                                             && prevNote >= 0
+                                             && prevNote != vs.midiStepNote;
+
+                        if (doGlide)
                         {
+                            const float initBend = juce::jlimit (-kPbRange, kPbRange,
+                                (float)(prevNote - vs.midiStepNote));
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101,  0), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100,  0), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,   6, (int)kPbRange), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,  38,  0), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101, 127), s);
+                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100, 127), s);
                             midiMessages.addEvent (
-                                juce::MidiMessage::noteOff (ch, vs.midiPolyEvictNote, (juce::uint8)0), s);
-                            vs.midiPolyEvict = false;
+                                juce::MidiMessage::pitchWheel (ch, semToPB (initBend, kPbRange)), s);
+                            midiMessages.addEvent (
+                                juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                            vs.midiGlideActive = true;
+                            vs.midiGlideBend   = initBend;
+                            vs.midiGlideTick   = 0;
                         }
-
-                        if (vs.midiStepNote >= 0)
+                        else
                         {
-                            // After the MIDI register shift, midiPolyNotes[1] holds the
-                            // previous slot-0 note — use it as the glide "from" pitch.
-                            const int prevNote = vs.midiPolyNotes[1];
-                            const bool doGlide = vs.midiStepGlide
-                                                 && prevNote >= 0
-                                                 && prevNote != vs.midiStepNote;
-
-                            if (doGlide)
+                            if (vs.midiGlideActive)
                             {
-                                const float initBend = juce::jlimit (-kPbRange, kPbRange,
-                                    (float)(prevNote - vs.midiStepNote));
-                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101,  0), s);
-                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100,  0), s);
-                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,   6, (int)kPbRange), s);
-                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,  38,  0), s);
-                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101, 127), s);
-                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100, 127), s);
-                                midiMessages.addEvent (
-                                    juce::MidiMessage::pitchWheel (ch, semToPB (initBend, kPbRange)), s);
-                                midiMessages.addEvent (
-                                    juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
-                                vs.midiGlideActive = true;
-                                vs.midiGlideBend   = initBend;
-                                vs.midiGlideTick   = 0;
+                                vs.midiGlideActive = false;
+                                midiMessages.addEvent (juce::MidiMessage::pitchWheel (ch, 0), s);
                             }
-                            else
-                            {
-                                if (vs.midiGlideActive)
-                                {
-                                    vs.midiGlideActive = false;
-                                    midiMessages.addEvent (juce::MidiMessage::pitchWheel (ch, 0), s);
-                                }
-                                midiMessages.addEvent (
-                                    juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
-                            }
+                            midiMessages.addEvent (
+                                juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
                         }
                     }
                 }
@@ -1312,6 +1315,7 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
             const bool gateWithProb = vp.stepGates[vp.currentStep] &&
                 (_prob >= 99.9f || juce::Random::getSystemRandom().nextFloat() * 100.f < _prob);
             vs.midiStepGate  = gateWithProb;
+            vs.accentActive  = gateWithProb && vp.stepAccents[vp.currentStep];
             // Update Plaits note + trigger when a new step fires
             if (vp.plaitsEnabled && plaitsState[vi].initialized)
             {
@@ -1571,11 +1575,14 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
     float lfo3Val = lfoWave (vs.lfo3Phase, vp.lfo3Waveform) * vp.lfo3Depth;
     float lfo4Val = lfoWave (vs.lfo4Phase, vp.lfo4Waveform) * vp.lfo4Depth;
 
-    float pwmMod      = 0.0f;
-    float cutoffMod   = 0.0f;
-    float pitchMod    = 1.0f;
-    float lfoRangeMod = 0.0f;
-    float lfoFMMod    = 0.0f;
+    float pwmMod          = 0.0f;
+    float cutoffMod       = 0.0f;
+    float pitchMod        = 1.0f;
+    float lfoRangeMod     = 0.0f;
+    float lfoFMMod        = 0.0f;
+    float lfoHarmMod      = 0.0f;
+    float lfoTimbMod      = 0.0f;
+    float lfoMorphMod     = 0.0f;
 
     auto accLFO = [&](float val, int target)
     {
@@ -1584,6 +1591,9 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
         if (target == 2) pitchMod    *= std::pow (2.0f, val / 12.0f);
         if (target == 3) lfoRangeMod += val;
         if (target == 4) lfoFMMod    += val;
+        if (target == 5) lfoHarmMod  += val;
+        if (target == 6) lfoTimbMod  += val;
+        if (target == 7) lfoMorphMod += val;
     };
     accLFO (lfo1Val, vp.lfoTarget);
     accLFO (lfo2Val, vp.lfo2Target);
@@ -1599,14 +1609,20 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
     const float modEnvOut = processModEnv (vp.modEnv, vs, gateOn, effectiveBPM)
                             * vp.modEnv.depth;
 
-    float cenvAmpMod    = 1.0f;
-    float cenvCutoffMod = 1.0f;
-    float cenvRangeMod  = 0.0f;
+    float cenvAmpMod     = 1.0f;
+    float cenvCutoffMod  = 1.0f;
+    float cenvRangeMod   = 0.0f;
     float cenvFMDepthMod = 0.0f;
+    float cenvHarmMod    = 0.0f;
+    float cenvTimbMod    = 0.0f;
+    float cenvMorphMod   = 0.0f;
 
     if (vp.modEnv.dest == 0) cenvFMDepthMod = modEnvOut;
     if (vp.modEnv.dest == 1) cenvRangeMod   = modEnvOut;
     if (vp.modEnv.dest == 2) cenvCutoffMod  = std::pow (2.0f, modEnvOut * 4.0f);
+    if (vp.modEnv.dest == 3) cenvHarmMod    = modEnvOut;
+    if (vp.modEnv.dest == 4) cenvTimbMod    = modEnvOut;
+    if (vp.modEnv.dest == 5) cenvMorphMod   = modEnvOut;
 
     const float effectiveFMDepth = juce::jlimit (0.0f, 1.0f, vp.fmDepth + cenvFMDepthMod + lfoFMMod);
 
@@ -1633,8 +1649,9 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
     // FILTER ENVELOPE → effective cutoff (shared, computed once)
     //--------------------------------------------------------------------------
     float fEnvSample   = vs.filterEnv.getNextSample();
+    const float accentEnvAmt = vp.filterEnvAmount + (vs.accentActive ? 0.25f : 0.0f);
     float effectiveCut = vp.filterCutoff
-                         * std::pow (2.0f, vp.filterEnvAmount * 4.0f * fEnvSample);
+                         * std::pow (2.0f, juce::jlimit (0.0f, 1.0f, accentEnvAmt) * 4.0f * fEnvSample);
     effectiveCut = juce::jlimit (20.0f, 20000.0f,
                                  (effectiveCut + cutoffMod) * cenvCutoffMod);
 
@@ -1674,6 +1691,15 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
             const float pitchLFOSemitones = std::log2 (pitchMod) * 12.0f;
             ps.patch.note = juce::jlimit (0.0f, 127.0f,
                                           ps.smoothedNote + pitchLFOSemitones);
+
+            // Apply live timbral modulation (LFO + ModEnv) — clamped to [0,1]
+            ps.patch.harmonics = juce::jlimit (0.0f, 1.0f,
+                vp.plaitsHarmonics + lfoHarmMod + cenvHarmMod);
+            ps.patch.timbre    = juce::jlimit (0.0f, 1.0f,
+                vp.plaitsTimbre    + lfoTimbMod + cenvTimbMod);
+            ps.patch.morph     = juce::jlimit (0.0f, 1.0f,
+                vp.plaitsMorph     + lfoMorphMod + cenvMorphMod
+                + (vs.accentActive ? 0.20f : 0.0f));
 
             // Trigger mode: LPG fired by gate (pluck/drum behaviour)
             // Free mode:    LPG bypassed, ADSR shapes amplitude externally
@@ -1745,13 +1771,15 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
 
     // Run the SVF on each channel separately using independent state registers.
     // For MONO (nSlots==1) sumL==sumR so both channels produce identical output.
+    const float accentRes = vs.accentActive ? 0.15f : 0.0f;
     float filtL = applyFilter (vs.ic1eq,  vs.ic2eq,  vs.ic1eq2,  vs.ic2eq2,
-                               vp, sumL * norm, effectiveCut);
+                               vp, sumL * norm, effectiveCut, accentRes);
     float filtR = applyFilter (vs.ic1eqR, vs.ic2eqR, vs.ic1eq2R, vs.ic2eq2R,
-                               vp, sumR * norm, effectiveCut);
+                               vp, sumR * norm, effectiveCut, accentRes);
 
     float envelope = vs.adsr.getNextSample();
-    const float gain = envelope * cenvAmpMod * 0.3f;
+    const float accentVCA = vs.accentActive ? 1.4125f : 1.0f;  // +3 dB = 10^(3/20)
+    const float gain = envelope * cenvAmpMod * accentVCA * 0.3f;
 
     outL = filtL * gain;
     outR = filtR * gain;
@@ -1833,7 +1861,8 @@ float VoltageSeq2AudioProcessor::generateOsc2Sample (UnisonSlot& slot, const Voi
 float VoltageSeq2AudioProcessor::applyFilter (float& ic1, float& ic2,
                                                float& ic1_2, float& ic2_2,
                                                const VoiceParams& vp,
-                                               float input, float effectiveCutoff)
+                                               float input, float effectiveCutoff,
+                                               float resBoost)
 {
     // Pre-filter drive (tanh saturation)
     // Normalise by tanh(drive) so unity input always gives unity output amplitude;
@@ -1860,7 +1889,7 @@ float VoltageSeq2AudioProcessor::applyFilter (float& ic1, float& ic2,
 
     float cut = juce::jlimit (20.0f, (float)(currentSampleRate * 0.45), effectiveCutoff);
     float g   = std::tan (juce::MathConstants<float>::pi * cut / (float)currentSampleRate);
-    float k   = juce::jlimit (0.01f, 2.0f, 2.0f - 1.99f * vp.filterResonance);
+    float k   = juce::jlimit (0.01f, 2.0f, 2.0f - 1.99f * juce::jlimit (0.0f, 1.0f, vp.filterResonance + resBoost));
 
     float out = runSVF (driven, ic1, ic2, g, k, vp.filterMode);
 
@@ -1984,7 +2013,8 @@ static void saveVoiceToXml (juce::XmlElement& el,
     {
         el.setAttribute ("v"  + juce::String (i), (double)vp.stepVoltages[i]);
         el.setAttribute ("g"  + juce::String (i), vp.stepGates [i]);
-        el.setAttribute ("sl" + juce::String (i), vp.stepGlides[i]);
+        el.setAttribute ("sl"  + juce::String (i), vp.stepGlides[i]);
+        el.setAttribute ("acc" + juce::String (i), vp.stepAccents[i]);
         el.setAttribute ("ti" + juce::String (i), vp.stepTied  [i]);
         el.setAttribute ("rt" + juce::String (i), vp.stepRepeats[i]);
         el.setAttribute ("pl" + juce::String (i), vp.stepPulses [i]);
@@ -2095,7 +2125,8 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
     {
         vp.stepVoltages[i] = getF (("v"  + juce::String (i)).toRawUTF8(), vp.stepVoltages[i]);
         vp.stepGates   [i] = getB (("g"  + juce::String (i)).toRawUTF8(), vp.stepGates   [i]);
-        vp.stepGlides  [i] = getB (("sl" + juce::String (i)).toRawUTF8(), vp.stepGlides  [i]);
+        vp.stepGlides  [i] = getB (("sl"  + juce::String (i)).toRawUTF8(), vp.stepGlides  [i]);
+        vp.stepAccents [i] = getB (("acc" + juce::String (i)).toRawUTF8(), vp.stepAccents [i]);
         vp.stepTied    [i] = getB (("ti" + juce::String (i)).toRawUTF8(), false);
         vp.stepRepeats [i] = getI (("rt" + juce::String (i)).toRawUTF8(), 0);
         vp.stepPulses  [i] = juce::jlimit (1, 8, getI (("pl" + juce::String (i)).toRawUTF8(), 1));
@@ -2204,6 +2235,7 @@ void VoltageSeq2AudioProcessor::savePattern (int vi, int slot)
         p.stepVoltages   [i] = v.stepVoltages   [i];
         p.stepGates      [i] = v.stepGates      [i];
         p.stepGlides     [i] = v.stepGlides     [i];
+        p.stepAccents    [i] = v.stepAccents    [i];
         p.stepTied       [i] = v.stepTied       [i];
         p.stepRepeats    [i] = v.stepRepeats    [i];
         p.stepPulses     [i] = v.stepPulses     [i];
@@ -2231,6 +2263,7 @@ void VoltageSeq2AudioProcessor::loadPattern (int vi, int slot)
         v.stepVoltages   [i] = p.stepVoltages   [i];
         v.stepGates      [i] = p.stepGates      [i];
         v.stepGlides     [i] = p.stepGlides     [i];
+        v.stepAccents    [i] = p.stepAccents    [i];
         v.stepTied       [i] = p.stepTied       [i];
         v.stepRepeats    [i] = p.stepRepeats    [i];
         v.stepPulses     [i] = p.stepPulses     [i];
@@ -2293,10 +2326,13 @@ void VoltageSeq2AudioProcessor::syncAPVTSFromVoice (int vi)
     setP ("lfo1Dep"  + s, vp.lfoDepth);
     setP ("lfo2Rate" + s, vp.lfo2Rate);
     setP ("lfo2Dep"  + s, vp.lfo2Depth);
-    setP ("fmRatio"  + s, vp.fmRatio);
-    setP ("fmDepth"  + s, vp.fmDepth);
-    setP ("porta"    + s, vp.portamentoTime);
-    setP ("range"    + s, vp.rangeVCA);
+    setP ("fmRatio"   + s, vp.fmRatio);
+    setP ("fmDepth"   + s, vp.fmDepth);
+    setP ("porta"     + s, vp.portamentoTime);
+    setP ("range"     + s, vp.rangeVCA);
+    setP ("plaitsHarm"  + s, vp.plaitsHarmonics);
+    setP ("plaitsTimb"  + s, vp.plaitsTimbre);
+    setP ("plaitsMorph" + s, vp.plaitsMorph);
 }
 
 //------------------------------------------------------------------------------
@@ -2652,6 +2688,7 @@ void VoltageSeq2AudioProcessor::loadPatternAudio (int vi, int slot, bool resetPo
         v.stepVoltages   [i] = p.stepVoltages   [i];
         v.stepGates      [i] = p.stepGates      [i];
         v.stepGlides     [i] = p.stepGlides     [i];
+        v.stepAccents    [i] = p.stepAccents    [i];
         v.stepTied       [i] = p.stepTied       [i];
         v.stepRepeats    [i] = p.stepRepeats    [i];
         v.stepPulses     [i] = p.stepPulses     [i];

@@ -197,9 +197,9 @@ private:
     VoltageSeq2AudioProcessor& audioProcessor;
 
     // ── Per-voice controls  [vi][step] or [vi] ───────────────────────────────
-    juce::Slider     stepKnob   [2][16];
-    juce::TextButton gateBtn    [2][16];
-    juce::TextButton slideBtn   [2][16];
+    juce::Slider     stepKnob  [2][16];
+    juce::TextButton gateBtn   [2][16];
+    juce::TextButton slideBtn  [2][16];
 
     juce::Slider     seqLengthSlider [2];
     juce::Slider     swingSlider     [2];
@@ -427,12 +427,29 @@ private:
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GateBtnListener)
     };
     std::unique_ptr<GateBtnListener> gateMouseListener[2][16];
-    bool suppressNextGateClick = false;  // set by GateBtnListener to block onClick cycling
+    bool suppressNextGateClick = false;
+
+    struct SlideBtnListener : public juce::MouseListener
+    {
+        SlideBtnListener (VoltageSeq2AudioProcessorEditor& e, int v, int s)
+            : ed (e), vi (v), step (s) {}
+        void mouseDown (const juce::MouseEvent& ev) override;
+        VoltageSeq2AudioProcessorEditor& ed;
+        int vi, step;
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SlideBtnListener)
+    };
+    std::unique_ptr<SlideBtnListener> slideMouseListener[2][16];
+    bool suppressNextSlideClick = false;
+
+    void refreshSlideBtn (int v, int i);
 
     // ── APVTS slider attachments ─────────────────────────────────────────────
     // These must be declared BEFORE the controls they attach to are destroyed,
     // so put them here (members are destroyed in reverse declaration order).
     using SliderAtt = juce::AudioProcessorValueTreeState::SliderAttachment;
+    std::unique_ptr<SliderAtt> plaitsHarmAttach [2];
+    std::unique_ptr<SliderAtt> plaitsTimbAttach [2];
+    std::unique_ptr<SliderAtt> plaitsMorphAttach[2];
     std::unique_ptr<SliderAtt> stepAttach     [2][16];
     std::unique_ptr<SliderAtt> cutoffAttach   [2];
     std::unique_ptr<SliderAtt> ampAAttach     [2], ampDAttach    [2];

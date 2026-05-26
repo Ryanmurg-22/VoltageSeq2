@@ -20,6 +20,8 @@ namespace {
     const juce::Colour activeTieColour    { 0xffffc060 };   // bright amber when tied step is active
     const juce::Colour ratchetColour      { 0xff5566dd };   // blue-purple for ratcheted steps
     const juce::Colour activeRatchetColour{ 0xff99aaff };   // bright blue-purple when ratchet step active
+    const juce::Colour accentOnColour     { 0xffdd6600 };   // amber-orange for accented steps
+    const juce::Colour accentBothColour   { 0xffff9933 };   // bright amber when slide+accent both on
     const juce::Colour playBtnOn          { 0xff2255aa };
     const juce::Colour playBtnOff         { 0xff161630 };
     const juce::Colour voiceAColour       { 0xff00aaff };
@@ -204,6 +206,52 @@ void VoltageSeq2AudioProcessorEditor::GateBtnListener::mouseDown (const juce::Mo
             if (result > 0)
                 ed.refreshGateBtn (vi, step);
         });
+}
+
+
+//==============================================================================
+// SlideBtnListener — Ctrl/right-click shows accent popup menu
+//==============================================================================
+void VoltageSeq2AudioProcessorEditor::SlideBtnListener::mouseDown (const juce::MouseEvent& ev)
+{
+    if (!ev.mods.isPopupMenu()) return;
+
+    ed.suppressNextSlideClick = true;
+    auto& vp = ed.audioProcessor.voice[vi];
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("ACCENT");
+    menu.addItem (1, "Accent", true, vp.stepAccents[step]);
+
+    menu.showMenuAsync (
+        juce::PopupMenu::Options{}.withTargetComponent (&ed.slideBtn[vi][step]),
+        [this](int result)
+        {
+            ed.suppressNextSlideClick = false;  // always clear — menu consumed the click
+            if (result == 1)
+                ed.audioProcessor.voice[vi].stepAccents[step] =
+                    !ed.audioProcessor.voice[vi].stepAccents[step];
+            ed.refreshSlideBtn (vi, step);
+        });
+}
+
+//==============================================================================
+// refreshSlideBtn — sync one slide button's colour from processor state
+//==============================================================================
+void VoltageSeq2AudioProcessorEditor::refreshSlideBtn (int v, int i)
+{
+    const bool slide  = audioProcessor.voice[v].stepGlides [i];
+    const bool accent = audioProcessor.voice[v].stepAccents[i];
+
+    juce::Colour col;
+    if      (slide && accent) col = accentBothColour;
+    else if (slide)           col = slideOnColour;
+    else if (accent)          col = accentOnColour;
+    else                      col = gateOffColour;
+
+    // Set both colour IDs so the button looks correct regardless of toggle state
+    slideBtn[v][i].setColour (juce::TextButton::buttonColourId,   col);
+    slideBtn[v][i].setColour (juce::TextButton::buttonOnColourId, col);
 }
 
 //==============================================================================
@@ -539,18 +587,17 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
             refreshGateBtn (v, i);   // set initial text + colour
         }
 
-        bool sOn = vp.stepGlides[i];
-        slideBtn[v][i].setButtonText (juce::String (i + 1));   // step number always visible
-        slideBtn[v][i].setToggleState (sOn, juce::dontSendNotification);
-        slideBtn[v][i].setClickingTogglesState (true);
-        slideBtn[v][i].setColour (juce::TextButton::buttonColourId,   sOn ? slideOnColour : gateOffColour);
-        slideBtn[v][i].setColour (juce::TextButton::buttonOnColourId, slideOnColour);
+        slideBtn[v][i].setButtonText (juce::String (i + 1));
+        slideBtn[v][i].setClickingTogglesState (false);
         slideBtn[v][i].onClick = [this, v, i]()
         {
-            bool s = slideBtn[v][i].getToggleState();
-            audioProcessor.voice[v].stepGlides[i] = s;
-            slideBtn[v][i].setColour (juce::TextButton::buttonColourId, s ? slideOnColour : gateOffColour);
+            if (suppressNextSlideClick) { suppressNextSlideClick = false; return; }
+            audioProcessor.voice[v].stepGlides[i] = !audioProcessor.voice[v].stepGlides[i];
+            refreshSlideBtn (v, i);
         };
+        slideMouseListener[v][i] = std::make_unique<SlideBtnListener> (*this, v, i);
+        slideBtn[v][i].addMouseListener (slideMouseListener[v][i].get(), false);
+        refreshSlideBtn (v, i);
         addAndMakeVisible (slideBtn[v][i]);
     }
 
@@ -905,6 +952,9 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
         box.addItem ("PWM",    1); box.addItem ("Cutoff", 2);
         box.addItem ("Pitch",  3); box.addItem ("Range",  4);
         box.addItem ("FM Dpt", 5);
+        box.addItem ("PL Harm",  6);
+        box.addItem ("PL Timb",  7);
+        box.addItem ("PL Morph", 8);
     };
 
     // Helper: build a waveform combo
@@ -1018,6 +1068,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     modEnvDepthSlider[v].onValueChange = [this,v]() { audioProcessor.voice[v].modEnv.depth   = (float)modEnvDepthSlider[v].getValue(); };
 
     modEnvDestBox[v].addItem ("FM Depth", 1); modEnvDestBox[v].addItem ("Pitch", 2); modEnvDestBox[v].addItem ("Filter", 3);
+    modEnvDestBox[v].addItem ("PL Harm",  4); modEnvDestBox[v].addItem ("PL Timb", 5); modEnvDestBox[v].addItem ("PL Morph", 6);
     modEnvDestBox[v].setSelectedItemIndex (vp.modEnv.dest, juce::dontSendNotification);
     modEnvDestBox[v].onChange = [this,v]() { audioProcessor.voice[v].modEnv.dest = modEnvDestBox[v].getSelectedItemIndex(); };
     addAndMakeVisible (modEnvDestBox[v]);
@@ -1160,19 +1211,19 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
         addAndMakeVisible (sl);
     };
 
-    setupPlaitsSlider (plaitsHarmSlider[v], audioProcessor.voice[v].plaitsHarmonics);
-    plaitsHarmSlider[v].onValueChange = [this, v]()
-        { audioProcessor.voice[v].plaitsHarmonics = (float)plaitsHarmSlider[v].getValue(); };
+    setupPlaitsSlider (plaitsHarmSlider[v], 0.5f);
+    plaitsHarmAttach[v] = std::make_unique<SliderAtt> (
+        audioProcessor.apvts, "plaitsHarm_" + juce::String(v), plaitsHarmSlider[v]);
     synthPageComponents.push_back (&plaitsHarmSlider[v]);
 
-    setupPlaitsSlider (plaitsTimSlider[v], audioProcessor.voice[v].plaitsTimbre);
-    plaitsTimSlider[v].onValueChange = [this, v]()
-        { audioProcessor.voice[v].plaitsTimbre = (float)plaitsTimSlider[v].getValue(); };
+    setupPlaitsSlider (plaitsTimSlider[v], 0.5f);
+    plaitsTimbAttach[v] = std::make_unique<SliderAtt> (
+        audioProcessor.apvts, "plaitsTimb_" + juce::String(v), plaitsTimSlider[v]);
     synthPageComponents.push_back (&plaitsTimSlider[v]);
 
-    setupPlaitsSlider (plaitsMorphSlider[v], audioProcessor.voice[v].plaitsMorph);
-    plaitsMorphSlider[v].onValueChange = [this, v]()
-        { audioProcessor.voice[v].plaitsMorph = (float)plaitsMorphSlider[v].getValue(); };
+    setupPlaitsSlider (plaitsMorphSlider[v], 0.5f);
+    plaitsMorphAttach[v] = std::make_unique<SliderAtt> (
+        audioProcessor.apvts, "plaitsMorph_" + juce::String(v), plaitsMorphSlider[v]);
     synthPageComponents.push_back (&plaitsMorphSlider[v]);
 
     setupPlaitsSlider (plaitsAuxSlider[v], audioProcessor.voice[v].plaitsAuxBlend);
@@ -2637,13 +2688,12 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
             g.setFont (juce::Font (8.5f, juce::Font::bold));
             g.setColour (dimColour);
             g.drawText ("ENGINE", pO1X, cY+14, pO1W + pO2W, 12, juce::Justification::centred);
-            const int pkLblY = cY + 60 + 46;
+            const int pkLblY = cY + 100;
             const int pkSp   = (pO1W + pO2W) / 4;
             g.drawText ("HARM",  pO1X + pkSp * 0, pkLblY, pkSp, 11, juce::Justification::centred);
             g.drawText ("TIMBRE",pO1X + pkSp * 1, pkLblY, pkSp, 11, juce::Justification::centred);
             g.drawText ("MORPH", pO1X + pkSp * 2, pkLblY, pkSp, 11, juce::Justification::centred);
             g.drawText ("AUX",   pO1X + pkSp * 3, pkLblY, pkSp, 11, juce::Justification::centred);
-            g.drawText ("TRIG",  pO1X + 4, cY + 100, 84, 11, juce::Justification::centred);
         }
         else
         {
@@ -3188,7 +3238,7 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
         {
             // stepKnob values are owned by APVTS attachments — do not call setValue/setRange here.
             refreshGateBtn (v, i);
-            slideBtn[v][i].setToggleState (vp.stepGlides[i], juce::dontSendNotification);
+            refreshSlideBtn (v, i);
         }
 
         seqLengthSlider[v].setValue (vp.sequenceLength, juce::dontSendNotification);
@@ -3296,9 +3346,7 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
     {
         plaitsBtn[v].setButtonText (audioProcessor.voice[v].plaitsEnabled ? "PLAITS ●" : "PLAITS");
         plaitsEngBox[v].setSelectedId (audioProcessor.voice[v].plaitsEngine + 1, juce::dontSendNotification);
-        plaitsHarmSlider[v].setValue (audioProcessor.voice[v].plaitsHarmonics, juce::dontSendNotification);
-        plaitsTimSlider [v].setValue (audioProcessor.voice[v].plaitsTimbre,    juce::dontSendNotification);
-        plaitsMorphSlider[v].setValue(audioProcessor.voice[v].plaitsMorph,     juce::dontSendNotification);
+        // plaitsHarm/Timb/Morph are now APVTS-attached — no manual setValue needed
         plaitsAuxSlider [v].setValue (audioProcessor.voice[v].plaitsAuxBlend,  juce::dontSendNotification);
         plaitsOctBox    [v].setSelectedId (audioProcessor.voice[v].plaitsOctave + 3, juce::dontSendNotification);
         refreshPlaitsMode (v);

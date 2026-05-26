@@ -79,6 +79,7 @@ public:
         float stepVoltages[16] = {};
         bool  stepGates   [16] = {};
         bool  stepGlides  [16] = {};
+        bool  stepAccents [16] = {};   // true = accent boost (VCA +3dB, filter env +, resonance +)
         bool  stepTied    [16] = {};   // true = sustain gate from prev step, no envelope retrigger
         int   stepRepeats [16] = {};   // 0=1× 1=2× 2=3× 3=4× — ratchet count
         int   stepPulses  [16] = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 };  // 1–8 clock pulses per step
@@ -207,6 +208,7 @@ public:
         float stepVoltages[16] = {};
         bool  stepGates   [16] = {};
         bool  stepGlides  [16] = {};
+        bool  stepAccents [16] = {};
         bool  stepTied    [16] = {};
         int   stepRepeats [16] = {};   // 0=1× 1=2× 2=3× 3=4×
         int   stepPulses  [16] = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 };  // 1–8 clock pulses per step
@@ -420,6 +422,9 @@ private:
         double     modEnvClockPos = 0.0;
         bool       modEnvPrevGate = false;
 
+        // ── Accent ───────────────────────────────────────────────────────────────
+        bool   accentActive      = false;  // true for duration of an accented step
+
         // ── Ratchet sub-step state ────────────────────────────────────────────────
         int    ratchetSubStep    = 0;
         double ratchetSubStepDur = 0.0;  // duration of one sub-step in samples
@@ -515,7 +520,8 @@ private:
                               double phaseInc);
     float applyFilter        (float& ic1, float& ic2, float& ic1_2, float& ic2_2,
                               const VoiceParams& vp,
-                              float input, float effectiveCutoff);
+                              float input, float effectiveCutoff,
+                              float resBoost = 0.0f);
     float voltageToQuantizedFreq (const VoiceParams& vp, float voltage,
                                   float rangeOverride = -1.0f);
     int   voltageToMidiNote      (const VoiceParams& vp, float voltage,
