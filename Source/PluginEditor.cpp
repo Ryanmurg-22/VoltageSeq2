@@ -1276,6 +1276,10 @@ void VoltageSeq2AudioProcessorEditor::refreshPlaitsMode (int v)
     plaitsBtn[v].setColour (juce::TextButton::textColourOffId,
         on ? juce::Colour (0xffcc88ff) : juce::Colour (0xffe0e0e0));
 
+    // Visibility changes only make sense on the synth page — bail out here if
+    // we are on any other page to avoid bleeding controls onto it.
+    if (currentPage != 0) return;
+
     // Show Plaits engine selector + parameter knobs only when active
     plaitsEngBox       [v].setVisible (on);
     plaitsHarmSlider   [v].setVisible (on);
@@ -3349,7 +3353,10 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
         // plaitsHarm/Timb/Morph are now APVTS-attached — no manual setValue needed
         plaitsAuxSlider [v].setValue (audioProcessor.voice[v].plaitsAuxBlend,  juce::dontSendNotification);
         plaitsOctBox    [v].setSelectedId (audioProcessor.voice[v].plaitsOctave + 3, juce::dontSendNotification);
-        refreshPlaitsMode (v);
+        // Only fix up Plaits vs OSC visibility when the synth page is actually showing —
+        // calling setVisible() here on any other page would bleed synth controls onto it.
+        if (currentPage == 0)
+            refreshPlaitsMode (v);
     }
 
     // FX page — refresh whichever voice tab is currently selected
