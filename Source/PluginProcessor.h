@@ -183,10 +183,11 @@ public:
 
         // ── Unison / Poly mode ────────────────────────────────────────────────
         enum VoiceMode { Mono = 0, Unison = 1, Poly = 2 };
-        VoiceMode voiceMode    = Mono;
-        int       unisonCount  = 4;      // 2 or 4 slots when mode != Mono
-        float     unisonSpread = 0.15f;  // detune half-width in semitones (0..0.5)
-        float     unisonWidth  = 0.7f;   // stereo pan width (0..1)
+        VoiceMode voiceMode       = Mono;
+        int       unisonCount     = 4;      // 2 or 4 slots when mode != Mono
+        float     unisonSpread    = 0.15f;  // detune half-width in semitones (0..0.5)
+        float     unisonWidth     = 0.7f;   // stereo pan width (0..1)
+        bool      shiftRegChordMode = false; // Poly MIDI: re-fire full register as chord each step
 
         // ── Display / transport (written audio thread, read UI — harmless race)
         int currentStep = 0;

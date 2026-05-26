@@ -864,6 +864,9 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // ── Scan incoming MIDI for pattern triggers ───────────────────────────────
+    // Always clear incoming MIDI from the buffer — we are a MIDI generator, not
+    // a pass-through device.  When MIDI trigger mode is active we also decode
+    // notes C2-D#3 (36-51) as pattern-slot selectors before discarding them.
     {
         const bool anyMidiMode = (patSeq[0].mode == 2 || patSeq[1].mode == 2);
         if (anyMidiMode)
@@ -883,6 +886,12 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     passThrough.addEvent (msg, meta.samplePosition);
             }
             midiMessages.swapWith (passThrough);
+        }
+        else
+        {
+            // No MIDI trigger mode active — discard all incoming MIDI so it
+            // doesn't pollute the generated MIDI output stream.
+            midiMessages.clear();
         }
     }
 
@@ -953,55 +962,88 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 if (vp.voiceMode == VoiceParams::Poly)
                 {
                     // ── POLY: shift-register polyphony ─────────────────────────
-                    // Eviction always fires — on both gate-on and gate-off steps.
-                    // A gate-off step pushes -1 into slot 0, so the oldest real note
-                    // drifts to the evict position and is retired one slot at a time.
-                    // This mirrors the audio register: the chord decays slot-by-slot
-                    // rather than being hard-cleared the instant a rest step fires.
-                    if (vs.midiPolyEvict && vs.midiPolyEvictNote >= 0)
-                    {
-                        midiMessages.addEvent (
-                            juce::MidiMessage::noteOff (ch, vs.midiPolyEvictNote, (juce::uint8)0), s);
-                        vs.midiPolyEvict = false;
-                    }
+                    const int slots = juce::jmin (vp.unisonCount, (int)VoiceState::kMaxSlots);
 
-                    // NoteOn only when a gate is active for this step
-                    if (vs.midiStepGate && vs.midiStepNote >= 0)
+                    if (vp.shiftRegChordMode)
                     {
-                        // After the MIDI register shift, midiPolyNotes[1] holds the
-                        // previous slot-0 note — use it as the glide "from" pitch.
-                        const int prevNote = vs.midiPolyNotes[1];
-                        const bool doGlide = vs.midiStepGlide
-                                             && prevNote >= 0
-                                             && prevNote != vs.midiStepNote;
-
-                        if (doGlide)
+                        // ── CHORD MODE ─────────────────────────────────────────
+                        // Re-fire the entire register as a vertical chord each step.
+                        // 1. NoteOff all sustained notes (slots 1..N-1 held from prev steps)
+                        for (int si = 1; si < slots; ++si)
                         {
-                            const float initBend = juce::jlimit (-kPbRange, kPbRange,
-                                (float)(prevNote - vs.midiStepNote));
-                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101,  0), s);
-                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100,  0), s);
-                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,   6, (int)kPbRange), s);
-                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,  38,  0), s);
-                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101, 127), s);
-                            midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100, 127), s);
-                            midiMessages.addEvent (
-                                juce::MidiMessage::pitchWheel (ch, semToPB (initBend, kPbRange)), s);
-                            midiMessages.addEvent (
-                                juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
-                            vs.midiGlideActive = true;
-                            vs.midiGlideBend   = initBend;
-                            vs.midiGlideTick   = 0;
+                            if (vs.midiPolyNotes[si] >= 0)
+                                midiMessages.addEvent (
+                                    juce::MidiMessage::noteOff (ch, vs.midiPolyNotes[si], (juce::uint8)0), s);
                         }
-                        else
+                        // 2. NoteOff evicted note
+                        if (vs.midiPolyEvict && vs.midiPolyEvictNote >= 0)
                         {
-                            if (vs.midiGlideActive)
-                            {
-                                vs.midiGlideActive = false;
-                                midiMessages.addEvent (juce::MidiMessage::pitchWheel (ch, 0), s);
-                            }
                             midiMessages.addEvent (
-                                juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                                juce::MidiMessage::noteOff (ch, vs.midiPolyEvictNote, (juce::uint8)0), s);
+                            vs.midiPolyEvict = false;
+                        }
+                        // 3. NoteOn ALL slots simultaneously (only on gated steps)
+                        if (vs.midiStepGate)
+                        {
+                            for (int si = 0; si < slots; ++si)
+                            {
+                                if (vs.midiPolyNotes[si] >= 0)
+                                    midiMessages.addEvent (
+                                        juce::MidiMessage::noteOn (ch, vs.midiPolyNotes[si], (juce::uint8)100), s);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // ── SHIFT REGISTER MODE (default) ──────────────────────
+                        // Eviction always fires — on both gate-on and gate-off steps.
+                        // A gate-off step pushes -1 into slot 0, so the oldest real note
+                        // drifts to the evict position and is retired one slot at a time.
+                        if (vs.midiPolyEvict && vs.midiPolyEvictNote >= 0)
+                        {
+                            midiMessages.addEvent (
+                                juce::MidiMessage::noteOff (ch, vs.midiPolyEvictNote, (juce::uint8)0), s);
+                            vs.midiPolyEvict = false;
+                        }
+
+                        // NoteOn only when a gate is active for this step
+                        if (vs.midiStepGate && vs.midiStepNote >= 0)
+                        {
+                            // After the MIDI register shift, midiPolyNotes[1] holds the
+                            // previous slot-0 note — use it as the glide "from" pitch.
+                            const int prevNote = vs.midiPolyNotes[1];
+                            const bool doGlide = vs.midiStepGlide
+                                                 && prevNote >= 0
+                                                 && prevNote != vs.midiStepNote;
+
+                            if (doGlide)
+                            {
+                                const float initBend = juce::jlimit (-kPbRange, kPbRange,
+                                    (float)(prevNote - vs.midiStepNote));
+                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101,  0), s);
+                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100,  0), s);
+                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,   6, (int)kPbRange), s);
+                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch,  38,  0), s);
+                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 101, 127), s);
+                                midiMessages.addEvent (juce::MidiMessage::controllerEvent (ch, 100, 127), s);
+                                midiMessages.addEvent (
+                                    juce::MidiMessage::pitchWheel (ch, semToPB (initBend, kPbRange)), s);
+                                midiMessages.addEvent (
+                                    juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                                vs.midiGlideActive = true;
+                                vs.midiGlideBend   = initBend;
+                                vs.midiGlideTick   = 0;
+                            }
+                            else
+                            {
+                                if (vs.midiGlideActive)
+                                {
+                                    vs.midiGlideActive = false;
+                                    midiMessages.addEvent (juce::MidiMessage::pitchWheel (ch, 0), s);
+                                }
+                                midiMessages.addEvent (
+                                    juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                            }
                         }
                     }
                 }
@@ -1992,7 +2034,7 @@ juce::AudioProcessorEditor* VoltageSeq2AudioProcessor::createEditor()
 }
 
 const juce::String VoltageSeq2AudioProcessor::getName() const { return JucePlugin_Name; }
-bool VoltageSeq2AudioProcessor::acceptsMidi() const  { return false; }
+bool VoltageSeq2AudioProcessor::acceptsMidi() const  { return true; }
 bool VoltageSeq2AudioProcessor::producesMidi() const { return true; }
 bool VoltageSeq2AudioProcessor::isMidiEffect() const { return false; }
 double VoltageSeq2AudioProcessor::getTailLengthSeconds() const { return 0.0; }
@@ -2104,10 +2146,11 @@ static void saveVoiceToXml (juce::XmlElement& el,
     el.setAttribute ("midiOutEn",  (int)vp.midiOutEnabled);
     el.setAttribute ("midiOutCh",  vp.midiOutChannel);
 
-    el.setAttribute ("voiceMode",  (int)vp.voiceMode);
-    el.setAttribute ("uniCount",   vp.unisonCount);
-    el.setAttribute ("uniSpread",  (double)vp.unisonSpread);
-    el.setAttribute ("uniWidth",   (double)vp.unisonWidth);
+    el.setAttribute ("voiceMode",    (int)vp.voiceMode);
+    el.setAttribute ("uniCount",     vp.unisonCount);
+    el.setAttribute ("uniSpread",    (double)vp.unisonSpread);
+    el.setAttribute ("uniWidth",     (double)vp.unisonWidth);
+    el.setAttribute ("srChordMode",  (int)vp.shiftRegChordMode);
 }
 
 static void loadVoiceFromXml (const juce::XmlElement& el,
@@ -2216,10 +2259,11 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
     vp.midiOutEnabled = getB ("midiOutEn", false);
     vp.midiOutChannel = getI ("midiOutCh", 1);
 
-    vp.voiceMode   = (VoltageSeq2AudioProcessor::VoiceParams::VoiceMode)getI ("voiceMode", 0);
-    vp.unisonCount = juce::jlimit (2, 4, getI ("uniCount", 4));
-    vp.unisonSpread= getF ("uniSpread", 0.15f);
-    vp.unisonWidth = getF ("uniWidth",  0.7f);
+    vp.voiceMode          = (VoltageSeq2AudioProcessor::VoiceParams::VoiceMode)getI ("voiceMode", 0);
+    vp.unisonCount        = juce::jlimit (2, 4, getI ("uniCount", 4));
+    vp.unisonSpread       = getF ("uniSpread", 0.15f);
+    vp.unisonWidth        = getF ("uniWidth",  0.7f);
+    vp.shiftRegChordMode  = getB ("srChordMode", false);
 }
 
 //==============================================================================

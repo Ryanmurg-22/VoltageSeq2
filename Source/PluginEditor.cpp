@@ -1150,6 +1150,22 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     addAndMakeVisible (uniCountBtn[v]);
     synthPageComponents.push_back (&uniCountBtn[v]);
 
+    // ── Chord mode button (Poly shift-register: re-fire full register each step) ──
+    chordModeBtn[v].setButtonText ("CHD");
+    chordModeBtn[v].setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff161630));
+    chordModeBtn[v].setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe0e0e0));
+    chordModeBtn[v].onClick = [this, v]()
+    {
+        auto& vp = audioProcessor.voice[v];
+        vp.shiftRegChordMode = !vp.shiftRegChordMode;
+        chordModeBtn[v].setColour (juce::TextButton::buttonColourId,
+            vp.shiftRegChordMode ? juce::Colour (0xff1a5533) : juce::Colour (0xff161630));
+        chordModeBtn[v].setColour (juce::TextButton::textColourOffId,
+            vp.shiftRegChordMode ? juce::Colour (0xff00ff88) : juce::Colour (0xffe0e0e0));
+    };
+    addAndMakeVisible (chordModeBtn[v]);
+    synthPageComponents.push_back (&chordModeBtn[v]);
+
     uniSpreadSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
     uniSpreadSlider[v].setRange (0.0, 0.5, 0.001);
     uniSpreadSlider[v].setValue (vp.unisonSpread, juce::dontSendNotification);
@@ -2831,11 +2847,12 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     // ── Voice mode controls ──────────────────────────────────────────────────
     voiceModeBox   [v].setBounds (900,  sbCY, 68, 18);
     uniCountBtn    [v].setBounds (974,  sbCY, 28, 18);
-    uniSpreadSlider[v].setBounds (1008, sbCY, 90, 18);
-    uniWidthSlider [v].setBounds (1104, sbCY, 90, 18);
+    chordModeBtn   [v].setBounds (1004, sbCY, 36, 18);
+    uniSpreadSlider[v].setBounds (1046, sbCY, 90, 18);
+    uniWidthSlider [v].setBounds (1142, sbCY, 90, 18);
 
     // RUN/STOP moved to far-right end of sub-strip
-    runStopBtn [v]    .setBounds (1204, sbCY, 54, 18);
+    runStopBtn [v]    .setBounds (1240, sbCY, 54, 18);
 
     // ── SEQ panel ─────────────────────────────────────────────────────────────
     rangeSlider[v]  .setBounds (pSeqX + 5,                     cy1 - 2, pSeqW - 10, 22);
@@ -3344,6 +3361,10 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
         uniCountBtn    [v].setButtonText (vp.unisonCount == 2 ? "2V" : "4V");
         uniSpreadSlider[v].setValue (vp.unisonSpread, juce::dontSendNotification);
         uniWidthSlider [v].setValue (vp.unisonWidth,  juce::dontSendNotification);
+        chordModeBtn   [v].setColour (juce::TextButton::buttonColourId,
+            vp.shiftRegChordMode ? juce::Colour (0xff1a5533) : juce::Colour (0xff161630));
+        chordModeBtn   [v].setColour (juce::TextButton::textColourOffId,
+            vp.shiftRegChordMode ? juce::Colour (0xff00ff88) : juce::Colour (0xffe0e0e0));
     }
 
     for (int v = 0; v < 2; ++v)

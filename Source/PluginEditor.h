@@ -410,6 +410,7 @@ private:
     // ── Unison / Poly mode (per voice, on Synth page) ──────────────────────
     juce::ComboBox   voiceModeBox   [2];   // MONO / UNISON / POLY
     juce::TextButton uniCountBtn    [2];   // "2V" / "4V" toggle
+    juce::TextButton chordModeBtn   [2];   // shift-reg chord mode toggle
     juce::Slider     uniSpreadSlider[2];   // detune spread
     juce::Slider     uniWidthSlider [2];   // stereo width
 
