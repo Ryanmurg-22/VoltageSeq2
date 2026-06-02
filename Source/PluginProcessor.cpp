@@ -989,7 +989,7 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                             {
                                 if (vs.midiPolyNotes[si] >= 0)
                                     midiMessages.addEvent (
-                                        juce::MidiMessage::noteOn (ch, vs.midiPolyNotes[si], (juce::uint8)100), s);
+                                        juce::MidiMessage::noteOn (ch, vs.midiPolyNotes[si], vs.midiStepVel), s);
                             }
                         }
                     }
@@ -1029,7 +1029,7 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                 midiMessages.addEvent (
                                     juce::MidiMessage::pitchWheel (ch, semToPB (initBend, kPbRange)), s);
                                 midiMessages.addEvent (
-                                    juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                                    juce::MidiMessage::noteOn (ch, vs.midiStepNote, vs.midiStepVel), s);
                                 vs.midiGlideActive = true;
                                 vs.midiGlideBend   = initBend;
                                 vs.midiGlideTick   = 0;
@@ -1042,7 +1042,7 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                     midiMessages.addEvent (juce::MidiMessage::pitchWheel (ch, 0), s);
                                 }
                                 midiMessages.addEvent (
-                                    juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                                    juce::MidiMessage::noteOn (ch, vs.midiStepNote, vs.midiStepVel), s);
                             }
                         }
                     }
@@ -1070,7 +1070,7 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                             midiMessages.addEvent (
                                 juce::MidiMessage::pitchWheel (ch, semToPB (initBend, kPbRange)), s);
                             midiMessages.addEvent (
-                                juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                                juce::MidiMessage::noteOn (ch, vs.midiStepNote, vs.midiStepVel), s);
                             vs.midiOutNote     = vs.midiStepNote;
                             vs.midiGlideActive = true;
                             vs.midiGlideBend   = initBend;
@@ -1081,7 +1081,7 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                             // Tied pitch-change, no glide: legato overlap
                             // note-on first so the downstream synth sees overlap → no re-attack
                             midiMessages.addEvent (
-                                juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                                juce::MidiMessage::noteOn (ch, vs.midiStepNote, vs.midiStepVel), s);
                             midiMessages.addEvent (
                                 juce::MidiMessage::noteOff (ch, vs.midiOutNote, (juce::uint8)0), s);
                             vs.midiOutNote = vs.midiStepNote;
@@ -1111,7 +1111,7 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                             midiMessages.addEvent (
                                 juce::MidiMessage::pitchWheel (ch, semToPB (initBend, kPbRange)), s);
                             midiMessages.addEvent (
-                                juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                                juce::MidiMessage::noteOn (ch, vs.midiStepNote, vs.midiStepVel), s);
                             vs.midiOutNote     = vs.midiStepNote;
                             vs.midiGlideActive = true;
                             vs.midiGlideBend   = initBend;
@@ -1133,7 +1133,7 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                             if (vs.midiStepGate && vs.midiStepNote >= 0)
                             {
                                 midiMessages.addEvent (
-                                    juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                                    juce::MidiMessage::noteOn (ch, vs.midiStepNote, vs.midiStepVel), s);
                                 vs.midiOutNote = vs.midiStepNote;
                             }
                         }
@@ -1172,7 +1172,7 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 if (vs.midiStepNote >= 0)
                 {
                     midiMessages.addEvent (
-                        juce::MidiMessage::noteOn (ch, vs.midiStepNote, (juce::uint8)100), s);
+                        juce::MidiMessage::noteOn (ch, vs.midiStepNote, vs.midiStepVel), s);
                     rNote = vs.midiStepNote;
                 }
             }
@@ -1358,6 +1358,8 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
                 (_prob >= 99.9f || juce::Random::getSystemRandom().nextFloat() * 100.f < _prob);
             vs.midiStepGate  = gateWithProb;
             vs.accentActive  = gateWithProb && vp.stepAccents[vp.currentStep];
+            vs.midiStepVel   = (juce::uint8) juce::jlimit (1, 127,
+                                   (int)vp.stepVelocity[vp.currentStep]);
             // Update Plaits note + trigger when a new step fires
             if (vp.plaitsEnabled && plaitsState[vi].initialized)
             {
@@ -1820,8 +1822,9 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
                                vp, sumR * norm, effectiveCut, accentRes);
 
     float envelope = vs.adsr.getNextSample();
-    const float accentVCA = vs.accentActive ? 1.4125f : 1.0f;  // +3 dB = 10^(3/20)
-    const float gain = envelope * cenvAmpMod * accentVCA * 0.3f;
+    const float accentVCA  = vs.accentActive ? 1.4125f : 1.0f;   // +3 dB = 10^(3/20)
+    const float velocityVCA = (float)vs.midiStepVel / 100.0f;    // vel 100 = unity, 127 = +2.7dB
+    const float gain = envelope * cenvAmpMod * accentVCA * velocityVCA * 0.3f;
 
     outL = filtL * gain;
     outR = filtR * gain;
@@ -2054,9 +2057,10 @@ static void saveVoiceToXml (juce::XmlElement& el,
     for (int i = 0; i < numSteps; ++i)
     {
         el.setAttribute ("v"  + juce::String (i), (double)vp.stepVoltages[i]);
-        el.setAttribute ("g"  + juce::String (i), vp.stepGates [i]);
-        el.setAttribute ("sl"  + juce::String (i), vp.stepGlides[i]);
-        el.setAttribute ("acc" + juce::String (i), vp.stepAccents[i]);
+        el.setAttribute ("g"   + juce::String (i), vp.stepGates   [i]);
+        el.setAttribute ("sl"  + juce::String (i), vp.stepGlides  [i]);
+        el.setAttribute ("acc" + juce::String (i), vp.stepAccents [i]);
+        el.setAttribute ("vel" + juce::String (i), (double)vp.stepVelocity[i]);
         el.setAttribute ("ti" + juce::String (i), vp.stepTied  [i]);
         el.setAttribute ("rt" + juce::String (i), vp.stepRepeats[i]);
         el.setAttribute ("pl" + juce::String (i), vp.stepPulses [i]);
@@ -2167,9 +2171,10 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
     for (int i = 0; i < numSteps; ++i)
     {
         vp.stepVoltages[i] = getF (("v"  + juce::String (i)).toRawUTF8(), vp.stepVoltages[i]);
-        vp.stepGates   [i] = getB (("g"  + juce::String (i)).toRawUTF8(), vp.stepGates   [i]);
+        vp.stepGates   [i] = getB (("g"   + juce::String (i)).toRawUTF8(), vp.stepGates   [i]);
         vp.stepGlides  [i] = getB (("sl"  + juce::String (i)).toRawUTF8(), vp.stepGlides  [i]);
         vp.stepAccents [i] = getB (("acc" + juce::String (i)).toRawUTF8(), vp.stepAccents [i]);
+        vp.stepVelocity[i] = (float)el.getDoubleAttribute (("vel" + juce::String (i)), 100.0);
         vp.stepTied    [i] = getB (("ti" + juce::String (i)).toRawUTF8(), false);
         vp.stepRepeats [i] = getI (("rt" + juce::String (i)).toRawUTF8(), 0);
         vp.stepPulses  [i] = juce::jlimit (1, 8, getI (("pl" + juce::String (i)).toRawUTF8(), 1));
@@ -2277,6 +2282,7 @@ void VoltageSeq2AudioProcessor::savePattern (int vi, int slot)
     p.used = true;
     for (int i = 0; i < numSteps; ++i) {
         p.stepVoltages   [i] = v.stepVoltages   [i];
+        p.stepVelocity   [i] = v.stepVelocity   [i];
         p.stepGates      [i] = v.stepGates      [i];
         p.stepGlides     [i] = v.stepGlides     [i];
         p.stepAccents    [i] = v.stepAccents    [i];
@@ -2305,6 +2311,7 @@ void VoltageSeq2AudioProcessor::loadPattern (int vi, int slot)
     auto& v = voice[vi];
     for (int i = 0; i < numSteps; ++i) {
         v.stepVoltages   [i] = p.stepVoltages   [i];
+        v.stepVelocity   [i] = p.stepVelocity   [i];
         v.stepGates      [i] = p.stepGates      [i];
         v.stepGlides     [i] = p.stepGlides     [i];
         v.stepAccents    [i] = p.stepAccents    [i];
@@ -2730,6 +2737,7 @@ void VoltageSeq2AudioProcessor::loadPatternAudio (int vi, int slot, bool resetPo
     for (int i = 0; i < numSteps; ++i)
     {
         v.stepVoltages   [i] = p.stepVoltages   [i];
+        v.stepVelocity   [i] = p.stepVelocity   [i];
         v.stepGates      [i] = p.stepGates      [i];
         v.stepGlides     [i] = p.stepGlides     [i];
         v.stepAccents    [i] = p.stepAccents    [i];

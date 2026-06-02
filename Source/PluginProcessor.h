@@ -76,14 +76,16 @@ public:
     struct VoiceParams
     {
         // ── Sequencer ────────────────────────────────────────────────────────
-        float stepVoltages[16] = {};
-        bool  stepGates   [16] = {};
-        bool  stepGlides  [16] = {};
-        bool  stepAccents [16] = {};   // true = accent boost (VCA +3dB, filter env +, resonance +)
-        bool  stepTied    [16] = {};   // true = sustain gate from prev step, no envelope retrigger
-        int   stepRepeats [16] = {};   // 0=1× 1=2× 2=3× 3=4× — ratchet count
-        int   stepPulses  [16] = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 };  // 1–8 clock pulses per step
-        int   stepOctave  [16] = {};                                      // −4..+4, default 0
+        float stepVoltages   [16] = {};
+        float stepVelocity   [16] = { 100,100,100,100,100,100,100,100,
+                                      100,100,100,100,100,100,100,100 }; // 1–127, default 100
+        bool  stepGates      [16] = {};
+        bool  stepGlides     [16] = {};
+        bool  stepAccents    [16] = {};   // true = accent boost (VCA +3dB, filter env +, resonance +)
+        bool  stepTied       [16] = {};   // true = sustain gate from prev step, no envelope retrigger
+        int   stepRepeats    [16] = {};   // 0=1× 1=2× 2=3× 3=4× — ratchet count
+        int   stepPulses     [16] = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 };  // 1–8 clock pulses per step
+        int   stepOctave     [16] = {};                                      // −4..+4, default 0
         float stepProbability[16] = { 100.f,100.f,100.f,100.f,100.f,100.f,100.f,100.f,
                                       100.f,100.f,100.f,100.f,100.f,100.f,100.f,100.f };
         bool  envReset         = false;   // true = hard-reset envelopes on every retrigger
@@ -205,15 +207,17 @@ public:
     // A pattern snapshot — sequencer & quantizer fields only, no synth voice settings
     struct PatternSlot
     {
-        bool  used           = false;
-        float stepVoltages[16] = {};
-        bool  stepGates   [16] = {};
-        bool  stepGlides  [16] = {};
-        bool  stepAccents [16] = {};
-        bool  stepTied    [16] = {};
-        int   stepRepeats [16] = {};   // 0=1× 1=2× 2=3× 3=4×
-        int   stepPulses  [16] = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 };  // 1–8 clock pulses per step
-        int   stepOctave  [16] = {};                                      // −4..+4, default 0
+        bool  used              = false;
+        float stepVoltages  [16] = {};
+        float stepVelocity  [16] = { 100,100,100,100,100,100,100,100,
+                                     100,100,100,100,100,100,100,100 };
+        bool  stepGates     [16] = {};
+        bool  stepGlides    [16] = {};
+        bool  stepAccents   [16] = {};
+        bool  stepTied      [16] = {};
+        int   stepRepeats   [16] = {};   // 0=1× 1=2× 2=3× 3=4×
+        int   stepPulses    [16] = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 };
+        int   stepOctave    [16] = {};
         float stepProbability[16] = { 100.f,100.f,100.f,100.f,100.f,100.f,100.f,100.f,
                                       100.f,100.f,100.f,100.f,100.f,100.f,100.f,100.f };
         int   sequenceLength   = 16;
@@ -434,10 +438,11 @@ private:
 
         // ── MIDI Out step signals (set by processSingleVoiceSample, consumed in processBlock)
         bool  midiStepFired   = false;  // one-shot: new step just advanced
-        bool  midiStepGate    = false;  // gate state of the new step
-        bool  midiStepGlide   = false;  // new step has portamento active
-        bool  midiStepTied    = false;  // new step is a tie → legato, no retrigger
-        int   midiStepNote    = -1;     // quantized MIDI note for new step (-1 = none)
+        bool  midiStepGate     = false;  // gate state of the new step
+        bool  midiStepGlide    = false;  // new step has portamento active
+        bool  midiStepTied     = false;  // new step is a tie → legato, no retrigger
+        int   midiStepNote     = -1;     // quantized MIDI note for new step (-1 = none)
+        juce::uint8 midiStepVel = 100;  // MIDI velocity for the new step (1–127)
         int   midiOutNote     = -1;     // currently sounding MIDI note (MONO/UNISON)
         bool  midiRatchetOff  = false;  // ratchet 50%-point: emit note-off
         bool  midiRatchetOn   = false;  // ratchet sub-step advance: emit note-off + note-on

@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 #include "BackplateData.h"
+#include "VoltageSeqLookAndFeel.h"
 
 //==============================================================================
 // Oscilloscope — live pre-filter waveform with zero-crossing trigger
@@ -196,8 +197,14 @@ public:
 private:
     VoltageSeq2AudioProcessor& audioProcessor;
 
+    // ── LookAndFeel — must be declared before any child components ────────────
+    VoltageSeqLookAndFeel voltageSeqLAF;
+
     // ── Per-voice controls  [vi][step] or [vi] ───────────────────────────────
     juce::Slider     stepKnob  [2][16];
+    juce::Slider     veloKnob  [2][16];   // velocity overlay (same bounds, amber, 1-127)
+    juce::TextButton veloModeBtn[2];      // VELO toggle — switches the voice into velocity view
+    bool             veloMode  [2] = { false, false };
     juce::TextButton gateBtn   [2][16];
     juce::TextButton slideBtn  [2][16];
 
@@ -483,6 +490,78 @@ private:
     void layoutPatternSeqControls();
     void refreshPatSeqMode (int vi);
     void refreshPatPageView (int vi);
+
+    // ── Floating section panels ──────────────────────────────────────────────────
+    struct SectionPanel : public juce::Component
+    {
+        juce::String        title;
+        juce::TextButton    closeBtn  { "×" };
+        std::function<void()> onClose;
+        std::function<void(juce::Graphics&)> paintLabels;   // optional — draws param labels inside panel
+
+        SectionPanel() { addAndMakeVisible (closeBtn); }
+
+        void paint (juce::Graphics& g) override
+        {
+            // Background
+            g.setColour (juce::Colour (0xf4111122));
+            g.fillRoundedRectangle (getLocalBounds().toFloat(), 8.0f);
+            // Amber border
+            g.setColour (juce::Colour (0xffe09040).withAlpha (0.7f));
+            g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 8.0f, 1.5f);
+            // Title bar tint
+            g.setColour (juce::Colour (0x33e09040));
+            g.fillRoundedRectangle (1.0f, 1.0f, (float)getWidth()-2.0f, 24.0f, 7.0f);
+            g.fillRect (1, 12, getWidth()-2, 12);
+            // Title text
+            g.setColour (juce::Colour (0xffe09040));
+            g.setFont (juce::Font ("Helvetica Neue", 11.5f, juce::Font::bold));
+            g.drawText (title, 10, 0, getWidth()-28, 24, juce::Justification::centredLeft);
+            // Optional parameter labels painted by owner
+            if (paintLabels) paintLabels (g);
+        }
+
+        void resized() override
+        {
+            closeBtn.setBounds (getWidth()-22, 4, 17, 17);
+        }
+
+        // Drag to reposition
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            if (e.y < 24)
+                dragger.startDraggingComponent (this, e);
+        }
+        void mouseDrag (const juce::MouseEvent& e) override
+        {
+            dragger.dragComponent (this, e, nullptr);
+        }
+
+    private:
+        juce::ComponentDragger dragger;
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SectionPanel)
+    };
+
+    // ── Floating section panel instances ─────────────────────────────────────
+    SectionPanel  oscPanel[2], envPanel[2], lfoPanel[2];
+    bool          oscPanelOpen[2] = { false, false };
+    bool          envPanelOpen[2] = { false, false };
+    bool          lfoPanelOpen[2] = { false, false };
+
+    juce::TextButton oscPanelBtn[2], envPanelBtn[2], lfoPanelBtn[2];
+
+    void openOscPanel  (int v);
+    void closeOscPanel (int v);
+    void openEnvPanel  (int v);
+    void closeEnvPanel (int v);
+    void openLfoPanel  (int v);
+    void closeLfoPanel (int v);
+
+    // Per-section component lists — controls hidden by default, shown only inside panel
+    std::vector<juce::Component*> oscSectionComps[2];
+    std::vector<juce::Component*> envSectionComps[2];
+    std::vector<juce::Component*> lfoSectionComps[2];
+    void applySectionVisibility (int v);   // hide/show section controls based on panel open state
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     void setupVoice (int v);                          // wire up all controls for one voice
