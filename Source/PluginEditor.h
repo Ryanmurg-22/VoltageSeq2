@@ -345,7 +345,7 @@ private:
     std::vector<juce::Component*> patternPageComponents;
 
     // ── FX page controls ─────────────────────────────────────────────────────
-    // Delay
+    // Tape Delay
     juce::TextButton delayOnBtn;
     juce::TextButton delayPingPongBtn;
     juce::TextButton delaySyncBtn;
@@ -353,6 +353,11 @@ private:
     juce::Slider     delayTimeMsSlider;
     juce::Slider     delayFeedbackSlider;
     juce::Slider     delayMixSlider;
+    // Tape character + Bernoulli gate
+    juce::Slider     delayWowSlider;
+    juce::Slider     delayFlutterSlider;
+    juce::Slider     delaySatSlider;
+    juce::Slider     delayProbSlider;
     // Reverb
     juce::TextButton reverbOnBtn;
     juce::Slider     reverbSizeSlider;

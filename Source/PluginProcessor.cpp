@@ -9,6 +9,11 @@
 //==============================================================================
 static inline float polyBlep (double t, double dt)
 {
+    // dt is the per-sample phase advance. Cross-mod / through-zero FM can push the
+    // net phase increment negative, near-zero, or huge; guard those cases so the
+    // t/dt divisions can never produce inf/NaN (which would poison the filter IIR).
+    dt = std::abs (dt);
+    if (dt < 1.0e-9 || dt > 0.5) return 0.0f;
     if (t < dt)
     {
         t /= dt;
@@ -388,9 +393,11 @@ void VoltageSeq2AudioProcessor::prepareFx (double sr)
     {
         FxState& f = fxs[vi];
 
-        // ── Delay ─────────────────────────────────────────────────────────────
+        // ── Tape Delay ────────────────────────────────────────────────────────
         f.dlyL.assign (maxDly, 0.f); f.dlyR.assign (maxDly, 0.f);
         f.dlyWL = f.dlyWR = 0;
+        // Pre-load smoother from current param so first play has no glide artefact
+        f.smoothedDelayMs = fx[vi].delayTimeMs;
 
         // ── Dattorro Plate Reverb ──────────────────────────────────────────────
         for (int i = 0; i < 4; ++i) {
@@ -418,7 +425,8 @@ void VoltageSeq2AudioProcessor::prepareFx (double sr)
 
 //==============================================================================
 void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamples,
-                                                  FxState& fxs, const FxParams& p)
+                                                  FxState& fxs, const FxParams& p,
+                                                  float lfoTimeModMs)
 {
     // Early-out when this voice has FX bypassed — leave L/R untouched.
     if (p.fxBypass) return;
@@ -432,11 +440,11 @@ void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamp
         float inL = L[s], inR = R[s];
 
         //----------------------------------------------------------------------
-        // DELAY
+        // TAPE DELAY
         //----------------------------------------------------------------------
         if (p.delayOn)
         {
-            // Compute delay in samples
+            // ── Base delay time ───────────────────────────────────────────────
             float delayMs;
             if (p.delaySync)
             {
@@ -447,22 +455,110 @@ void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamp
             else
                 delayMs = p.delayTimeMs;
 
-            const int dSamples = juce::jlimit (1, (int)fxs.dlyL.size() - 1,
-                                               (int)(delayMs * 0.001f * (float)sr));
+            // ── LFO → Delay Time (block-rate) ─────────────────────────────────
+            // Added to the target so the 4 Hz smoother below removes any block-
+            // boundary step, giving click-free tape-style time warble.
+            delayMs = juce::jmax (1.0f, delayMs + lfoTimeModMs);
 
-            // Read
-            float dL = fxRead (fxs.dlyL, fxs.dlyWL, dSamples);
-            float dR = fxRead (fxs.dlyR, fxs.dlyWR, dSamples);
+            // ── Smooth delay time — prevents read-pointer click on knob changes ──
+            // One-pole LP at ~4 Hz (≈40 ms time constant).  The glide also gives a
+            // natural tape pitch-bend when time is adjusted manually.
+            // Pre-compute coefficient once per sample (sr is buffer-constant).
+            const float dtSmooth = 1.0f - std::exp ((float)(-twoPi * 4.0 / sr));
+            fxs.smoothedDelayMs += dtSmooth * (delayMs - fxs.smoothedDelayMs);
 
-            // Write with feedback (ping-pong crosses channels)
-            if (p.delayPingPong) {
-                fxWrite (fxs.dlyL, fxs.dlyWL, inL + dR * p.delayFeedback);
-                fxWrite (fxs.dlyR, fxs.dlyWR, inR + dL * p.delayFeedback);
-            } else {
-                fxWrite (fxs.dlyL, fxs.dlyWL, inL + dL * p.delayFeedback);
-                fxWrite (fxs.dlyR, fxs.dlyWR, inR + dR * p.delayFeedback);
+            // ── Tape wow / flutter LFOs ────────────────────────────────────────
+            // Wow:     ~0.7 Hz,  ±12 ms at full depth
+            // Flutter: ~9.0 Hz,  ±2.5 ms at full depth
+            fxs.tapeWowPh     += 0.7  / sr;  if (fxs.tapeWowPh     > 1.0) fxs.tapeWowPh     -= 1.0;
+            fxs.tapeFlutterPh += 9.0  / sr;  if (fxs.tapeFlutterPh > 1.0) fxs.tapeFlutterPh -= 1.0;
+
+            const float wowMod     = (float)std::sin (fxs.tapeWowPh     * twoPi) * p.delayWow     * 12.0f;
+            const float flutterMod = (float)std::sin (fxs.tapeFlutterPh * twoPi) * p.delayFlutter *  2.5f;
+
+            // Use smoothed time as base — never the raw target
+            const float modDelayMs = juce::jmax (1.0f, fxs.smoothedDelayMs + wowMod + flutterMod);
+            const float dSamplesF  = juce::jlimit (1.0f, (float)(fxs.dlyL.size() - 1),
+                                                   modDelayMs * 0.001f * (float)sr);
+
+            // ── Tape bandwidth limiting (1-pole LP, ~8 kHz) ───────────────────
+            // Applied to the feedback read to simulate HF loss on each pass.
+            const float lpCoeff = 1.0f - std::exp ((float)(-twoPi * 8000.0 / sr));
+
+            // ── Read from delay lines (lerp for smooth pitch modulation) ──────
+            float dL = fxReadLerp (fxs.dlyL, fxs.dlyWL, dSamplesF);
+            float dR = fxReadLerp (fxs.dlyR, fxs.dlyWR, dSamplesF);
+
+            // Apply tape LP to delay return (cumulative HF damping per repeat)
+            fxs.tapeLpL += lpCoeff * (dL - fxs.tapeLpL);
+            fxs.tapeLpR += lpCoeff * (dR - fxs.tapeLpR);
+            dL = fxs.tapeLpL;
+            dR = fxs.tapeLpR;
+
+            // ── Tape saturation — soft-clip input before writing ──────────────
+            // Drive boosts level going in, tanh clips, then normalise back.
+            float sendL = inL, sendR = inR;
+            if (p.delaySat > 0.001f)
+            {
+                const float driveGain = 1.0f + p.delaySat * 4.0f;
+                sendL = std::tanh (sendL * driveGain) / driveGain;
+                sendR = std::tanh (sendR * driveGain) / driveGain;
             }
 
+            // ── Bernoulli gate envelope ────────────────────────────────────────
+            // Three-phase VCA: instant open → hold → release (like a 5V gate into
+            // a short AR envelope opening a VCA into the delay send).
+            //
+            //  PROB = 1.0  → gate always open, no hold/release logic (normal delay)
+            //  PROB < 1.0  → on each successful Bernoulli roll:
+            //                  • instant attack (env = 1.0)
+            //                  • hold ~150 ms (gate stays fully open)
+            //                  • release ~250 ms (smooth tail into delay)
+            //                  • then silent until next successful roll
+            //
+            // Release coefficient: ~5 Hz → τ ≈ 200 ms
+            const float bernRelCoeff = 1.0f - std::exp ((float)(-twoPi * 5.0 / sr));
+
+            if (p.delayProb >= 0.999f)
+            {
+                // Normal mode — gate always open, no gating
+                fxs.bernGateEnv     = 1.0f;
+                fxs.bernHoldSamples = 0;
+                fxs.bernGateTrig    = false;
+            }
+            else if (fxs.bernGateTrig)
+            {
+                // Bernoulli roll won — instant open, start hold phase
+                fxs.bernGateEnv     = 1.0f;
+                fxs.bernGateTrig    = false;
+                fxs.bernHoldSamples = (int)(0.15f * (float)sr);  // 150 ms hold
+            }
+            else if (fxs.bernHoldSamples > 0)
+            {
+                // Hold phase — gate stays fully open while counter counts down
+                --fxs.bernHoldSamples;
+                fxs.bernGateEnv = 1.0f;
+            }
+            else
+            {
+                // Release phase — env decays toward zero
+                fxs.bernGateEnv -= bernRelCoeff * fxs.bernGateEnv;
+                if (fxs.bernGateEnv < 0.0001f) fxs.bernGateEnv = 0.0f;
+            }
+
+            sendL *= fxs.bernGateEnv;
+            sendR *= fxs.bernGateEnv;
+
+            // ── Write with feedback (ping-pong crosses channels) ──────────────
+            if (p.delayPingPong) {
+                fxWrite (fxs.dlyL, fxs.dlyWL, sendL + dR * p.delayFeedback);
+                fxWrite (fxs.dlyR, fxs.dlyWR, sendR + dL * p.delayFeedback);
+            } else {
+                fxWrite (fxs.dlyL, fxs.dlyWL, sendL + dL * p.delayFeedback);
+                fxWrite (fxs.dlyR, fxs.dlyWR, sendR + dR * p.delayFeedback);
+            }
+
+            // ── Wet/dry mix ───────────────────────────────────────────────────
             inL = inL * (1.f - p.delayMix) + dL * p.delayMix;
             inR = inR * (1.f - p.delayMix) + dR * p.delayMix;
         }
@@ -1196,8 +1292,8 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // Apply independent FX chain to each voice.
-    processFxBuffer (chA0, chA1, numSamples, fxs[0], fx[0]);
-    processFxBuffer (chB0, chB1, numSamples, fxs[1], fx[1]);
+    processFxBuffer (chA0, chA1, numSamples, fxs[0], fx[0], lfoDelayMod[0]);
+    processFxBuffer (chB0, chB1, numSamples, fxs[1], fx[1], lfoDelayMod[1]);
 
     // Single-bus fallback: mix Voice B into Voice A (legacy behaviour).
     if (!hasDualOut)
@@ -1357,6 +1453,15 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
             const bool gateWithProb = vp.stepGates[vp.currentStep] &&
                 (_prob >= 99.9f || juce::Random::getSystemRandom().nextFloat() * 100.f < _prob);
             vs.midiStepGate  = gateWithProb;
+
+            // Bernoulli delay gate — roll the dice when a gate fires
+            if (gateWithProb && fx[vi].delayOn)
+            {
+                const float dp = fx[vi].delayProb;
+                if (dp >= 0.999f || juce::Random::getSystemRandom().nextFloat() < dp)
+                    fxs[vi].bernGateTrig = true;
+                // else: gate does not feed delay this step
+            }
             vs.accentActive  = gateWithProb && vp.stepAccents[vp.currentStep];
             vs.midiStepVel   = (juce::uint8) juce::jlimit (1, 127,
                                    (int)vp.stepVelocity[vp.currentStep]);
@@ -1627,22 +1732,28 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
     float lfoHarmMod      = 0.0f;
     float lfoTimbMod      = 0.0f;
     float lfoMorphMod     = 0.0f;
+    float lfoDelayModAcc  = 0.0f;
+    constexpr float maxDelayMs = 250.0f;   // full-depth LFO→Delay-Time swing (±ms)
 
     auto accLFO = [&](float val, int target)
     {
-        if (target == 0) pwmMod      += val * 0.4f;
-        if (target == 1) cutoffMod   += val * 4000.0f;
-        if (target == 2) pitchMod    *= std::pow (2.0f, val / 12.0f);
-        if (target == 3) lfoRangeMod += val;
-        if (target == 4) lfoFMMod    += val;
-        if (target == 5) lfoHarmMod  += val;
-        if (target == 6) lfoTimbMod  += val;
-        if (target == 7) lfoMorphMod += val;
+        if (target == 0) pwmMod         += val * 0.4f;
+        if (target == 1) cutoffMod      += val * 4000.0f;
+        if (target == 2) pitchMod       *= std::pow (2.0f, val / 12.0f);
+        if (target == 3) lfoRangeMod    += val;
+        if (target == 4) lfoFMMod       += val;
+        if (target == 5) lfoHarmMod     += val;
+        if (target == 6) lfoTimbMod     += val;
+        if (target == 7) lfoMorphMod    += val;
+        if (target == 8) lfoDelayModAcc += val * maxDelayMs;
     };
     accLFO (lfo1Val, vp.lfoTarget);
     accLFO (lfo2Val, vp.lfo2Target);
     accLFO (lfo3Val, vp.lfo3Target);
     accLFO (lfo4Val, vp.lfo4Target);
+
+    // Hand the (block-rate) delay-time modulation off to the FX stage.
+    lfoDelayMod[vi] = lfoDelayModAcc;
 
     vs.pulseWidth = juce::jlimit (0.05f, 0.95f, vp.osc1PulseWidth + pwmMod);
 
@@ -1872,7 +1983,13 @@ float VoltageSeq2AudioProcessor::generateOsc1Sample (UnisonSlot& slot, const Voi
     }
 
     slot.osc1Phase += phaseInc;
-    if (slot.osc1Phase >= 1.0) slot.osc1Phase -= 1.0;
+    // Wrap into [0,1) for ANY increment — cross-mod/FM can make phaseInc negative
+    // or larger than 1.0, which a single subtraction cannot handle.
+    slot.osc1Phase -= std::floor (slot.osc1Phase);
+
+    // Final safety net: never let a non-finite sample escape into the filter,
+    // where it would permanently poison the IIR state and silence the voice.
+    if (! std::isfinite (output)) output = 0.0f;
     return output;
 }
 
@@ -1896,7 +2013,7 @@ float VoltageSeq2AudioProcessor::generateOsc2Sample (UnisonSlot& slot, const Voi
     float sB = wavetables[tableB][indexA] + frac * (wavetables[tableB][indexB] - wavetables[tableB][indexA]);
 
     slot.osc2Phase += phaseInc;
-    if (slot.osc2Phase >= 1.0) slot.osc2Phase -= 1.0;
+    slot.osc2Phase -= std::floor (slot.osc2Phase);   // wrap [0,1) for any increment
     return sA + blend * (sB - sA);
 }
 
@@ -2488,6 +2605,10 @@ void VoltageSeq2AudioProcessor::getStateInformation (juce::MemoryBlock& destData
         fxEl->setAttribute ("delayFeedback", p.delayFeedback);
         fxEl->setAttribute ("delayPingPong", (int)p.delayPingPong);
         fxEl->setAttribute ("delayMix",      p.delayMix);
+        fxEl->setAttribute ("delayWow",      p.delayWow);
+        fxEl->setAttribute ("delayFlutter",  p.delayFlutter);
+        fxEl->setAttribute ("delaySat",      p.delaySat);
+        fxEl->setAttribute ("delayProb",     p.delayProb);
         fxEl->setAttribute ("reverbOn",      (int)p.reverbOn);
         fxEl->setAttribute ("reverbSize",    p.reverbSize);
         fxEl->setAttribute ("reverbDamping", p.reverbDamping);
@@ -2648,6 +2769,10 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
         p.delayFeedback = (float)fxEl->getDoubleAttribute("delayFeedback", 0.40);
         p.delayPingPong = (bool)fxEl->getIntAttribute    ("delayPingPong", 0);
         p.delayMix      = (float)fxEl->getDoubleAttribute("delayMix",      0.30);
+        p.delayWow      = (float)fxEl->getDoubleAttribute("delayWow",      0.0);
+        p.delayFlutter  = (float)fxEl->getDoubleAttribute("delayFlutter",  0.0);
+        p.delaySat      = (float)fxEl->getDoubleAttribute("delaySat",      0.0);
+        p.delayProb     = (float)fxEl->getDoubleAttribute("delayProb",     1.0);
         p.reverbOn      = (bool)fxEl->getIntAttribute    ("reverbOn",      0);
         p.reverbSize    = (float)fxEl->getDoubleAttribute("reverbSize",    0.75);
         p.reverbDamping = (float)fxEl->getDoubleAttribute("reverbDamping", 0.40);

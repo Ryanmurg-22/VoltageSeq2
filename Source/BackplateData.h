@@ -1,98 +1,171 @@
 #pragma once
-// Auto-generated: VoltageSEQ2 backplate SVG embedded as a C++ raw string.
-// Rendered behind all plugin UI panels via juce::Drawable::createFromSVG().
-// NOTE: JUCE's SVG renderer ignores <filter> (glow) elements;
-// all gradients, shapes, text and use-references render correctly.
-//
-// Header strip is 40 SVG units tall out of 1300 total height.
-// Mapped to the 710px render area (y=28..738), that = ~21.8px on screen,
-// which fits neatly inside the 22px gap before the VOICE A sequencer strip.
+// VoltageSEQ2 backplate v15 — two-column layout fills freed zone reliably.
+// JUCE SVG renderer ignores letter-spacing AND textLength, so we fill space with
+// actual design elements: VoltageSEQ left + large cyan "2" pill right.
+// Zone: SVG x 1950→2575  screen x ~1125→~1485
 
 static const char* const kBackplateSVG = R"SVG(
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2600 1300" width="2600" height="1300"
-     font-family="'Helvetica Neue', Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2600 1300" width="2600" height="1300" font-family="'Helvetica Neue', Arial, sans-serif">
   <defs>
-    <linearGradient id="headerBg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%"  stop-color="#0d1218"/>
-      <stop offset="60%" stop-color="#070a0e"/>
-      <stop offset="100%" stop-color="#04060a"/>
+    <linearGradient id="mintLine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#5fc2cf" stop-opacity="0"/>
+      <stop offset="50%"  stop-color="#5fc2cf" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#5fc2cf" stop-opacity="0"/>
     </linearGradient>
-    <linearGradient id="topBevel" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%"  stop-color="#3a444c" stop-opacity="0.85"/>
-      <stop offset="100%" stop-color="#3a444c" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="cyanLine" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%"   stop-color="#00e5ff" stop-opacity="0"/>
-      <stop offset="50%"  stop-color="#00e5ff" stop-opacity="0.9"/>
-      <stop offset="100%" stop-color="#00e5ff" stop-opacity="0"/>
+    <linearGradient id="mintLineL" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#5fc2cf" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#5fc2cf" stop-opacity="0"/>
     </linearGradient>
     <radialGradient id="ledOn" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0%"   stop-color="#c5fbff"/>
-      <stop offset="35%"  stop-color="#00e5ff"/>
-      <stop offset="100%" stop-color="#002a33"/>
+      <stop offset="0%"  stop-color="#daf6fa"/>
+      <stop offset="35%" stop-color="#5fc2cf"/>
+      <stop offset="100%" stop-color="#0a2f33"/>
     </radialGradient>
     <radialGradient id="ledOff" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0%"   stop-color="#1c252c"/>
-      <stop offset="100%" stop-color="#080b0e"/>
+      <stop offset="0%"  stop-color="#15131e"/>
+      <stop offset="100%" stop-color="#08070c"/>
     </radialGradient>
+    <radialGradient id="brandHalo" cx="0.5" cy="0.5" r="0.6">
+      <stop offset="0%"   stop-color="#5fc2cf" stop-opacity="0.14"/>
+      <stop offset="60%"  stop-color="#5fc2cf" stop-opacity="0.03"/>
+      <stop offset="100%" stop-color="#5fc2cf" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Square-wave S gradient: white on outer legs, mint on the crossbar -->
+    <linearGradient id="sWave" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#e6fafc"/>
+      <stop offset="45%"  stop-color="#5fc2cf"/>
+      <stop offset="55%"  stop-color="#5fc2cf"/>
+      <stop offset="100%" stop-color="#e6fafc"/>
+    </linearGradient>
   </defs>
 
-  <!-- Full plate: pure black -->
-  <rect width="2600" height="1300" fill="#000000"/>
+  <!-- BASE -->
+  <rect width="2600" height="1300" fill="#0e0b1c"/>
 
-  <!-- ── Header strip: 40 SVG units tall ─────────────────────────────────── -->
-  <rect x="0" y="0" width="2600" height="40" fill="url(#headerBg)"/>
-  <!-- top bevel -->
-  <rect x="0" y="0" width="2600" height="2"  fill="url(#topBevel)" opacity="0.55"/>
-  <!-- cyan baseline — sits right at the bottom of the header -->
-  <rect x="0" y="39" width="2600" height="1" fill="url(#cyanLine)" opacity="0.7"/>
+  <!-- TOP HEADER -->
+  <ellipse cx="1300" cy="46" rx="300" ry="20" fill="#5fc2cf" opacity="0.08"/>
+  <g transform="translate(1135, 46)">
+    <polygon points="-14,0 -7,-12.1 7,-12.1 14,0 7,12.1 -7,12.1"
+             fill="none" stroke="#5fc2cf" stroke-width="1.4" opacity="0.95"/>
+    <text x="0" y="5" font-size="14" font-weight="900" text-anchor="middle" fill="#e6fafc">M</text>
+  </g>
+  <text x="1162" y="52" font-size="18" font-weight="800" fill="#e6fafc">MURGATROYD INSTRUMENTS</text>
+  <rect x="790"  y="46" width="310" height="1" fill="url(#mintLine)" opacity="0.45"/>
+  <rect x="1545" y="46" width="310" height="1" fill="url(#mintLine)" opacity="0.45"/>
 
-  <!-- ── LEFT: M-hex logo + wordmark ─────────────────────────────────────── -->
-  <g transform="translate(40, 20)">
+  <!-- TOP-RIGHT STATUS -->
+  <circle cx="2440" cy="42" r="5" fill="url(#ledOn)"/>
+  <circle cx="2465" cy="42" r="5" fill="url(#ledOn)"/>
+  <circle cx="2490" cy="42" r="5" fill="url(#ledOff)"/>
+  <circle cx="2515" cy="42" r="5" fill="url(#ledOff)"/>
+  <text x="2540" y="46" font-size="12" font-weight="600" fill="#8a96a0" text-anchor="end">UNIT  ·  VS2-0001-A</text>
+  <text x="2540" y="62" font-size="10" fill="#5a666f" text-anchor="end">FW 4.3   ·   +12V / 320 mA</text>
+
+  <!-- ================================================================
+       NAMEPLATE — two-column design fills full freed zone
+       Left column  (x 1960–2350): Manufacturer + VoltageSEQ wordmark
+       Right column (x 2370–2570): Large "2" pill + unit info
+       Full-width rows at top and bottom
+       ================================================================ -->
+
+  <!-- Composition shifted +100 SVG units right vs v15 to balance in freed zone -->
+  <ellipse cx="2340" cy="950" rx="380" ry="275" fill="url(#brandHalo)"/>
+
+  <!-- Top hairline -->
+  <rect x="2060" y="672" width="510" height="1.5" fill="url(#mintLine)" opacity="0.6"/>
+
+  <!-- ── LEFT COLUMN ── -->
+
+  <!-- Manufacturer row  y=715 -->
+  <g transform="translate(2082, 715)">
+    <polygon points="-16,0 -8,-13.9 8,-13.9 16,0 8,13.9 -8,13.9"
+             fill="none" stroke="#5fc2cf" stroke-width="1.4" opacity="0.95"/>
     <polygon points="-10,0 -5,-8.7 5,-8.7 10,0 5,8.7 -5,8.7"
-             fill="none" stroke="#00e5ff" stroke-width="1.2" opacity="0.95"/>
-    <polygon points="-6.5,0 -3.25,-5.6 3.25,-5.6 6.5,0 3.25,5.6 -3.25,5.6"
-             fill="none" stroke="#00e5ff" stroke-width="0.4" opacity="0.45"/>
-    <text x="0" y="4" font-size="10" font-weight="900" text-anchor="middle" fill="#e8f9ff">M</text>
+             fill="none" stroke="#5fc2cf" stroke-width="0.5" opacity="0.35"/>
+    <text x="0" y="5" font-size="15" font-weight="900" text-anchor="middle" fill="#e6fafc">M</text>
   </g>
-  <text x="60" y="23" font-size="10" font-weight="700" letter-spacing="3" fill="#e8f9ff">MURGATROYD INSTRUMENTS</text>
-  <line x1="60" y1="28" x2="268" y2="28" stroke="#00e5ff" stroke-opacity="0.22" stroke-width="0.5"/>
+  <text x="2108" y="708" font-size="18" font-weight="800" fill="#e6fafc">MURGATROYD INSTRUMENTS</text>
+  <text x="2108" y="728" font-size="9.5" font-weight="500" fill="#5a666f">MANUFACTURER  ·  EUROPEAN MODULAR DIVISION</text>
 
-  <!-- ── CENTER: VOLTAGE + SEQ·2 pill ────────────────────────────────────── -->
-  <text x="1300" y="26" font-size="20" font-weight="900" letter-spacing="4"
-        fill="#e6fbff" text-anchor="middle">VOLTAGE</text>
-  <g transform="translate(1411, 11)">
-    <rect x="0" y="0" width="58" height="20" rx="3" fill="#00e5ff"/>
-    <text x="29" y="14" font-size="12" font-weight="900" letter-spacing="2"
-          fill="#02161b" text-anchor="middle">SEQ·2</text>
-  </g>
+  <!-- Divider  y=752 -->
+  <rect x="2060" y="752" width="510" height="1" fill="url(#mintLine)" opacity="0.28"/>
 
-  <!-- Chevron bookends -->
-  <g stroke="#00e5ff" stroke-width="1.1" fill="none">
-    <polyline points="1105,20 1118,12 1118,28" opacity="0.55"/>
-    <polyline points="1090,20 1103,12 1103,28" opacity="0.35"/>
-    <polyline points="1075,20 1088,12 1088,28" opacity="0.18"/>
-  </g>
-  <g stroke="#00e5ff" stroke-width="1.1" fill="none">
-    <polyline points="1487,20 1474,12 1474,28" opacity="0.55"/>
-    <polyline points="1502,20 1489,12 1489,28" opacity="0.35"/>
-    <polyline points="1517,20 1504,12 1504,28" opacity="0.18"/>
-  </g>
+  <!-- PRODUCT caption  y=778 -->
+  <text x="2108" y="778" font-size="10" font-weight="700" fill="#5fc2cf">· PRODUCT ·</text>
 
-  <!-- ── RIGHT: status LEDs + serial ─────────────────────────────────────── -->
-  <circle cx="2200" cy="19" r="3"   fill="url(#ledOn)"/>
-  <text x="2200" y="31" font-size="6" letter-spacing="1" fill="#7d8a93" text-anchor="middle">PWR</text>
-  <circle cx="2228" cy="19" r="3"   fill="url(#ledOn)"/>
-  <text x="2228" y="31" font-size="6" letter-spacing="1" fill="#7d8a93" text-anchor="middle">CLK</text>
-  <circle cx="2256" cy="19" r="3"   fill="url(#ledOff)"/>
-  <text x="2256" y="31" font-size="6" letter-spacing="1" fill="#7d8a93" text-anchor="middle">CV</text>
-  <circle cx="2284" cy="19" r="3"   fill="url(#ledOff)"/>
-  <text x="2284" y="31" font-size="6" letter-spacing="1" fill="#7d8a93" text-anchor="middle">MIDI</text>
+  <!-- VoltageSEQ logo — "VOLTAGE" all-caps + square-wave S + "EQ"
+       VOLTAGE: all-caps Helvetica Neue Heavy — bolder, more designed feel than mixed-case.
+       S: stepped square-wave path with mint crossbar accent.
+       EQ: matches VOLTAGE weight/size.
+       V1 pill: version badge replaces old "2".
+  -->
 
-  <text x="2540" y="17" font-size="8"  font-weight="600" letter-spacing="2"
-        fill="#9aa7b0" text-anchor="end">UNIT · VS2-0001-A</text>
-  <text x="2540" y="29" font-size="7"  letter-spacing="2"
-        fill="#5a666f"  text-anchor="end">FW 2.0.4  ·  +12V / 320mA</text>
+  <!-- "VOLTAGE" — all-caps, heavy weight -->
+  <text x="2048" y="875" font-size="64" font-weight="900"
+        font-family="'Helvetica Neue', 'Arial Black', Arial, sans-serif"
+        fill="#5fc2cf" opacity="0.18">VOLTAGE</text>
+  <text x="2048" y="875" font-size="64" font-weight="900"
+        font-family="'Helvetica Neue', 'Arial Black', Arial, sans-serif"
+        fill="#e6fafc">VOLTAGE</text>
+
+  <!-- Square-wave S
+       "VOLTAGE" at 64pt ≈ 298 units wide → ends ~x=2346.
+       Path sits in the natural gap between VOLTAGE and EQ.
+       x_l=2350  x_r=2386  y_top=831  y_mid=853  y_bot=876
+  -->
+  <!-- Glow -->
+  <path d="M 2386,831 H 2350 V 853 H 2386 V 876 H 2350"
+        stroke="#5fc2cf" stroke-width="16" fill="none" opacity="0.13"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Main S — gradient white→mint→white -->
+  <path d="M 2386,831 H 2350 V 853 H 2386 V 876 H 2350"
+        stroke="url(#sWave)" stroke-width="7" fill="none"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- "EQ" — all-caps, matches VOLTAGE -->
+  <text x="2394" y="875" font-size="64" font-weight="900"
+        font-family="'Helvetica Neue', 'Arial Black', Arial, sans-serif"
+        fill="#5fc2cf" opacity="0.18">EQ</text>
+  <text x="2394" y="875" font-size="64" font-weight="900"
+        font-family="'Helvetica Neue', 'Arial Black', Arial, sans-serif"
+        fill="#e6fafc">EQ</text>
+
+  <!-- Tagline  y=910 -->
+  <text x="2065" y="910" font-size="9.5" fill="#7d8a93">POLYRHYTHMIC  ·  DUAL VOICE  ·  CV-A + CV-B  ·  16 STEPS</text>
+
+  <!-- ── RIGHT COLUMN: "2" pill anchored to right edge ── -->
+
+  <!-- V1 version pill — compact badge, sits after EQ text -->
+  <rect x="2490" y="843" width="42" height="40" rx="5" fill="#5fc2cf" opacity="0.92"/>
+  <text x="2511" y="869" font-size="17" font-weight="900"
+        fill="#071518" text-anchor="middle">V1</text>
+
+  <!-- Unit info below pill -->
+  <text x="2511" y="900" font-size="8.5" fill="#5a666f" text-anchor="middle">VS1-0001-A</text>
+
+  <!-- Mid hairline (ctrl strip boundary) -->
+  <rect x="2060" y="948" width="510" height="1" fill="url(#mintLine)" opacity="0.25"/>
+
+  <!-- ── LOWER SECTION (ctrl strip B) ── -->
+
+  <!-- PROUDLY MADE IN SOUTH AFRICA centred in zone -->
+  <text x="2315" y="1010" font-size="21" font-weight="800" fill="#5fc2cf" text-anchor="middle">PROUDLY MADE IN SOUTH AFRICA</text>
+
+  <!-- Sub-banner -->
+  <text x="2315" y="1044" font-size="10.5" font-weight="500" fill="#5a666f" text-anchor="middle">ELECTRONIC  ·  INSTRUMENT  ·  DESIGN</text>
+
+  <!-- Lower hairline -->
+  <rect x="2060" y="1078" width="510" height="1" fill="url(#mintLine)" opacity="0.28"/>
+
+  <!-- Technical footer rows -->
+  <text x="2068" y="1105" font-size="9" font-weight="600" fill="#5a666f">MK · II  ·  SERIES 2  ·  © MMXXVI  ·  MADE IN EU</text>
+  <text x="2562" y="1105" font-size="9" fill="#5a666f" text-anchor="end">VS2-REV-C</text>
+
+  <text x="2068" y="1135" font-size="8.5" fill="#313840">AUDIO OUT: 2× STEREO TRS  ·  CV OUT: 2× 0–10V  ·  GATE: 5V TTL  ·  USB MIDI  ·  VST3/AU</text>
+
+  <!-- Bottom hairline -->
+  <rect x="2060" y="1165" width="510" height="1" fill="url(#mintLine)" opacity="0.18"/>
+
 </svg>
 )SVG";

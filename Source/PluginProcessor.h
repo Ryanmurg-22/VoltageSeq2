@@ -313,7 +313,7 @@ public:
         // Per-voice bypass — when true, voice passes dry (no delay/reverb/chorus)
         bool  fxBypass      = false;
 
-        // Delay
+        // Tape Delay
         bool  delayOn       = false;
         bool  delaySync     = true;
         int   delaySyncDiv  = 2;       // index into ppqDivTable (0=1/4 .. 6=1/16.)
@@ -321,6 +321,12 @@ public:
         float delayFeedback = 0.40f;   // 0..0.95
         bool  delayPingPong = false;
         float delayMix      = 0.30f;
+        // Tape character
+        float delayWow      = 0.0f;    // 0..1 — slow speed drift (±12ms @ 1.0)
+        float delayFlutter  = 0.0f;    // 0..1 — fast speed instability (±3ms @ 1.0)
+        float delaySat      = 0.0f;    // 0..1 — tape saturation / drive into buffer
+        // Bernoulli gate send (1.0 = every gate feeds delay; <1.0 = probabilistic)
+        float delayProb     = 1.0f;    // 0..1
 
         // Reverb (Dattorro plate)
         bool  reverbOn      = false;
@@ -395,6 +401,10 @@ private:
     // Per-voice cross-mod sample storage
     float crossModSample[numVoices] = {};
 
+    // Per-voice LFO→Delay-Time modulation (ms), sampled at block rate from the
+    // per-sample voice loop and applied in processFxBuffer.
+    float lfoDelayMod[numVoices] = {};
+
     struct VoiceState
     {
         // ── Per-slot oscillator state (oscillators only; filter/env are shared)
@@ -459,9 +469,18 @@ private:
     VoiceState vstate[numVoices];
 
     struct FxState {
-        // ── Stereo Delay ─────────────────────────────────────────────────────────
+        // ── Tape Delay ────────────────────────────────────────────────────────────
         std::vector<float> dlyL, dlyR;
-        int dlyWL = 0, dlyWR = 0;
+        int    dlyWL = 0, dlyWR = 0;
+        double tapeWowPh     = 0.0;    // wow LFO phase  (0..1)
+        double tapeFlutterPh = 0.0;    // flutter LFO phase (0..1)
+        float  tapeLpL       = 0.0f;   // tape 1-pole LP state left
+        float  tapeLpR       = 0.0f;   // tape 1-pole LP state right
+        float  smoothedDelayMs = 375.0f; // LP-smoothed delay time — prevents read-pointer clicks
+        // Bernoulli gate envelope
+        float  bernGateEnv      = 1.0f;  // current VCA level (0..1)
+        bool   bernGateTrig     = false; // set by step-trigger on audio thread
+        int    bernHoldSamples  = 0;     // samples remaining in gate hold phase
 
         // ── Dattorro Plate Reverb ─────────────────────────────────────────────────
         // Input diffusers (4 all-pass chains)
@@ -504,7 +523,8 @@ private:
     void  buildWavetables();
     void  prepareFx (double sampleRate);
     void  processFxBuffer (float* L, float* R, int numSamples,
-                           FxState& state, const FxParams& params);
+                           FxState& state, const FxParams& params,
+                           float lfoTimeModMs = 0.0f);
 
     // Process one sample of one voice; writes stereo output to outL and outR.
     void  processSingleVoiceSample (int vi, bool running,

@@ -738,11 +738,28 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     resetBtn[v].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2a2050));
     resetBtn[v].onClick = [this, v]()
     {
+        auto& vp = audioProcessor.voice[v];
+
+        // Full per-step clear back to a blank pattern.
         for (int i = 0; i < 16; ++i)
         {
-            audioProcessor.voice[v].stepVoltages[i] = 0.0f;
-            stepKnob[v][i].setValue (0.0, juce::dontSendNotification);
+            vp.stepVoltages[i]    = 0.0f;
+            vp.stepGates[i]       = false;
+            vp.stepGlides[i]      = false;
+            vp.stepAccents[i]     = false;
+            vp.stepTied[i]        = false;
+            vp.stepRepeats[i]     = 0;       // 1× — no ratchet
+            vp.stepPulses[i]      = 1;
+            vp.stepOctave[i]      = 0;
+            vp.stepVelocity[i]    = 100.0f;
+            vp.stepProbability[i] = 100.0f;
         }
+        vp.unipolar = false;                 // back to bipolar default
+
+        // Push step pitches (APVTS-backed) to the params/host, then refresh the
+        // non-APVTS UI (gate buttons, velocity overlays, bipolar toggle).
+        audioProcessor.syncAPVTSFromVoice (v);
+        syncUIFromProcessor();
     };
     addAndMakeVisible (resetBtn[v]);
 
@@ -1064,6 +1081,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
         box.addItem ("PL Harm",  6);
         box.addItem ("PL Timb",  7);
         box.addItem ("PL Morph", 8);
+        box.addItem ("Delay",    9);   // index 8 → LFO→Delay Time
     };
 
     // Helper: build a waveform combo
@@ -1951,6 +1969,25 @@ void VoltageSeq2AudioProcessorEditor::setupFxControls()
     delayMixSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].delayMix = (float)delayMixSlider.getValue(); };
     addFx (delayMixSlider);
 
+    // Tape character knobs
+    setupKnob (delayWowSlider, 0.0, 1.0, 0.0);
+    delayWowSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].delayWow = (float)delayWowSlider.getValue(); };
+    addFx (delayWowSlider);
+
+    setupKnob (delayFlutterSlider, 0.0, 1.0, 0.0);
+    delayFlutterSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].delayFlutter = (float)delayFlutterSlider.getValue(); };
+    addFx (delayFlutterSlider);
+
+    setupKnob (delaySatSlider, 0.0, 1.0, 0.0);
+    delaySatSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].delaySat = (float)delaySatSlider.getValue(); };
+    addFx (delaySatSlider);
+
+    // Bernoulli gate probability knob — amber accent to signal it's special
+    setupKnob (delayProbSlider, 0.0, 1.0, 1.0);
+    delayProbSlider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xffe09040));
+    delayProbSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].delayProb = (float)delayProbSlider.getValue(); };
+    addFx (delayProbSlider);
+
     // ── Reverb ────────────────────────────────────────────────────────────────
     reverbOnBtn.setButtonText ("OFF");
     reverbOnBtn.setClickingTogglesState (true);
@@ -2033,15 +2070,22 @@ void VoltageSeq2AudioProcessorEditor::layoutFxPage()
     // Controls start at py=90, leaving ~30px gap below the tab row
     constexpr int py = 90, dR2 = 90 + 150;
 
-    // DELAY: x=10..440
-    constexpr int dX=10;
-    delayOnBtn        .setBounds (dX,        py+10,  80, 26);
-    delaySyncBtn      .setBounds (dX+90,     py+10,  80, 26);
-    delaySyncDivBox   .setBounds (dX+180,    py+10, 100, 26);
-    delayPingPongBtn  .setBounds (dX+290,    py+10,  80, 26);
-    delayTimeMsSlider .setBounds (dX+10,     dR2,    52, 52);
-    delayFeedbackSlider.setBounds(dX+80,     dR2,    52, 52);
-    delayMixSlider    .setBounds (dX+150,    dR2,    52, 52);
+    // DELAY — two rows, self-contained in x=10..440
+    constexpr int dX  = 10;
+    constexpr int dR3 = dR2 + 76;    // second knob row (tape char + gate)
+    delayOnBtn         .setBounds (dX,      py+10,  80, 26);
+    delaySyncBtn       .setBounds (dX+90,   py+10,  80, 26);
+    delaySyncDivBox    .setBounds (dX+180,  py+10, 100, 26);
+    delayPingPongBtn   .setBounds (dX+290,  py+10,  80, 26);
+    // Row 1: core controls
+    delayTimeMsSlider  .setBounds (dX+10,   dR2,    52, 52);
+    delayFeedbackSlider.setBounds (dX+80,   dR2,    52, 52);
+    delayMixSlider     .setBounds (dX+150,  dR2,    52, 52);
+    // Row 2: tape character + Bernoulli gate
+    delayWowSlider     .setBounds (dX+10,   dR3,    52, 52);
+    delayFlutterSlider .setBounds (dX+80,   dR3,    52, 52);
+    delaySatSlider     .setBounds (dX+150,  dR3,    52, 52);
+    delayProbSlider    .setBounds (dX+240,  dR3,    52, 52);
 
     // REVERB: x=460..890
     constexpr int rX=460;
@@ -2096,7 +2140,11 @@ void VoltageSeq2AudioProcessorEditor::syncFxPageFromVoice()
     delayPingPongBtn.setToggleState (p.delayPingPong, juce::dontSendNotification);
     delayPingPongBtn.setColour (juce::TextButton::buttonColourId,
                                 p.delayPingPong ? juce::Colour(0xff5566dd) : gateOffColour);
-    delayMixSlider.setValue (p.delayMix, juce::dontSendNotification);
+    delayMixSlider.setValue    (p.delayMix,     juce::dontSendNotification);
+    delayWowSlider.setValue    (p.delayWow,     juce::dontSendNotification);
+    delayFlutterSlider.setValue(p.delayFlutter, juce::dontSendNotification);
+    delaySatSlider.setValue    (p.delaySat,     juce::dontSendNotification);
+    delayProbSlider.setValue   (p.delayProb,    juce::dontSendNotification);
 
     // Reverb
     reverbOnBtn.setToggleState (p.reverbOn, juce::dontSendNotification);
@@ -2152,6 +2200,12 @@ void VoltageSeq2AudioProcessorEditor::showPage (int page)
             // their floating panels. The bulk-show above would have forced them
             // visible, so re-apply the collapsed state here.
             applySectionVisibility (v);
+
+            // The bulk-show also forces the panel overlays themselves visible.
+            // Restore each panel to its actual open/closed state.
+            oscPanel[v].setVisible (oscPanelOpen[v]);
+            envPanel[v].setVisible (envPanelOpen[v]);
+            lfoPanel[v].setVisible (lfoPanelOpen[v]);
         }
     }
 
@@ -2357,7 +2411,7 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
             g.setColour (accent);
             g.drawText (title, px, 56, pw, 16, juce::Justification::centred);
         };
-        drawFxPanel (10,  430, "DELAY",  juce::Colour (0xff00d4aa));
+        drawFxPanel (10,  320, "DELAY",  juce::Colour (0xff00d4aa));   // two-row layout
         drawFxPanel (460, 430, "REVERB", juce::Colour (0xffaa44ff));
         drawFxPanel (960, 300, "CHORUS", juce::Colour (0xffe09040));
         drawFxPanel (1290,200, "MASTER", juce::Colour (0xffe94560));
@@ -2366,10 +2420,19 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         constexpr int lblY = 224;
         g.setFont (juce::Font (9.f));
         g.setColour (textColour);
-        // Delay labels
-        g.drawText ("TIME",     10+10,  lblY, 52, 12, juce::Justification::centred);
-        g.drawText ("FEEDBK",   10+80,  lblY, 52, 12, juce::Justification::centred);
-        g.drawText ("MIX",      10+150, lblY, 52, 12, juce::Justification::centred);
+        // Tape Delay labels — row 1 (core)
+        g.drawText ("TIME",    10+10,  lblY,      52, 12, juce::Justification::centred);
+        g.drawText ("FEEDBK",  10+80,  lblY,      52, 12, juce::Justification::centred);
+        g.drawText ("MIX",     10+150, lblY,      52, 12, juce::Justification::centred);
+        // Row 2 labels (tape char + gate) sit below row 2 knobs (lblY + 76)
+        constexpr int lblY2 = lblY + 76;
+        g.drawText ("WOW",     10+10,  lblY2,     52, 12, juce::Justification::centred);
+        g.drawText ("FLUTTER", 10+80,  lblY2,     52, 12, juce::Justification::centred);
+        g.drawText ("SAT",     10+150, lblY2,     52, 12, juce::Justification::centred);
+        // Bernoulli gate — amber label
+        g.setColour (juce::Colour (0xffe09040));
+        g.drawText ("PROB",    10+240, lblY2,     52, 12, juce::Justification::centred);
+        g.setColour (textColour);
         // Reverb labels
         g.drawText ("SIZE",    460+10,  lblY, 52, 12, juce::Justification::centred);
         g.drawText ("DAMP",    460+80,  lblY, 52, 12, juce::Justification::centred);
@@ -2717,11 +2780,18 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         return;
     }
 
-    // Backplate drawn once for the full content area
+    // Backplate drawn once for the full content area.
+    // stretchToFit fills the rect exactly (2600x1300 SVG → 1500x710 screen, ratio ~2:1 vs 2.11:1,
+    // so distortion is minimal and the design was built for this mapping).
     if (backplate != nullptr)
-        backplate->drawWithin (g,
-            juce::Rectangle<float> (0.0f, (float)headerH, (float)getWidth(), (float)(winH - headerH)),
-            juce::RectanglePlacement::stretchToFit, 0.70f);
+    {
+        const juce::Rectangle<float> fullArea (0.0f, 0.0f,
+                                               (float)getWidth(), (float)winH);
+        // Base pass — covers whole plugin background (seq strips, header, etc.)
+        backplate->drawWithin (g, fullArea, juce::RectanglePlacement::stretchToFit, 0.82f);
+        // NOTE: the branding logo boost pass runs AFTER the ctrl strip fills
+        // (see end of paint) so the logo renders on top of the background panels.
+    }
 
     for (int v = 0; v < 2; ++v)
     {
@@ -2734,6 +2804,8 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         // ── Sequencer strip ───────────────────────────────────────────────────
         g.setColour (sectionColour.withAlpha (0.82f));
         g.fillRoundedRectangle ((float)seqX, (float)sY, (float)seqW, (float)seqH, 4.0f);
+        // Ensure colour fills to the very right edge (no black gap beyond seqW)
+        g.fillRect (seqX + seqW, sY, getWidth() - (seqX + seqW), seqH);
 
         // Voice label + accent bar
         g.setColour (accent.withAlpha (0.18f));
@@ -2841,7 +2913,10 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         drawPanel (pO2X,   pO2W,   "");   // OSC 2 controls live in OSC panel — area kept as visual spacer
         drawPanel (pFltX,  pFltW,  "FILTER");
         drawPanel (pAEX,   pAEW,   "AMP ENV");
-        // LFO 1-4 panels removed — LFO controls live in the LFO floating panel
+        // LFO 1-4 panels removed — extend ctrl strip background to right edge
+        // so the freed/branding zone matches the section colour (not base black).
+        g.setColour (sectionColour.withAlpha (0.85f));
+        g.fillRect (pAEX + pAEW, cY, getWidth() - (pAEX + pAEW), ctrlH);
 
         // Control panel labels
         const int lY1 = cY + lOff1, lY2 = cY + lOff2, lY3 = cY + lOff3;
@@ -2899,6 +2974,19 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     g.fillRect (0, ctrlBY - 1, getWidth(), 2);
     g.setColour (voiceBColour.withAlpha (0.2f));
     g.fillRect (0, ctrlBY + 1, getWidth(), 1);
+
+    // ── Branding logo boost pass ─────────────────────────────────────────────
+    // Drawn AFTER all ctrl strip background fills so the logo renders on top,
+    // not dimmed underneath the sectionColour panels.
+    if (backplate != nullptr)
+    {
+        const juce::Rectangle<float> fullArea (0.0f, 0.0f,
+                                               (float)getWidth(), (float)winH);
+        g.saveState();
+        g.reduceClipRegion (1090, ctrlAY, getWidth() - 1090, ctrlH * 2);
+        backplate->drawWithin (g, fullArea, juce::RectanglePlacement::stretchToFit, 0.88f);
+        g.restoreState();
+    }
 }
 
 //==============================================================================

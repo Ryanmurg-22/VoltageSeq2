@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  VoltageSEQ2 backplate v4 (final)
+  Two prominent brand zones:
+    Panel 1 — Top header strip: huge centered MURGATROYD INSTRUMENTS
+    Panel 2 — Bottom-right area: large VoltageSEQ wordmark in the freed
+              LFO real estate
+  Everything else: pure black.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2600 1300" width="2600" height="1300" font-family="'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <!-- Top header chassis gradient -->
+    <linearGradient id="headerBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#0e1319"/>
+      <stop offset="55%" stop-color="#070a0e"/>
+      <stop offset="100%" stop-color="#020405"/>
+    </linearGradient>
+    <linearGradient id="topBevel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#3a444c" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#3a444c" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="cyanLine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#00e5ff" stop-opacity="0"/>
+      <stop offset="50%"  stop-color="#00e5ff" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#00e5ff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="cyanLineL" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#00e5ff" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#00e5ff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="cyanLineR" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#00e5ff" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#00e5ff" stop-opacity="0.9"/>
+    </linearGradient>
+
+    <radialGradient id="ledOn" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%"  stop-color="#c5fbff"/>
+      <stop offset="35%" stop-color="#00e5ff"/>
+      <stop offset="100%" stop-color="#002a33"/>
+    </radialGradient>
+    <radialGradient id="ledOff" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%"  stop-color="#1c252c"/>
+      <stop offset="100%" stop-color="#080b0e"/>
+    </radialGradient>
+
+    <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="2.6"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="bigGlow" x="-200%" y="-200%" width="500%" height="500%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+
+    <!-- subtle radial accent behind bottom-right wordmark -->
+    <radialGradient id="brandHalo" cx="0.5" cy="0.5" r="0.7">
+      <stop offset="0%"   stop-color="#00e5ff" stop-opacity="0.18"/>
+      <stop offset="55%"  stop-color="#00e5ff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#00e5ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- ============ BASE: BLACK PLATE ============ -->
+  <rect width="2600" height="1300" fill="#000000"/>
+
+  <!-- ============ PANEL 1: TOP HEADER ============ -->
+  <!-- Slightly taller (90px) to give Murgatroyd more presence -->
+  <rect x="0" y="0" width="2600" height="90" fill="url(#headerBg)"/>
+  <rect x="0" y="0" width="2600" height="3" fill="url(#topBevel)" opacity="0.55"/>
+  <rect x="0" y="89" width="2600" height="1.5" fill="url(#cyanLine)" opacity="0.8"/>
+
+  <!-- centre halo behind wordmark -->
+  <ellipse cx="1300" cy="46" rx="640" ry="32" fill="#00e5ff" opacity="0.16" filter="url(#bigGlow)"/>
+
+  <!-- Hex-M monogram, centre-left of the wordmark -->
+  <g transform="translate(1015, 46)">
+    <polygon points="-28,0 -14,-24.25 14,-24.25 28,0 14,24.25 -14,24.25"
+             fill="none" stroke="#00e5ff" stroke-width="1.8" opacity="0.95"/>
+    <polygon points="-20,0 -10,-17.32 10,-17.32 20,0 10,17.32 -10,17.32"
+             fill="none" stroke="#00e5ff" stroke-width="0.6" opacity="0.45"/>
+    <text x="0" y="9" font-size="28" font-weight="900" text-anchor="middle" fill="#e8f9ff">M</text>
+  </g>
+
+  <!-- HUGE MURGATROYD INSTRUMENTS, single line, centred -->
+  <text x="1300" y="56" font-size="34" font-weight="800" letter-spacing="14"
+        fill="#e8f9ff" text-anchor="middle">MURGATROYD INSTRUMENTS</text>
+
+  <!-- Subtle hairlines flanking the wordmark -->
+  <rect x="430"  y="46" width="555" height="1" fill="url(#cyanLineR)" opacity="0.5"/>
+  <rect x="1620" y="46" width="555" height="1" fill="url(#cyanLineL)" opacity="0.5"/>
+
+  <!-- Tagline below wordmark -->
+  <text x="1300" y="78" font-size="10" font-weight="500" letter-spacing="7"
+        fill="#5a666f" text-anchor="middle">EUROPEAN  ·  MODULAR  ·  DIVISION  ·  EST.  ███████</text>
+
+  <!-- Status LEDs (top-right, compact) -->
+  <g>
+    <circle cx="2200" cy="40" r="5" fill="url(#ledOn)" filter="url(#glow)"/>
+    <text x="2200" y="62" font-size="9" letter-spacing="1.5" fill="#7d8a93" text-anchor="middle">PWR</text>
+    <circle cx="2240" cy="40" r="5" fill="url(#ledOn)" filter="url(#glow)"/>
+    <text x="2240" y="62" font-size="9" letter-spacing="1.5" fill="#7d8a93" text-anchor="middle">CLK</text>
+    <circle cx="2280" cy="40" r="5" fill="url(#ledOff)"/>
+    <text x="2280" y="62" font-size="9" letter-spacing="1.5" fill="#7d8a93" text-anchor="middle">CV</text>
+    <circle cx="2320" cy="40" r="5" fill="url(#ledOff)"/>
+    <text x="2320" y="62" font-size="9" letter-spacing="1.5" fill="#7d8a93" text-anchor="middle">MIDI</text>
+  </g>
+
+  <!-- Serial / firmware -->
+  <text x="2540" y="36" font-size="12" font-weight="600" letter-spacing="2.5"
+        fill="#9aa7b0" text-anchor="end">UNIT  ·  VS2-0001-A</text>
+  <text x="2540" y="56" font-size="10" letter-spacing="2.5"
+        fill="#5a666f" text-anchor="end">FW 2.0.4   ·   +12V / 320 mA</text>
+
+  <!-- ============ PANEL 2: BOTTOM-RIGHT NAMEPLATE ============ -->
+  <!-- Shared between MANUFACTURER (Murgatroyd Instruments) and PRODUCT (VoltageSEQ) -->
+
+  <!-- Soft halo behind nameplate -->
+  <ellipse cx="2330" cy="980" rx="460" ry="220" fill="url(#brandHalo)"/>
+
+  <!-- Top hairline -->
+  <rect x="1960" y="780" width="640" height="1" fill="url(#cyanLine)" opacity="0.45"/>
+
+  <!-- ---------- MANUFACTURER ROW ---------- -->
+  <!-- Hex M monogram + Murgatroyd Instruments, sized like a real product nameplate header -->
+  <g transform="translate(2050, 820)">
+    <polygon points="-16,0 -8,-13.86 8,-13.86 16,0 8,13.86 -8,13.86"
+             fill="none" stroke="#00e5ff" stroke-width="1.3" opacity="0.95"/>
+    <text x="0" y="5" font-size="15" font-weight="900" text-anchor="middle" fill="#e8f9ff">M</text>
+  </g>
+  <text x="2080" y="813" font-size="18" font-weight="800" letter-spacing="7"
+        fill="#e8f9ff">MURGATROYD INSTRUMENTS</text>
+  <text x="2080" y="833" font-size="9" font-weight="500" letter-spacing="4.5"
+        fill="#5a666f">MANUFACTURER  ·  EUROPEAN MODULAR DIVISION</text>
+
+  <!-- Divider between manufacturer and product -->
+  <rect x="1960" y="855" width="640" height="1" fill="url(#cyanLine)" opacity="0.35"/>
+
+  <!-- Small "PRODUCT" caption above the big logo -->
+  <text x="2330" y="888" font-size="10" font-weight="700" letter-spacing="6"
+        fill="#00e5ff" text-anchor="middle" opacity="0.85">PRODUCT</text>
+
+  <!-- ---------- PRODUCT ROW (hero) ---------- -->
+  <!-- glow back layer -->
+  <text x="2300" y="985" font-size="78" font-weight="900" letter-spacing="2"
+        fill="#00e5ff" opacity="0.30" filter="url(#bigGlow)" text-anchor="middle">VoltageSEQ</text>
+  <!-- main wordmark -->
+  <text x="2300" y="985" font-size="78" font-weight="900" letter-spacing="2"
+        fill="#e6fbff" text-anchor="middle">VoltageSEQ</text>
+
+  <!-- "2" pill, right of wordmark -->
+  <g transform="translate(2455, 943)">
+    <rect x="0" y="0" width="56" height="50" rx="5" fill="#00e5ff"/>
+    <text x="28" y="40" font-size="40" font-weight="900" fill="#02161b" text-anchor="middle">2</text>
+  </g>
+
+  <!-- Decorative chevrons left of wordmark -->
+  <g stroke="#00e5ff" stroke-width="2" fill="none" opacity="0.55">
+    <polyline points="2010,955 2040,930 2040,980"/>
+    <polyline points="1975,955 2005,930 2005,980" opacity="0.45"/>
+    <polyline points="1940,955 1970,930 1970,980" opacity="0.25"/>
+  </g>
+
+  <!-- Tagline beneath product -->
+  <text x="2300" y="1025" font-size="10" font-weight="500" letter-spacing="8"
+        fill="#7d8a93" text-anchor="middle">POLYRHYTHMIC  ·  DUAL VOICE  ·  CV-A + CV-B  ·  16 STEPS</text>
+
+  <!-- Lower hairline + technical strip -->
+  <rect x="1960" y="1060" width="640" height="1" fill="url(#cyanLine)" opacity="0.35"/>
+  <text x="2010" y="1085" font-size="9" font-weight="600" letter-spacing="3" fill="#5a666f">MK · II</text>
+  <text x="2300" y="1085" font-size="9" letter-spacing="3" fill="#5a666f" text-anchor="middle">© MMXXVI  ·  MADE IN EU</text>
+  <text x="2580" y="1085" font-size="9" letter-spacing="3" fill="#5a666f" text-anchor="end">SERIES 2</text>
+
+</svg>
