@@ -37,6 +37,12 @@ juce_generate_juce_header(VoltageSeq2)
 target_sources(VoltageSeq2 PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    # Plaits engine wrappers — each unity-includes the relevant Mutable
+    # Instruments plaits/stmlib .cc sources, so only these four need listing.
+    Source/PlaitsDSP.cpp
+    Source/PlaitsWrapper.cpp
+    Source/PlaitsEngines.cpp
+    Source/PlaitsEngines2.cpp
 )
 
 target_include_directories(VoltageSeq2 PRIVATE
