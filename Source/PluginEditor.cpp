@@ -193,6 +193,7 @@ void VoltageSeq2AudioProcessorEditor::GateBtnListener::mouseDown (const juce::Mo
         juce::PopupMenu::Options{}.withTargetComponent (&ed.gateBtn[vi][step]),
         [this](int result)
         {
+            ed.suppressNextGateClick = false;  // always clear — menu consumed the click
             if (result >= 1 && result <= 4)
                 ed.audioProcessor.voice[vi].stepRepeats[step] = result - 1;
             else if (result >= 11 && result <= 18)
