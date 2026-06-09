@@ -59,6 +59,8 @@ target_compile_definitions(VoltageSeq2 PUBLIC
     # paths (no ARM Cortex-M inline asm, no STM32 hardware headers). The Xcode
     # project passes -DTEST; CMake must do the same or the build won't compile.
     TEST=1
+    # MSVC does not define M_PI without this (used by plaits sine_oscillator etc.)
+    _USE_MATH_DEFINES=1
 )
 
 # ── Link libraries ────────────────────────────────────────────────────────────
