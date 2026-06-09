@@ -28,6 +28,14 @@
 #include <inttypes.h>
 #include <stddef.h>
 
+// MSVC does not support GCC __attribute__ syntax. Map it to nothing so
+// stmlib/utils/dsp.h and other stmlib headers compile cleanly on Windows.
+#ifdef _MSC_VER
+#  ifndef __attribute__
+#    define __attribute__(x)
+#  endif
+#endif
+
 #ifndef NULL
 #define NULL 0
 #endif

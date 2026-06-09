@@ -195,18 +195,6 @@ class Algorithms {
   DISALLOW_COPY_AND_ASSIGN(Algorithms);
 };
 
-/* static */
-template<> const uint8_t Algorithms<4>::opcodes_[][4];  // From DX100
-
-/* static */
-template<> const Algorithms<4>::RendererSpecs Algorithms<4>::renderers_[];
-
-/* static */
-template<> const uint8_t Algorithms<6>::opcodes_[][6];  // From DX7
-
-/* static */
-template<> const Algorithms<6>::RendererSpecs Algorithms<6>::renderers_[];
-
 }  // namespace fm
 
 }  // namespace plaits

@@ -4029,8 +4029,12 @@ const int16_t* const lookup_table_i16_table[] = {
 
 
 
+#ifdef _MSC_VER
+const int32_t* const lookup_table_i32_table[1] = { nullptr };
+#else
 const int32_t* const lookup_table_i32_table[] = {
 };
+#endif
 
 const int8_t lut_lpc_excitation_pulse[] = {
        0,      0,      0,      0,
