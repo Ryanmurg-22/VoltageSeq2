@@ -60,7 +60,7 @@ static const char* const kBackplateSVG = R"SVG(
   <circle cx="2490" cy="42" r="5" fill="url(#ledOff)"/>
   <circle cx="2515" cy="42" r="5" fill="url(#ledOff)"/>
   <text x="2540" y="46" font-size="12" font-weight="600" fill="#8a96a0" text-anchor="end">UNIT  ·  VS2-0001-A</text>
-  <text x="2540" y="62" font-size="10" fill="#5a666f" text-anchor="end">FW 4.5   ·   +12V / 320 mA</text>
+  <text x="2540" y="62" font-size="10" fill="#5a666f" text-anchor="end">FW 4.6   ·   +12V / 320 mA</text>
 
   <!-- ================================================================
        NAMEPLATE — two-column design fills full freed zone
