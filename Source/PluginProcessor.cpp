@@ -94,6 +94,16 @@ static const int scaleSizes[] = { 7, 7, 7, 7, 7, 7, 5, 5, 12 };
 // Skew factors are the NormalisableRange equivalent of Slider::setSkewFactorFromMidPoint:
 //   skew = log(0.5) / log((midPoint - min) / (max - min))
 //==============================================================================
+// Macro destination labels — index matches MacroTarget enum order.
+const char* const VoltageSeq2AudioProcessor::kMacroTargetNames[MT_Count] = {
+    "PWM", "Cutoff", "Pitch", "Range", "FM Depth",
+    "Harmonics", "Timbre", "Morph", "Delay Time",
+    "Resonance", "Filter Drive", "Delay Mix", "Amp Level",
+    "Amp Atk", "Amp Dec", "Amp Sus", "Amp Rel",
+    "Flt Atk", "Flt Dec", "Flt Sus", "Flt Rel",
+    "Reverb Mix", "Reverb Time"
+};
+
 juce::AudioProcessorValueTreeState::ParameterLayout
 VoltageSeq2AudioProcessor::createParameterLayout()
 {
@@ -191,6 +201,13 @@ VoltageSeq2AudioProcessor::createParameterLayout()
             juce::ParameterID ("plaitsMorph" + s, 1), "Plaits Morph " + vn,
             juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.5f));
     }
+
+    // ── Global macro wheel values (0..1, host-automatable) ───────────────────
+    for (int m = 0; m < numMacros; ++m)
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID ("macro" + juce::String (m), 1),
+            "Macro " + juce::String (m + 1),
+            juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.0f));
 
     return { params.begin(), params.end() };
 }
@@ -426,7 +443,8 @@ void VoltageSeq2AudioProcessor::prepareFx (double sr)
 //==============================================================================
 void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamples,
                                                   FxState& fxs, const FxParams& p,
-                                                  float lfoTimeModMs)
+                                                  float lfoTimeModMs, float delayMixMod,
+                                                  float reverbMixMod, float reverbSizeMod)
 {
     // Early-out when this voice has FX bypassed — leave L/R untouched.
     if (p.fxBypass) return;
@@ -559,8 +577,9 @@ void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamp
             }
 
             // ── Wet/dry mix ───────────────────────────────────────────────────
-            inL = inL * (1.f - p.delayMix) + dL * p.delayMix;
-            inR = inR * (1.f - p.delayMix) + dR * p.delayMix;
+            const float dMix = juce::jlimit (0.0f, 1.0f, p.delayMix + delayMixMod);
+            inL = inL * (1.f - dMix) + dL * dMix;
+            inR = inR * (1.f - dMix) + dR * dMix;
         }
 
         //----------------------------------------------------------------------
@@ -582,7 +601,8 @@ void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamp
             z = fxAP (fxs.iap[2], fxs.iapW[2], fxs.iapLen[2], z, 0.625f);
             z = fxAP (fxs.iap[3], fxs.iapW[3], fxs.iapLen[3], z, 0.625f);
 
-            const float decay = 0.1f + p.reverbSize * 0.87f;  // 0.1..0.97
+            const float revSize = juce::jlimit (0.0f, 1.0f, p.reverbSize + reverbSizeMod);
+            const float decay = 0.1f + revSize * 0.87f;  // 0.1..0.97
 
             // Modulation (±16 samples at ref rate, ~1 Hz)
             const float modDepth = (float)(16.0 * sc);
@@ -654,8 +674,9 @@ void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamp
                         + otap(fxs.td[0],  fxs.tdW[0],  320);
 
             revL *= 0.6f; revR *= 0.6f;
-            inL = inL * (1.f - p.reverbMix) + revL * p.reverbMix;
-            inR = inR * (1.f - p.reverbMix) + revR * p.reverbMix;
+            const float revMix = juce::jlimit (0.0f, 1.0f, p.reverbMix + reverbMixMod);
+            inL = inL * (1.f - revMix) + revL * revMix;
+            inR = inR * (1.f - revMix) + revR * revMix;
             // Guard against feedback explosion (inf/nan → silence rather than crash)
             inL = juce::jlimit (-4.0f, 4.0f, inL);
             inR = juce::jlimit (-4.0f, 4.0f, inR);
@@ -863,6 +884,45 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             vstate[vi].lastPos       = -1;
         }
 
+        // ── Block-rate macro modulation (envelope shaping + reverb) ───────────
+        // ADSR params are reloaded from APVTS at the top of the block, so adding
+        // the macro offset here does not accumulate across blocks.
+        {
+            float mA[10] = {};   // AmpA,D,S,R, FltA,D,S,R, RevMix, RevSize
+            for (int m = 0; m < numMacros; ++m)
+            {
+                const float mv = macros[m].value.load();
+                const int   n  = macros[m].count.load();
+                for (int a = 0; a < n && a < kMaxMacroAssign; ++a)
+                {
+                    const auto& as = macros[m].assign[a];
+                    if (! macroScopeHitsVoice (as.scope, vi)) continue;
+                    const float c = mv * as.depth;
+                    switch (as.target)
+                    {
+                        case MT_AmpA: mA[0] += c; break;  case MT_AmpD: mA[1] += c; break;
+                        case MT_AmpS: mA[2] += c; break;  case MT_AmpR: mA[3] += c; break;
+                        case MT_FltA: mA[4] += c; break;  case MT_FltD: mA[5] += c; break;
+                        case MT_FltS: mA[6] += c; break;  case MT_FltR: mA[7] += c; break;
+                        case MT_ReverbMix:  mA[8] += c; break;
+                        case MT_ReverbTime: mA[9] += c; break;
+                        default: break;
+                    }
+                }
+            }
+            // Additive; full depth ≈ full param range. Times in seconds, levels 0..1.
+            vp.adsrParams.attack   = juce::jlimit (0.001f, 2.0f, vp.adsrParams.attack   + mA[0] * 2.0f);
+            vp.adsrParams.decay    = juce::jlimit (0.001f, 2.0f, vp.adsrParams.decay    + mA[1] * 2.0f);
+            vp.adsrParams.sustain  = juce::jlimit (0.0f,   1.0f, vp.adsrParams.sustain  + mA[2]);
+            vp.adsrParams.release  = juce::jlimit (0.001f, 3.0f, vp.adsrParams.release  + mA[3] * 3.0f);
+            vp.filterEnvParams.attack  = juce::jlimit (0.001f, 4.0f, vp.filterEnvParams.attack  + mA[4] * 4.0f);
+            vp.filterEnvParams.decay   = juce::jlimit (0.001f, 4.0f, vp.filterEnvParams.decay   + mA[5] * 4.0f);
+            vp.filterEnvParams.sustain = juce::jlimit (0.0f,   1.0f, vp.filterEnvParams.sustain + mA[6]);
+            vp.filterEnvParams.release = juce::jlimit (0.001f, 4.0f, vp.filterEnvParams.release + mA[7] * 4.0f);
+            macroReverbMixMod [vi] = mA[8];
+            macroReverbSizeMod[vi] = mA[9];
+        }
+
         // Sync ADSR parameters written by UI thread
         vstate[vi].adsr.setParameters      (vp.adsrParams);
         vstate[vi].filterEnv.setParameters  (vp.filterEnvParams);
@@ -990,6 +1050,10 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             midiMessages.clear();
         }
     }
+
+    // Refresh macro wheel values from APVTS (block-rate) into the audio-thread mirror.
+    for (int m = 0; m < numMacros; ++m)
+        macros[m].value.store (apvts.getRawParameterValue ("macro" + juce::String (m))->load());
 
     //--------------------------------------------------------------------------
     // SAMPLE LOOP — Voice A → channels 0/1, Voice B → channels 2/3
@@ -1292,8 +1356,10 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // Apply independent FX chain to each voice.
-    processFxBuffer (chA0, chA1, numSamples, fxs[0], fx[0], lfoDelayMod[0]);
-    processFxBuffer (chB0, chB1, numSamples, fxs[1], fx[1], lfoDelayMod[1]);
+    processFxBuffer (chA0, chA1, numSamples, fxs[0], fx[0], lfoDelayMod[0], macroDelayMixMod[0],
+                     macroReverbMixMod[0], macroReverbSizeMod[0]);
+    processFxBuffer (chB0, chB1, numSamples, fxs[1], fx[1], lfoDelayMod[1], macroDelayMixMod[1],
+                     macroReverbMixMod[1], macroReverbSizeMod[1]);
 
     // Single-bus fallback: mix Voice B into Voice A (legacy behaviour).
     if (!hasDualOut)
@@ -1735,6 +1801,12 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
     float lfoDelayModAcc  = 0.0f;
     constexpr float maxDelayMs = 250.0f;   // full-depth LFO→Delay-Time swing (±ms)
 
+    // Macro-only extra accumulators (targets 9..12).
+    float macroResoMod    = 0.0f;   // added to filter resonance boost
+    float macroDriveMod   = 0.0f;   // added to filter drive
+    float macroMixModAcc  = 0.0f;   // added to delay wet/dry mix
+    float macroAmpMod     = 0.0f;   // added to amp gain (1 + mod)
+
     auto accLFO = [&](float val, int target)
     {
         if (target == 0) pwmMod         += val * 0.4f;
@@ -1752,8 +1824,32 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
     accLFO (lfo3Val, vp.lfo3Target);
     accLFO (lfo4Val, vp.lfo4Target);
 
-    // Hand the (block-rate) delay-time modulation off to the FX stage.
-    lfoDelayMod[vi] = lfoDelayModAcc;
+    // ── Macro routing ────────────────────────────────────────────────────────
+    // Each macro adds (wheelValue * depth) into the same accumulators. Targets
+    // 0..8 reuse the LFO scaling via accLFO; 9..12 are macro-only extras.
+    for (int m = 0; m < numMacros; ++m)
+    {
+        const float mv = macros[m].value.load();
+        const int   n  = macros[m].count.load();
+        for (int a = 0; a < n && a < kMaxMacroAssign; ++a)
+        {
+            const auto& as = macros[m].assign[a];
+            if (! macroScopeHitsVoice (as.scope, vi)) continue;
+            const float c = mv * as.depth;            // contribution, -1..+1
+            switch (as.target)
+            {
+                case MT_Resonance: macroResoMod   += c;        break;
+                case MT_Drive:     macroDriveMod  += c;        break;
+                case MT_DelayMix:  macroMixModAcc += c;        break;
+                case MT_AmpLevel:  macroAmpMod    += c;        break;
+                default:           accLFO (c, as.target);      break;  // 0..8
+            }
+        }
+    }
+
+    // Hand the (block-rate) delay-time + delay-mix modulation off to the FX stage.
+    lfoDelayMod[vi]      = lfoDelayModAcc;
+    macroDelayMixMod[vi] = macroMixModAcc;
 
     vs.pulseWidth = juce::jlimit (0.05f, 0.95f, vp.osc1PulseWidth + pwmMod);
 
@@ -1926,16 +2022,17 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
 
     // Run the SVF on each channel separately using independent state registers.
     // For MONO (nSlots==1) sumL==sumR so both channels produce identical output.
-    const float accentRes = vs.accentActive ? 0.15f : 0.0f;
+    const float accentRes = (vs.accentActive ? 0.15f : 0.0f) + macroResoMod;
     float filtL = applyFilter (vs.ic1eq,  vs.ic2eq,  vs.ic1eq2,  vs.ic2eq2,
-                               vp, sumL * norm, effectiveCut, accentRes);
+                               vp, sumL * norm, effectiveCut, accentRes, macroDriveMod);
     float filtR = applyFilter (vs.ic1eqR, vs.ic2eqR, vs.ic1eq2R, vs.ic2eq2R,
-                               vp, sumR * norm, effectiveCut, accentRes);
+                               vp, sumR * norm, effectiveCut, accentRes, macroDriveMod);
 
     float envelope = vs.adsr.getNextSample();
     const float accentVCA  = vs.accentActive ? 1.4125f : 1.0f;   // +3 dB = 10^(3/20)
     const float velocityVCA = (float)vs.midiStepVel / 100.0f;    // vel 100 = unity, 127 = +2.7dB
-    const float gain = envelope * cenvAmpMod * accentVCA * velocityVCA * 0.3f;
+    const float macroAmpGain = juce::jlimit (0.0f, 2.0f, 1.0f + macroAmpMod);
+    const float gain = envelope * cenvAmpMod * accentVCA * velocityVCA * macroAmpGain * 0.3f;
 
     outL = filtL * gain;
     outR = filtR * gain;
@@ -2024,12 +2121,13 @@ float VoltageSeq2AudioProcessor::applyFilter (float& ic1, float& ic2,
                                                float& ic1_2, float& ic2_2,
                                                const VoiceParams& vp,
                                                float input, float effectiveCutoff,
-                                               float resBoost)
+                                               float resBoost, float driveMod)
 {
     // Pre-filter drive (tanh saturation)
     // Normalise by tanh(drive) so unity input always gives unity output amplitude;
     // drive only adds harmonic content, it never thins or compresses the level.
-    const float drive = 1.0f + vp.filterDrive * 7.0f;   // 1x … 8x
+    const float driveAmt = juce::jlimit (0.0f, 1.0f, vp.filterDrive + driveMod);
+    const float drive = 1.0f + driveAmt * 7.0f;   // 1x … 8x
     const float dNorm = std::tanh (drive);               // approaches 1 as drive→∞
     float driven = std::tanh (input * drive) / dNorm;
 
@@ -2549,6 +2647,22 @@ void VoltageSeq2AudioProcessor::getStateInformation (juce::MemoryBlock& destData
     for (int i = 0; i < 16; ++i)
         xml.setAttribute ("tmBit" + juce::String(i), (int)turingMachine.bits[i]);
 
+    // ── Macro assignments (values live in APVTS) ─────────────────────────────
+    for (int m = 0; m < numMacros; ++m)
+    {
+        auto* macEl = xml.createNewChildElement ("Macro");
+        macEl->setAttribute ("index", m);
+        const int n = macros[m].count.load();
+        macEl->setAttribute ("count", n);
+        for (int a = 0; a < n && a < kMaxMacroAssign; ++a)
+        {
+            auto* asEl = macEl->createNewChildElement ("Assign");
+            asEl->setAttribute ("target", macros[m].assign[a].target);
+            asEl->setAttribute ("scope",  macros[m].assign[a].scope);
+            asEl->setAttribute ("depth",  (double)macros[m].assign[a].depth);
+        }
+    }
+
     // Pattern bank
     for (int vi = 0; vi < numVoices; ++vi)
     {
@@ -2751,6 +2865,26 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
     tmTargetVoice.store (xml->getIntAttribute                   ("tmTargetVoice", 0));
     for (int i = 0; i < 16; ++i)
         turingMachine.bits[i] = (bool)xml->getIntAttribute ("tmBit" + juce::String(i), 0);
+
+    // ── Macro assignments ────────────────────────────────────────────────────
+    for (int m = 0; m < numMacros; ++m) macros[m].count.store (0);
+    for (auto* macEl : xml->getChildIterator())
+    {
+        if (macEl->getTagName() != "Macro") continue;
+        const int m = macEl->getIntAttribute ("index", -1);
+        if (m < 0 || m >= numMacros) continue;
+        int a = 0;
+        for (auto* asEl : macEl->getChildIterator())
+        {
+            if (asEl->getTagName() != "Assign" || a >= kMaxMacroAssign) continue;
+            macros[m].assign[a].target = juce::jlimit (0, (int)MT_Count - 1,
+                                                       asEl->getIntAttribute ("target", MT_Cutoff));
+            macros[m].assign[a].scope  = juce::jlimit (0, 2, asEl->getIntAttribute ("scope", MS_Both));
+            macros[m].assign[a].depth  = (float)asEl->getDoubleAttribute ("depth", 1.0);
+            ++a;
+        }
+        macros[m].count.store (a);
+    }
 
     // Load per-voice FX.  Supports both:
     //  - New format (v4+): two <FX voice="0/1"> child elements

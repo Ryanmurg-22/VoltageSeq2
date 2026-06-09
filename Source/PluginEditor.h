@@ -379,6 +379,19 @@ private:
     void layoutFxPage();
     void setupFxControls();
 
+    // ── Page 5 — ABOUT ────────────────────────────────────────────────────────
+    juce::TextButton              aboutPageBtn;
+    std::vector<juce::Component*> aboutPageComponents;
+    juce::Image                   aboutImage;
+    juce::Rectangle<int>          aboutImageBounds;
+    juce::Label                   aboutTitle;
+    juce::TextEditor              aboutBody;        // read-only writeup
+    juce::TextEditor              aboutThanks;      // credits list
+    juce::HyperlinkButton         aboutVideoLink;
+    juce::HyperlinkButton         aboutEmailLink;
+    void setupAboutPage();
+    void layoutAboutPage();
+
     // ── Page 4 — GENERATE ─────────────────────────────────────────────────────
     juce::TextButton              genPageBtn;
     std::vector<juce::Component*> genPageComponents;
@@ -475,6 +488,70 @@ private:
     std::unique_ptr<SliderAtt> fmRatioAttach  [2], fmDepthAttach [2];
     std::unique_ptr<SliderAtt> portaAttach    [2], rangeAttach   [2];
 
+    // ── Macro controllers (Synth page, bottom-right) ─────────────────────────
+    // A rotary that opens its assignment menu on right-click instead of dragging.
+    struct MacroKnob : public juce::Slider
+    {
+        std::function<void()> onRightClick;
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            if (e.mods.isPopupMenu()) { if (onRightClick) onRightClick(); return; }
+            juce::Slider::mouseDown (e);
+        }
+    };
+    static constexpr int kNumMacros = 2;
+    MacroKnob   macroKnob       [kNumMacros];
+    juce::Label macroNameLabel  [kNumMacros];   // "MACRO 1"
+    juce::Label macroAssignLabel[kNumMacros];   // multiline assignment list
+    std::unique_ptr<SliderAtt> macroAttach[kNumMacros];
+    juce::TextButton macroAssignBtn[kNumMacros];   // "ASSIGN" — enters learn mode
+    void setupMacros();
+    void showMacroMenu (int m);
+    void refreshMacroLabels();
+
+    // ── Click-to-assign ("learn") mode + depth-ring overlay ──────────────────
+    int macroLearnActive = -1;        // macro index currently learning, -1 = none
+
+    // One assignable on-screen control → (macro target, voice).
+    struct Assignable { juce::Slider* slider; int target; int voice; };
+    std::vector<Assignable> buildAssignables();
+
+    void enterMacroLearn (int m);
+    void exitMacroLearn();
+    void updateMacroAssignBtns();
+    // Map a clicked assignable to a new macro assignment (scope: 2=Both if alt).
+    void assignFromClick (int sliderTarget, int voice, bool both);
+    // Bounds of an assignable knob in overlay/editor coords, empty if not visible.
+    juce::Rectangle<int> assignableScreenBounds (juce::Slider* s);
+
+    // One depth ring to draw around an assigned, currently-visible knob.
+    struct RingInfo {
+        int   macro, assignIdx;
+        juce::Point<float> centre;
+        float radius, depth;
+        juce::Colour colour;
+    };
+    std::vector<RingInfo> buildRings();
+    int dragRingMacro = -1, dragRingAssign = -1;   // active depth-ring drag
+    float dragRingStartDepth = 0.0f;
+    float lastMacroValue[kNumMacros] = { -1.0f, -1.0f };   // for live-dot repaint
+
+    // Transparent top-level overlay: highlights assignable knobs in learn mode,
+    // captures the assign click, and draws + drags the depth rings. It always
+    // intercepts; hitTest() returns false (click-through) except in learn mode
+    // or when the cursor is on a ring band, so normal knob use is untouched.
+    struct MacroOverlay : public juce::Component
+    {
+        VoltageSeq2AudioProcessorEditor* ed = nullptr;
+        MacroOverlay() { setInterceptsMouseClicks (true, false); }
+        bool hitTest (int x, int y) override;
+        void paint (juce::Graphics& g) override;
+        void mouseDown (const juce::MouseEvent& e) override;
+        void mouseDrag (const juce::MouseEvent& e) override;
+        void mouseUp   (const juce::MouseEvent& e) override;
+    };
+    MacroOverlay macroOverlay;
+
     // ── Pattern sequencer controls (page 2) ──────────────────────────────────
     int              patPageView   [2] = { 0, 0 };   // 0=BANK  1=SEQUENCER
     juce::TextButton patBankTabBtn [2];
@@ -500,11 +577,15 @@ private:
     struct SectionPanel : public juce::Component
     {
         juce::String        title;
-        juce::TextButton    closeBtn  { "×" };
+        juce::TextButton    closeBtn;
         std::function<void()> onClose;
         std::function<void(juce::Graphics&)> paintLabels;   // optional — draws param labels inside panel
 
-        SectionPanel() { addAndMakeVisible (closeBtn); }
+        SectionPanel()
+        {
+            closeBtn.setButtonText (juce::String::fromUTF8 ("\xc3\x97"));   // × close glyph
+            addAndMakeVisible (closeBtn);
+        }
 
         void paint (juce::Graphics& g) override
         {

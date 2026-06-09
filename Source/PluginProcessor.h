@@ -355,6 +355,52 @@ public:
 
     VoiceParams voice[numVoices];   // voice[0]=A  voice[1]=B
 
+    //==========================================================================
+    // MACRO CONTROLLERS — 2 global, user-assignable, multi-destination
+    //==========================================================================
+    // A macro's wheel value (0..1) is an APVTS param ("macro0"/"macro1") so it is
+    // host-automatable. Each macro carries up to kMaxMacroAssign destinations;
+    // turning the wheel adds (value * depth) into the same modulation accumulators
+    // the LFOs use. Assignments are edited on the message thread and read on the
+    // audio thread — hence a fixed array + atomic count (no vector reallocation).
+    static constexpr int numMacros       = 2;
+    static constexpr int kMaxMacroAssign = 8;
+
+    // Destination targets. 0..8 mirror the LFO target indices exactly (so they can
+    // reuse the LFO scaling/accumulators); 9..12 are macro-only extras.
+    enum MacroTarget {
+        MT_PWM = 0, MT_Cutoff, MT_Pitch, MT_Range, MT_FM,
+        MT_Harm, MT_Timbre, MT_Morph, MT_Delay,
+        MT_Resonance, MT_Drive, MT_DelayMix, MT_AmpLevel,
+        // Block-rate destinations (envelope shaping + reverb):
+        MT_AmpA, MT_AmpD, MT_AmpS, MT_AmpR,
+        MT_FltA, MT_FltD, MT_FltS, MT_FltR,
+        MT_ReverbMix, MT_ReverbTime,
+        MT_Count
+    };
+    static const char* const kMacroTargetNames[MT_Count];
+
+    enum MacroScope { MS_VoiceA = 0, MS_VoiceB = 1, MS_Both = 2 };
+
+    struct MacroAssignment {
+        int   target = MT_Cutoff;   // MacroTarget
+        int   scope  = MS_Both;     // MacroScope
+        float depth  = 1.0f;        // signed, -1..+1
+    };
+
+    struct Macro {
+        std::atomic<float> value { 0.0f };               // mirror of APVTS param, 0..1
+        MacroAssignment    assign[kMaxMacroAssign];
+        std::atomic<int>   count { 0 };                  // active assignment count
+    };
+    Macro macros[numMacros];
+
+    // Returns true if a macro assignment's scope applies to voice vi.
+    static bool macroScopeHitsVoice (int scope, int vi)
+    {
+        return scope == MS_Both || scope == vi;
+    }
+
     // APVTS — registers automatable parameters with the DAW host.
     // Declare after voice[] so createParameterLayout() can reference defaults.
     juce::AudioProcessorValueTreeState apvts;
@@ -404,6 +450,14 @@ private:
     // Per-voice LFO→Delay-Time modulation (ms), sampled at block rate from the
     // per-sample voice loop and applied in processFxBuffer.
     float lfoDelayMod[numVoices] = {};
+
+    // Per-voice macro→Delay-Mix modulation (0..1 offset), block-rate, applied in
+    // processFxBuffer alongside the delay-time mod above.
+    float macroDelayMixMod[numVoices] = {};
+
+    // Per-voice macro→Reverb modulation (block-rate offsets), applied in processFxBuffer.
+    float macroReverbMixMod [numVoices] = {};
+    float macroReverbSizeMod[numVoices] = {};
 
     struct VoiceState
     {
@@ -524,7 +578,10 @@ private:
     void  prepareFx (double sampleRate);
     void  processFxBuffer (float* L, float* R, int numSamples,
                            FxState& state, const FxParams& params,
-                           float lfoTimeModMs = 0.0f);
+                           float lfoTimeModMs  = 0.0f,
+                           float delayMixMod   = 0.0f,
+                           float reverbMixMod  = 0.0f,
+                           float reverbSizeMod = 0.0f);
 
     // Process one sample of one voice; writes stereo output to outL and outR.
     void  processSingleVoiceSample (int vi, bool running,
@@ -547,7 +604,8 @@ private:
     float applyFilter        (float& ic1, float& ic2, float& ic1_2, float& ic2_2,
                               const VoiceParams& vp,
                               float input, float effectiveCutoff,
-                              float resBoost = 0.0f);
+                              float resBoost  = 0.0f,
+                              float driveMod  = 0.0f);
     float voltageToQuantizedFreq (const VoiceParams& vp, float voltage,
                                   float rangeOverride = -1.0f);
     int   voltageToMidiNote      (const VoiceParams& vp, float voltage,

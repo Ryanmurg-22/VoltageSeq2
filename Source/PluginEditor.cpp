@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "AboutImageData.h"
 
 namespace {
     // ── Colours ───────────────────────────────────────────────────────────────
@@ -310,7 +311,9 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     juce::LookAndFeel::setDefaultLookAndFeel (&voltageSeqLAF);
 
     // ── Load backplate SVG ────────────────────────────────────────────────────
-    if (auto svgXml = juce::XmlDocument::parse (juce::String (kBackplateSVG)))
+    // fromUTF8 so the SVG's "·", "—", "→" etc. decode correctly (a plain
+    // juce::String(const char*) was rendering them as Latin-1 mojibake).
+    if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (kBackplateSVG)))
         backplate = juce::Drawable::createFromSVG (*svgXml);
 
     // ── Heap-allocated components ─────────────────────────────────────────────
@@ -328,7 +331,7 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     for (int v = 0; v < 2; ++v)
     {
         // OSC panel
-        oscPanel[v].title = (v == 0) ? "OSC  \xe2\x80\x94  VOICE A" : "OSC  \xe2\x80\x94  VOICE B";
+        oscPanel[v].title = juce::String::fromUTF8 (v == 0 ? "OSC  \xe2\x80\x94  VOICE A" : "OSC  \xe2\x80\x94  VOICE B");
         oscPanel[v].closeBtn.onClick = [this, v]() { closeOscPanel (v); };
         oscPanel[v].closeBtn.setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff2a1a00));
         oscPanel[v].closeBtn.setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe09040));
@@ -336,7 +339,7 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
         synthPageComponents.push_back (&oscPanel[v]);
 
         // ENV panel
-        envPanel[v].title = (v == 0) ? "MOD ENV  \xe2\x80\x94  VOICE A" : "MOD ENV  \xe2\x80\x94  VOICE B";
+        envPanel[v].title = juce::String::fromUTF8 (v == 0 ? "MOD ENV  \xe2\x80\x94  VOICE A" : "MOD ENV  \xe2\x80\x94  VOICE B");
         envPanel[v].closeBtn.onClick = [this, v]() { closeEnvPanel (v); };
         envPanel[v].closeBtn.setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff2a1a00));
         envPanel[v].closeBtn.setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe09040));
@@ -344,7 +347,7 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
         synthPageComponents.push_back (&envPanel[v]);
 
         // LFO panel
-        lfoPanel[v].title = (v == 0) ? "LFO  \xe2\x80\x94  VOICE A" : "LFO  \xe2\x80\x94  VOICE B";
+        lfoPanel[v].title = juce::String::fromUTF8 (v == 0 ? "LFO  \xe2\x80\x94  VOICE A" : "LFO  \xe2\x80\x94  VOICE B");
         lfoPanel[v].closeBtn.onClick = [this, v]() { closeLfoPanel (v); };
         lfoPanel[v].closeBtn.setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff2a1a00));
         lfoPanel[v].closeBtn.setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe09040));
@@ -352,7 +355,7 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
         synthPageComponents.push_back (&lfoPanel[v]);
 
         // Toggle buttons (will be positioned in layoutVoice)
-        oscPanelBtn[v].setButtonText ("OSC \xe2\x96\xbc");
+        oscPanelBtn[v].setButtonText (juce::String::fromUTF8 ("OSC \xe2\x96\xbc"));
         oscPanelBtn[v].setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff161630));
         oscPanelBtn[v].setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe0e0e0));
         oscPanelBtn[v].onClick = [this, v]() {
@@ -361,7 +364,7 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
         addAndMakeVisible (oscPanelBtn[v]);
         synthPageComponents.push_back (&oscPanelBtn[v]);
 
-        envPanelBtn[v].setButtonText ("MOD \xe2\x96\xbc");
+        envPanelBtn[v].setButtonText (juce::String::fromUTF8 ("MOD \xe2\x96\xbc"));
         envPanelBtn[v].setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff161630));
         envPanelBtn[v].setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe0e0e0));
         envPanelBtn[v].onClick = [this, v]() {
@@ -370,7 +373,7 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
         addAndMakeVisible (envPanelBtn[v]);
         synthPageComponents.push_back (&envPanelBtn[v]);
 
-        lfoPanelBtn[v].setButtonText ("LFO \xe2\x96\xbc");
+        lfoPanelBtn[v].setButtonText (juce::String::fromUTF8 ("LFO \xe2\x96\xbc"));
         lfoPanelBtn[v].setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff161630));
         lfoPanelBtn[v].setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe0e0e0));
         lfoPanelBtn[v].onClick = [this, v]() {
@@ -517,10 +520,15 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     genPageBtn.onClick = [this]() { showPage (3); };
     addAndMakeVisible (genPageBtn);
 
+    aboutPageBtn.setButtonText ("ABOUT");
+    aboutPageBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff161630));
+    aboutPageBtn.onClick = [this]() { showPage (4); };
+    addAndMakeVisible (aboutPageBtn);
+
     // ── Capture all synth-page components (everything added so far except nav btns)
     for (auto* c : getChildren())
         if (c != &synthPageBtn && c != &patternPageBtn
-         && c != &fxPageBtn    && c != &genPageBtn)
+         && c != &fxPageBtn    && c != &genPageBtn && c != &aboutPageBtn)
             synthPageComponents.push_back (c);
 
     // ── Pattern bank tiles (added invisible by default) ───────────────────────
@@ -584,6 +592,12 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
 
     // ── Pattern sequencer controls ────────────────────────────────────────────
     setupPatternSeqControls();
+
+    // ── Macro controllers ─────────────────────────────────────────────────────
+    setupMacros();
+
+    // ── About page ────────────────────────────────────────────────────────────
+    setupAboutPage();
 
     // setSize LAST — triggers resized() which calls layoutVoice()
     setSize (1500, winH);
@@ -1500,6 +1514,9 @@ void VoltageSeq2AudioProcessorEditor::refreshPlaitsMode (int v)
     fmDepthSlider      [v].setVisible (!on);
     fmRatioSlider      [v].setVisible (!on);
     crossModSlider     [v].setVisible (!on);
+
+    macroOverlay.toFront (false);   // visible-knob set changed — refresh rings
+    macroOverlay.repaint();
 }
 
 //==============================================================================
@@ -2174,10 +2191,12 @@ void VoltageSeq2AudioProcessorEditor::syncFxPageFromVoice()
 void VoltageSeq2AudioProcessorEditor::showPage (int page)
 {
     currentPage = page;
+    if (page != 0 && macroLearnActive >= 0) exitMacroLearn();   // cancel learn on page change
     for (auto* c : synthPageComponents)   c->setVisible (page == 0);
     for (auto* c : patternPageComponents) c->setVisible (page == 1);
     for (auto* c : fxPageComponents)      c->setVisible (page == 2);
     for (auto* c : genPageComponents)     c->setVisible (page == 3);
+    for (auto* c : aboutPageComponents)   c->setVisible (page == 4);
 
     // The bulk-show above makes every synthPageComponent visible on page 0.
     // Re-apply per-voice Plaits vs OSC visibility so controls don't overlap.
@@ -2224,6 +2243,9 @@ void VoltageSeq2AudioProcessorEditor::showPage (int page)
     patternPageBtn.setColour (juce::TextButton::buttonColourId, page == 1 ? activeCol : inactiveCol);
     fxPageBtn     .setColour (juce::TextButton::buttonColourId, page == 2 ? activeCol : inactiveCol);
     genPageBtn    .setColour (juce::TextButton::buttonColourId, page == 3 ? activeCol : inactiveCol);
+    aboutPageBtn  .setColour (juce::TextButton::buttonColourId, page == 4 ? activeCol : inactiveCol);
+    macroOverlay.toFront (false);   // keep overlay topmost across page switches
+    macroOverlay.repaint();
     repaint();
 }
 
@@ -2301,6 +2323,32 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     g.setFont (juce::Font (9.0f, juce::Font::bold));
     g.setColour (dimColour.withAlpha (0.6f));
     g.drawText ("PRESET", 1240, 4, 42, 20, juce::Justification::centredLeft);
+
+    // ── About page overlay ────────────────────────────────────────────────────
+    if (currentPage == 4)
+    {
+        g.setColour (juce::Colour (0xff060610));
+        g.fillRect (0, headerH, getWidth(), getHeight() - headerH);
+
+        auto ib = aboutImageBounds;
+        if (aboutImage.isValid())
+        {
+            g.drawImageWithin (aboutImage, ib.getX(), ib.getY(), ib.getWidth(), ib.getHeight(),
+                               juce::RectanglePlacement::centred, false);
+        }
+        else
+        {
+            g.setColour (juce::Colour (0xff111120));
+            g.fillRect (ib);
+            g.setColour (juce::Colour (0xff3a3a4a));
+            g.setFont (juce::Font (13.0f));
+            g.drawText ("portrait image\n(pending)", ib, juce::Justification::centred);
+        }
+        // Thin frame around the image
+        g.setColour (juce::Colour (0xff00d4aa).withAlpha (0.35f));
+        g.drawRect (ib, 1);
+        return;   // skip the synth-page backplate/labels drawn further below
+    }
 
     // ── Pattern page overlay ──────────────────────────────────────────────────
     if (currentPage == 1)
@@ -2977,15 +3025,33 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
 
     // ── Branding logo boost pass ─────────────────────────────────────────────
     // Drawn AFTER all ctrl strip background fills so the logo renders on top,
-    // not dimmed underneath the sectionColour panels.
+    // not dimmed underneath the sectionColour panels. Restricted to the TOP
+    // (Voice A) row only — the bottom row is now the MACROS panel.
     if (backplate != nullptr)
     {
         const juce::Rectangle<float> fullArea (0.0f, 0.0f,
                                                (float)getWidth(), (float)winH);
         g.saveState();
-        g.reduceClipRegion (1090, ctrlAY, getWidth() - 1090, ctrlH * 2);
+        g.reduceClipRegion (1090, ctrlAY, getWidth() - 1090, ctrlH);
         backplate->drawWithin (g, fullArea, juce::RectanglePlacement::stretchToFit, 0.88f);
         g.restoreState();
+    }
+
+    // ── MACROS panel (bottom-right, replaces the lower branding block) ────────
+    if (currentPage == 0)
+    {
+        const int mzX = 1090, mzW = getWidth() - 1090;
+        const juce::Colour macTeal (0xff00d4aa);
+        g.setColour (juce::Colour (0xff0c0c18));               // opaque — hide branding text
+        g.fillRect (mzX, ctrlBY, mzW, ctrlH);
+        g.setColour (macTeal.withAlpha (0.35f));
+        g.fillRect (mzX, ctrlBY, 2, ctrlH);                    // accent stripe
+        g.setColour (macTeal);
+        g.setFont (juce::Font (9.0f, juce::Font::bold));
+        g.drawText ("MACROS", mzX + 8, ctrlBY + 4, mzW - 16, 12,
+                    juce::Justification::centredLeft);
+        g.setColour (macTeal.withAlpha (0.25f));
+        g.fillRect (mzX + 8, ctrlBY + 18, mzW - 16, 1);
     }
 }
 
@@ -2999,6 +3065,7 @@ void VoltageSeq2AudioProcessorEditor::resized()
     patternPageBtn.setBounds (290, 3,  80, 22);
     fxPageBtn     .setBounds (375, 3,  55, 22);
     genPageBtn    .setBounds (435, 3,  80, 22);
+    aboutPageBtn  .setBounds (520, 3,  62, 22);
     savePresetBtn .setBounds (1305, 3, 85, 22);
     loadPresetBtn .setBounds (1396, 3, 85, 22);
 
@@ -3007,6 +3074,26 @@ void VoltageSeq2AudioProcessorEditor::resized()
     layoutPatternPage();
     layoutFxPage();
     layoutGenPage();
+    layoutAboutPage();
+
+    // ── Macro controllers — bottom-right branding zone (Voice B control row) ──
+    {
+        constexpr int mx0   = 1100;          // left edge of macro zone
+        constexpr int colW  = 195;           // per-macro column width
+        constexpr int kSzM  = 58;            // wheel diameter (slightly < TM lock wheel)
+        const int     topY  = ctrlBY + 24;   // below the "LFO ▼" button row
+        for (int m = 0; m < kNumMacros; ++m)
+        {
+            const int cx = mx0 + m * colW;
+            macroNameLabel  [m].setBounds (cx, topY,                       colW - 8, 14);
+            macroKnob       [m].setBounds (cx + (colW - kSzM) / 2 - 4, topY + 14, kSzM, kSzM);
+            macroAssignBtn  [m].setBounds (cx + (colW - 76) / 2 - 4, topY + 74, 76, 15);
+            macroAssignLabel[m].setBounds (cx + 4, topY + 94,             colW - 12, 58);
+        }
+    }
+
+    macroOverlay.setBounds (getLocalBounds());
+    macroOverlay.toFront (false);
 }
 
 //==============================================================================
@@ -3465,6 +3552,525 @@ void VoltageSeq2AudioProcessorEditor::timerCallback()
                 tm.bits[i] ? vc.withAlpha (0.7f) : juce::Colour (0xff0e0e1c));
         repaint();
     }
+
+    // ── Live macro dot: repaint ring regions when a macro value changes ───────
+    if (currentPage == 0)
+    {
+        bool moved = false;
+        for (int m = 0; m < kNumMacros; ++m)
+        {
+            const float v = audioProcessor.macros[m].value.load();
+            if (std::abs (v - lastMacroValue[m]) > 0.0005f) { lastMacroValue[m] = v; moved = true; }
+        }
+        if (moved)
+            for (const auto& ri : buildRings())
+            {
+                const int rr = (int) ri.radius + 6;
+                macroOverlay.repaint (juce::Rectangle<int> (
+                    (int) ri.centre.x - rr, (int) ri.centre.y - rr, rr * 2, rr * 2));
+            }
+    }
+}
+
+//==============================================================================
+// Macro controllers
+//==============================================================================
+void VoltageSeq2AudioProcessorEditor::setupMacros()
+{
+    for (int m = 0; m < kNumMacros; ++m)
+    {
+        auto& k = macroKnob[m];
+        k.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+        k.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        k.setColour (juce::Slider::rotarySliderFillColourId,    juce::Colour (0xff00d4aa));
+        k.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (0xff1a3030));
+        k.onRightClick = [this, m]() { showMacroMenu (m); };
+        macroAttach[m] = std::make_unique<SliderAtt> (
+            audioProcessor.apvts, "macro" + juce::String (m), k);
+        addAndMakeVisible (k);
+        synthPageComponents.push_back (&k);
+
+        auto& nl = macroNameLabel[m];
+        nl.setText ("MACRO " + juce::String (m + 1), juce::dontSendNotification);
+        nl.setJustificationType (juce::Justification::centred);
+        nl.setColour (juce::Label::textColourId, juce::Colour (0xff00d4aa));
+        nl.setFont (juce::Font (12.0f, juce::Font::bold));
+        addAndMakeVisible (nl);
+        synthPageComponents.push_back (&nl);
+
+        auto& al = macroAssignLabel[m];
+        al.setJustificationType (juce::Justification::topLeft);
+        al.setColour (juce::Label::textColourId, juce::Colour (0xffb0c4c0));
+        al.setFont (juce::Font (10.5f));
+        al.setMinimumHorizontalScale (1.0f);
+        addAndMakeVisible (al);
+        synthPageComponents.push_back (&al);
+
+        auto& ab = macroAssignBtn[m];
+        ab.setButtonText ("ASSIGN");
+        ab.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff14242a));
+        ab.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff00d4aa));
+        ab.onClick = [this, m]() {
+            (macroLearnActive == m) ? exitMacroLearn() : enterMacroLearn (m);
+        };
+        addAndMakeVisible (ab);
+        synthPageComponents.push_back (&ab);
+
+        // Sit behind the floating LFO panels so opening an LFO panel covers them
+        // (same as the branding zone they replace).
+        nl.toBack();
+        al.toBack();
+        k.toBack();
+    }
+
+    // Full-window transparent overlay for learn-mode highlights + click capture.
+    macroOverlay.ed = this;
+    addAndMakeVisible (macroOverlay);
+    macroOverlay.setBounds (getLocalBounds());
+    macroOverlay.toFront (false);
+
+    refreshMacroLabels();
+}
+
+//------------------------------------------------------------------------------
+std::vector<VoltageSeq2AudioProcessorEditor::Assignable>
+VoltageSeq2AudioProcessorEditor::buildAssignables()
+{
+    using AP = VoltageSeq2AudioProcessor;
+    std::vector<Assignable> out;
+    for (int v = 0; v < 2; ++v)
+    {
+        out.push_back ({ &cutoffSlider     [v], AP::MT_Cutoff,    v });
+        out.push_back ({ &resonanceSlider  [v], AP::MT_Resonance, v });
+        out.push_back ({ &filterDriveSlider[v], AP::MT_Drive,     v });
+        out.push_back ({ &rangeSlider      [v], AP::MT_Range,     v });
+        out.push_back ({ &fmDepthSlider    [v], AP::MT_FM,        v });
+        out.push_back ({ &osc1PWMSlider    [v], AP::MT_PWM,       v });
+        out.push_back ({ &plaitsHarmSlider [v], AP::MT_Harm,      v });
+        out.push_back ({ &plaitsTimSlider  [v], AP::MT_Timbre,    v });
+        out.push_back ({ &plaitsMorphSlider[v], AP::MT_Morph,     v });
+        // Amp + Filter ADSR (always-visible front-page knobs)
+        out.push_back ({ &attackSlider     [v], AP::MT_AmpA,      v });
+        out.push_back ({ &decaySlider      [v], AP::MT_AmpD,      v });
+        out.push_back ({ &sustainSlider    [v], AP::MT_AmpS,      v });
+        out.push_back ({ &releaseSlider    [v], AP::MT_AmpR,      v });
+        out.push_back ({ &fAttackSlider    [v], AP::MT_FltA,      v });
+        out.push_back ({ &fDecaySlider     [v], AP::MT_FltD,      v });
+        out.push_back ({ &fSustainSlider   [v], AP::MT_FltS,      v });
+        out.push_back ({ &fReleaseSlider   [v], AP::MT_FltR,      v });
+    }
+    return out;
+}
+
+juce::Rectangle<int>
+VoltageSeq2AudioProcessorEditor::assignableScreenBounds (juce::Slider* s)
+{
+    if (s == nullptr || ! s->isShowing()) return {};
+    return getLocalArea (s, s->getLocalBounds());
+}
+
+void VoltageSeq2AudioProcessorEditor::enterMacroLearn (int m)
+{
+    macroLearnActive = m;
+    macroOverlay.toFront (false);
+    updateMacroAssignBtns();
+    macroOverlay.repaint();
+}
+
+void VoltageSeq2AudioProcessorEditor::exitMacroLearn()
+{
+    macroLearnActive = -1;
+    updateMacroAssignBtns();
+    macroOverlay.repaint();
+}
+
+void VoltageSeq2AudioProcessorEditor::updateMacroAssignBtns()
+{
+    for (int m = 0; m < kNumMacros; ++m)
+    {
+        const bool on = (macroLearnActive == m);
+        macroAssignBtn[m].setButtonText (on ? "CLICK A KNOB" : "ASSIGN");
+        macroAssignBtn[m].setColour (juce::TextButton::buttonColourId,
+            on ? juce::Colour (0xff00d4aa) : juce::Colour (0xff14242a));
+        macroAssignBtn[m].setColour (juce::TextButton::textColourOffId,
+            on ? juce::Colour (0xff071518) : juce::Colour (0xff00d4aa));
+    }
+}
+
+void VoltageSeq2AudioProcessorEditor::assignFromClick (int sliderTarget, int voice, bool both)
+{
+    if (macroLearnActive < 0) return;
+    auto& mac = audioProcessor.macros[macroLearnActive];
+    int cnt = mac.count.load();
+    if (cnt < VoltageSeq2AudioProcessor::kMaxMacroAssign)
+    {
+        mac.assign[cnt].target = sliderTarget;
+        mac.assign[cnt].scope  = both ? VoltageSeq2AudioProcessor::MS_Both : voice;
+        mac.assign[cnt].depth  = 1.0f;
+        mac.count.store (cnt + 1);
+    }
+    refreshMacroLabels();
+    exitMacroLearn();
+    repaint();
+}
+
+//==============================================================================
+// Depth rings
+//==============================================================================
+std::vector<VoltageSeq2AudioProcessorEditor::RingInfo>
+VoltageSeq2AudioProcessorEditor::buildRings()
+{
+    using AP = VoltageSeq2AudioProcessor;
+    static const juce::Colour mc[kNumMacros] = {
+        juce::Colour (0xff00d4aa), juce::Colour (0xffe09040) };
+    std::vector<RingInfo> out;
+    auto assignables = buildAssignables();
+    for (int m = 0; m < kNumMacros; ++m)
+    {
+        auto& mac = audioProcessor.macros[m];
+        const int n = mac.count.load();
+        for (int a = 0; a < n; ++a)
+        {
+            const auto& as = mac.assign[a];
+            for (const auto& ax : assignables)
+            {
+                if (ax.target != as.target) continue;
+                if (! (as.scope == AP::MS_Both || as.scope == ax.voice)) continue;
+                auto b = assignableScreenBounds (ax.slider);
+                if (b.isEmpty()) continue;
+                const float half = b.getWidth() * 0.5f;
+                out.push_back ({ m, a, b.getCentre().toFloat(),
+                                 half + 3.0f + (float) m * 5.0f, as.depth, mc[m] });
+            }
+        }
+    }
+    return out;
+}
+
+//==============================================================================
+// MacroOverlay — learn highlights + click capture + depth-ring draw/drag
+//==============================================================================
+bool VoltageSeq2AudioProcessorEditor::MacroOverlay::hitTest (int x, int y)
+{
+    if (ed == nullptr) return false;
+    if (ed->macroLearnActive >= 0) return true;        // learning: capture all
+    if (ed->currentPage != 0)      return false;       // rings live on synth page only
+    const juce::Point<float> p ((float) x, (float) y);
+    for (const auto& ri : ed->buildRings())            // solid only on ring bands
+        if (std::abs (ri.centre.getDistanceFrom (p) - ri.radius) <= 5.0f)
+            return true;
+    return false;
+}
+
+void VoltageSeq2AudioProcessorEditor::MacroOverlay::paint (juce::Graphics& g)
+{
+    if (ed == nullptr || ed->currentPage != 0) return;
+
+    // Learn mode: dim + highlight every visible assignable knob.
+    if (ed->macroLearnActive >= 0)
+    {
+        g.fillAll (juce::Colour (0x33000000));
+        const juce::Colour teal (0xff00d4aa);
+        for (const auto& a : ed->buildAssignables())
+        {
+            auto b = ed->assignableScreenBounds (a.slider);
+            if (b.isEmpty()) continue;
+            g.setColour (teal.withAlpha (0.18f));
+            g.fillRoundedRectangle (b.toFloat().expanded (3.0f), 6.0f);
+            g.setColour (teal);
+            g.drawRoundedRectangle (b.toFloat().expanded (3.0f), 6.0f, 2.0f);
+        }
+    }
+
+    // Depth rings around assigned knobs (always shown on the synth page).
+    for (const auto& ri : ed->buildRings())
+    {
+        const float cx = ri.centre.x, cy = ri.centre.y, r = ri.radius;
+        g.setColour (ri.colour.withAlpha (0.22f));
+        g.drawEllipse (cx - r, cy - r, r * 2.0f, r * 2.0f, 2.0f);   // faint track
+        const float a0    = -juce::MathConstants<float>::halfPi;    // start position
+        const float sweep = ri.depth * juce::MathConstants<float>::pi * 0.8f; // ±144°
+        juce::Path arc;
+        arc.addCentredArc (cx, cy, r, r, 0.0f, a0, a0 + sweep, true);
+        g.setColour (ri.colour);
+        g.strokePath (arc, juce::PathStrokeType (2.5f));
+
+        // ── Live modulation dot ───────────────────────────────────────────────
+        // Travels along the arc to the current point: macroValue × depth.
+        const float mv  = ed->audioProcessor.macros[ri.macro].value.load();
+        const float ang = a0 + mv * sweep;            // fraction mv toward depth end
+        const float dx  = cx + r * std::sin (ang);    // addCentredArc angle convention
+        const float dy  = cy - r * std::cos (ang);
+        g.setColour (juce::Colour (0xffff3b30));       // bright red live indicator
+        g.fillEllipse (dx - 3.0f, dy - 3.0f, 6.0f, 6.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.85f));
+        g.drawEllipse (dx - 3.0f, dy - 3.0f, 6.0f, 6.0f, 1.0f);
+    }
+}
+
+void VoltageSeq2AudioProcessorEditor::MacroOverlay::mouseDown (const juce::MouseEvent& e)
+{
+    if (ed == nullptr) return;
+
+    // ── Learn mode: assign the clicked knob ───────────────────────────────────
+    if (ed->macroLearnActive >= 0)
+    {
+        const bool both = e.mods.isAltDown();
+        for (const auto& a : ed->buildAssignables())
+        {
+            auto b = ed->assignableScreenBounds (a.slider);
+            if (! b.isEmpty() && b.expanded (3).contains (e.getPosition()))
+            {
+                ed->assignFromClick (a.target, a.voice, both);
+                return;
+            }
+        }
+        ed->exitMacroLearn();   // clicked empty space — cancel
+        return;
+    }
+
+    // ── Otherwise: begin a depth-ring drag (hitTest only let us here on a band)─
+    const juce::Point<float> p = e.position;
+    for (const auto& ri : ed->buildRings())
+    {
+        if (std::abs (ri.centre.getDistanceFrom (p) - ri.radius) <= 5.0f)
+        {
+            ed->dragRingMacro      = ri.macro;
+            ed->dragRingAssign     = ri.assignIdx;
+            ed->dragRingStartDepth = ri.depth;
+            return;
+        }
+    }
+}
+
+void VoltageSeq2AudioProcessorEditor::MacroOverlay::mouseDrag (const juce::MouseEvent& e)
+{
+    if (ed == nullptr || ed->dragRingMacro < 0) return;
+    auto& mac = ed->audioProcessor.macros[ed->dragRingMacro];
+    if (ed->dragRingAssign >= mac.count.load()) return;
+    // Drag up = increase depth. Full sweep (-1..+1) over ~200 px.
+    const float d = juce::jlimit (-1.0f, 1.0f,
+        ed->dragRingStartDepth + (float) (-e.getDistanceFromDragStartY()) / 200.0f);
+    mac.assign[ed->dragRingAssign].depth = d;
+    ed->refreshMacroLabels();
+    repaint();
+}
+
+void VoltageSeq2AudioProcessorEditor::MacroOverlay::mouseUp (const juce::MouseEvent&)
+{
+    if (ed == nullptr) return;
+    ed->dragRingMacro = ed->dragRingAssign = -1;
+}
+
+//==============================================================================
+// ABOUT page
+//==============================================================================
+void VoltageSeq2AudioProcessorEditor::setupAboutPage()
+{
+    // Embedded portrait (placeholder until the real PNG bytes are baked in).
+    if (AboutImage::dataSize > 0)
+        aboutImage = juce::ImageFileFormat::loadFrom (AboutImage::data, (size_t) AboutImage::dataSize);
+
+    const juce::Colour teal (0xff00d4aa);
+    const juce::Colour body (0xffd6dde0);
+
+    aboutTitle.setText (juce::String::fromUTF8 ("ABOUT  \xc2\xb7  MURGATROYD INSTRUMENTS"),
+                        juce::dontSendNotification);
+    aboutTitle.setFont (juce::Font ("Helvetica Neue", 22.0f, juce::Font::bold));
+    aboutTitle.setColour (juce::Label::textColourId, teal);
+    addChildComponent (aboutTitle);
+    aboutPageComponents.push_back (&aboutTitle);
+
+    auto styleReadOnly = [] (juce::TextEditor& te, juce::Colour col, float sz, bool bold)
+    {
+        te.setMultiLine (true);
+        te.setReadOnly (true);
+        te.setCaretVisible (false);
+        te.setScrollbarsShown (true);
+        te.setPopupMenuEnabled (false);
+        te.setColour (juce::TextEditor::backgroundColourId, juce::Colour (0x00000000));
+        te.setColour (juce::TextEditor::outlineColourId,    juce::Colour (0x00000000));
+        te.setColour (juce::TextEditor::focusedOutlineColourId, juce::Colour (0x00000000));
+        te.setColour (juce::TextEditor::textColourId, col);
+        te.setColour (juce::TextEditor::shadowColourId, juce::Colour (0x00000000));
+        te.setFont (juce::Font ("Helvetica Neue", sz, bold ? juce::Font::bold : juce::Font::plain));
+    };
+
+    aboutBody.setText (juce::String::fromUTF8 (
+        "Hey, I'm Ryan \xe2\x80\x94 owner of Murgatroyd Instruments. Our little company was "
+        "founded in 2026 with the vision of bringing unique tools and processes to music "
+        "makers around the globe.\n\n"
+        "Borrowing heavily from modular ideas and values, we believe the creative process "
+        "should be intuitive, rewarding and dynamic. We also believe in making tools that "
+        "support music theory and compositional logic \xe2\x80\x94 offering new ways to think "
+        "about, create, improvise and perform melodies.\n\n"
+        "We'd love to hear from you, and have you tag, share and support our products. "
+        "If you haven't checked out the VIDEO MANUAL, it's linked below. Please email me "
+        "with any feedback and ideas."), juce::dontSendNotification);
+    styleReadOnly (aboutBody, body, 15.0f, false);
+    addChildComponent (aboutBody);
+    aboutPageComponents.push_back (&aboutBody);
+
+    aboutVideoLink.setButtonText (juce::String::fromUTF8 ("\xe2\x96\xb6  Watch the Video Manual"));
+    aboutVideoLink.setURL (juce::URL ("https://youtu.be/5uqDP0mt4Jw"));
+    aboutVideoLink.setColour (juce::HyperlinkButton::textColourId, teal);
+    aboutVideoLink.setFont (juce::Font ("Helvetica Neue", 15.0f, juce::Font::bold), false,
+                            juce::Justification::centredLeft);
+    addChildComponent (aboutVideoLink);
+    aboutPageComponents.push_back (&aboutVideoLink);
+
+    aboutEmailLink.setButtonText ("ryan@soulcandi.co.za");
+    aboutEmailLink.setURL (juce::URL ("mailto:ryan@soulcandi.co.za"));
+    aboutEmailLink.setColour (juce::HyperlinkButton::textColourId, teal);
+    aboutEmailLink.setFont (juce::Font ("Helvetica Neue", 15.0f, juce::Font::bold), false,
+                            juce::Justification::centredLeft);
+    addChildComponent (aboutEmailLink);
+    aboutPageComponents.push_back (&aboutEmailLink);
+
+    aboutThanks.setText (juce::String::fromUTF8 (
+        "SPECIAL THANKS \xe2\x80\x94 for the inspiration, assistance, insight and help with the "
+        "overall design and workflow:\n\n"
+        "Phoebe Pemberton  \xc2\xb7  Dash Glitch  \xc2\xb7  Omri Cohen  \xc2\xb7  Mark Valsecchi  \xc2\xb7  "
+        "James Carter  \xc2\xb7  Andile Maphmulo  \xc2\xb7  Khumo Ranamane  \xc2\xb7  Ben Mabena  \xc2\xb7  "
+        "Matt Flax  \xc2\xb7  Kosta Karatamoglou  \xc2\xb7  Blanka Mazimela  \xc2\xb7  and the rest of the "
+        "beta-test team.\n\n"
+        "Plugin development assisted by Claude (Anthropic)."), juce::dontSendNotification);
+    styleReadOnly (aboutThanks, juce::Colour (0xff9aa6ac), 12.5f, false);
+    addChildComponent (aboutThanks);
+    aboutPageComponents.push_back (&aboutThanks);
+}
+
+void VoltageSeq2AudioProcessorEditor::layoutAboutPage()
+{
+    constexpr int headerH = 32;
+    const int top = headerH + 18;
+    const int W   = getWidth();
+    const int H   = getHeight();
+
+    // Image occupies the left ~46%, text the right.
+    const int imgW = 660;
+    const int imgX = 24;
+    const int imgY = top;
+    const int imgH = H - top - 70;          // leave room for credits strip
+    // (the image itself is drawn in paint(); these bounds drive that draw)
+    aboutImageBounds = juce::Rectangle<int> (imgX, imgY, imgW, imgH);
+
+    const int tx = imgX + imgW + 36;
+    const int tw = W - tx - 28;
+
+    aboutTitle .setBounds (tx, top, tw, 30);
+    aboutBody  .setBounds (tx, top + 44, tw, 210);
+    aboutVideoLink.setBounds (tx, top + 264, tw, 22);
+    aboutEmailLink.setBounds (tx, top + 290, tw, 22);
+    aboutThanks.setBounds (tx, top + 326, tw, H - (top + 326) - 24);
+}
+
+void VoltageSeq2AudioProcessorEditor::refreshMacroLabels()
+{
+    static const char* const scopeTag[3] = { "A", "B", "A+B" };
+    for (int m = 0; m < kNumMacros; ++m)
+    {
+        auto& mac = audioProcessor.macros[m];
+        const int n = mac.count.load();
+        juce::String txt;
+        for (int a = 0; a < n; ++a)
+        {
+            const auto& as = mac.assign[a];
+            const int pct = juce::roundToInt (as.depth * 100.0f);
+            txt << VoltageSeq2AudioProcessor::kMacroTargetNames[as.target]
+                << " \xc2\xb7 " << scopeTag[juce::jlimit (0, 2, as.scope)]
+                << "  " << (pct >= 0 ? "+" : "") << pct << "%\n";
+        }
+        if (txt.isEmpty()) txt = "(right-click to assign)";
+        macroAssignLabel[m].setText (txt, juce::dontSendNotification);
+    }
+}
+
+void VoltageSeq2AudioProcessorEditor::showMacroMenu (int m)
+{
+    using AP = VoltageSeq2AudioProcessor;
+    auto& mac = audioProcessor.macros[m];
+
+    juce::PopupMenu menu;
+
+    // ── Add destination → scope submenu → parameter list ──────────────────────
+    static const char* const scopeName[3] = { "Voice A", "Voice B", "Both" };
+    juce::PopupMenu addMenu;
+    for (int scope = 0; scope < 3; ++scope)
+    {
+        juce::PopupMenu params;
+        for (int t = 0; t < AP::MT_Count; ++t)
+            params.addItem (1000 + scope * 100 + t, AP::kMacroTargetNames[t]);
+        addMenu.addSubMenu (scopeName[scope], params);
+    }
+    menu.addSubMenu ("Add destination", addMenu);
+
+    // ── Existing assignments → edit depth / remove ────────────────────────────
+    static const char* const scopeTag[3] = { "A", "B", "A+B" };
+    const int n = mac.count.load();
+    if (n > 0)
+    {
+        menu.addSeparator();
+        static const int   depthPct[8]  = { 100, 75, 50, 25, -25, -50, -75, -100 };
+        for (int a = 0; a < n; ++a)
+        {
+            const auto& as = mac.assign[a];
+            const int pct = juce::roundToInt (as.depth * 100.0f);
+            juce::String title;
+            title << AP::kMacroTargetNames[as.target] << " (" << scopeTag[juce::jlimit(0,2,as.scope)]
+                  << ")  " << (pct >= 0 ? "+" : "") << pct << "%";
+
+            juce::PopupMenu item;
+            juce::PopupMenu depthMenu;
+            for (int d = 0; d < 8; ++d)
+                depthMenu.addItem (2000 + a * 100 + d,
+                                   juce::String (depthPct[d] > 0 ? "+" : "") + juce::String (depthPct[d]) + "%",
+                                   true, pct == depthPct[d]);
+            item.addSubMenu ("Depth", depthMenu);
+            item.addItem (3000 + a, "Remove");
+            menu.addSubMenu (title, item);
+        }
+    }
+
+    menu.showMenuAsync (juce::PopupMenu::Options{}.withTargetComponent (&macroKnob[m]),
+        [this, m] (int r)
+        {
+            if (r == 0) return;
+            auto& mac2 = audioProcessor.macros[m];
+            if (r >= 1000 && r < 2000)               // add
+            {
+                const int scope  = (r - 1000) / 100;
+                const int target = (r - 1000) % 100;
+                int cnt = mac2.count.load();
+                if (cnt < VoltageSeq2AudioProcessor::kMaxMacroAssign)
+                {
+                    mac2.assign[cnt].target = target;
+                    mac2.assign[cnt].scope  = scope;
+                    mac2.assign[cnt].depth  = 1.0f;
+                    mac2.count.store (cnt + 1);      // publish after fields written
+                }
+            }
+            else if (r >= 2000 && r < 3000)          // set depth
+            {
+                static const int depthPct[8] = { 100, 75, 50, 25, -25, -50, -75, -100 };
+                const int a = (r - 2000) / 100;
+                const int d = (r - 2000) % 100;
+                if (a < mac2.count.load() && d >= 0 && d < 8)
+                    mac2.assign[a].depth = depthPct[d] / 100.0f;
+            }
+            else if (r >= 3000 && r < 4000)          // remove
+            {
+                const int a   = r - 3000;
+                const int cnt = mac2.count.load();
+                if (a >= 0 && a < cnt)
+                {
+                    for (int i = a; i < cnt - 1; ++i) mac2.assign[i] = mac2.assign[i + 1];
+                    mac2.count.store (cnt - 1);
+                }
+            }
+            refreshMacroLabels();
+            repaint();
+        });
 }
 
 //==============================================================================
@@ -3473,6 +4079,8 @@ void VoltageSeq2AudioProcessorEditor::timerCallback()
 void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
 {
 
+
+    refreshMacroLabels();   // macro assignments may have changed (preset load)
 
     for (int v = 0; v < 2; ++v)
     {
@@ -3657,6 +4265,8 @@ void VoltageSeq2AudioProcessorEditor::openOscPanel (int v)
     p.addAndMakeVisible (plaitsOctBox[v]);          plaitsOctBox[v].setBounds       (104,154, 90, 22);
 
     oscPanelOpen[v] = true;
+    macroOverlay.toFront (false);   // keep learn/ring overlay above the panel
+    macroOverlay.repaint();
 
     // ── Parameter labels drawn inside the panel ───────────────────────────────
     oscPanel[v].paintLabels = [](juce::Graphics& g)
@@ -3741,6 +4351,8 @@ void VoltageSeq2AudioProcessorEditor::closeOscPanel (int v)
     applySectionVisibility (v);
     // Re-apply Plaits state so front-page OSC1 controls show/hide correctly
     refreshPlaitsMode (v);
+    macroOverlay.toFront (false);   // re-assert overlay topmost; refresh rings
+    macroOverlay.repaint();
 }
 
 // ── ENV ───────────────────────────────────────────────────────────────────────
