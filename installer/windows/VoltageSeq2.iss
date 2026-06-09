@@ -5,7 +5,10 @@
 ; ============================================================================
 
 #define MyAppName     "VoltageSeq2"
-#define MyAppVersion  "4.4"
+; Version can be overridden from the command line (CI): ISCC /DMyAppVersion=4.5.1
+#ifndef MyAppVersion
+  #define MyAppVersion "4.5"
+#endif
 #define MyAppPublisher "Murgatroyd Instruments"
 #define MyAppURL      "https://github.com/Ryanmurg-22/VoltageSeq2"
 
