@@ -55,6 +55,10 @@ target_compile_definitions(VoltageSeq2 PUBLIC
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_STRICT_REFCOUNTEDPOINTER=1
+    # Mutable Instruments stmlib/plaits: TEST selects the portable desktop code
+    # paths (no ARM Cortex-M inline asm, no STM32 hardware headers). The Xcode
+    # project passes -DTEST; CMake must do the same or the build won't compile.
+    TEST=1
 )
 
 # ── Link libraries ────────────────────────────────────────────────────────────
