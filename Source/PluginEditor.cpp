@@ -4273,42 +4273,48 @@ void VoltageSeq2AudioProcessorEditor::openOscPanel (int v)
     {
         const auto dim  = juce::Colour (0xff888899);
         const auto txt  = juce::Colour (0xffcccccc);
+        // Fitted draws shrink text to its box so it can't overlap on Windows fonts.
+        auto lblL = [&g](const char* t, int x, int y, int w, int h)
+        { g.drawFittedText (t, x, y, w, h, juce::Justification::centredLeft, 1); };
+        auto lblC = [&g](const char* t, int x, int y, int w, int h)
+        { g.drawFittedText (t, x, y, w, h, juce::Justification::centred, 1); };
+
         g.setFont (juce::Font ("Helvetica Neue", 8.5f, juce::Font::bold));
 
         // Sub-section headers
         g.setColour (dim);
-        g.drawText ("OSC 1 +", 8, 28, 160, 12, juce::Justification::centredLeft);
+        lblL ("OSC 1 +", 8, 28, 160, 12);
         g.setColour (juce::Colour (0xff555566));
         g.fillRect (167, 28, 1, 160);   // divider line
         g.setColour (dim);
-        g.drawText ("OSC 2",  180, 28, 312, 12, juce::Justification::centredLeft);
+        lblL ("OSC 2",  180, 28, 312, 12);
 
         // OSC 1 advanced knob labels
         g.setColour (txt);
         g.setFont (juce::Font ("Helvetica Neue", 8.0f, juce::Font::plain));
-        g.drawText ("FDBK",  8,   112, 46, 10, juce::Justification::centred);
-        g.drawText ("PWM",   62,  112, 46, 10, juce::Justification::centred);
-        g.drawText ("DRIFT", 116, 112, 46, 10, juce::Justification::centred);
+        lblC ("FDBK",  8,   112, 46, 10);
+        lblC ("PWM",   62,  112, 46, 10);
+        lblC ("DRIFT", 116, 112, 46, 10);
 
         // OSC 2 knob labels
-        g.drawText ("POS",   180, 112, 46, 10, juce::Justification::centred);
-        g.drawText ("LVL",   234, 112, 46, 10, juce::Justification::centred);
-        g.drawText ("FM",    288, 112, 46, 10, juce::Justification::centred);
-        g.drawText ("XMOD",  342, 112, 46, 10, juce::Justification::centred);
-        g.drawText ("OCT",   180, 153, 80, 10, juce::Justification::centred);
-        g.drawText ("RATIO", 264, 153, 80, 10, juce::Justification::centredLeft);
-        g.drawText ("WT",    180, 182, 312, 10, juce::Justification::centred);
+        lblC ("POS",   180, 112, 46, 10);
+        lblC ("LVL",   234, 112, 46, 10);
+        lblC ("FM",    288, 112, 46, 10);
+        lblC ("XMOD",  342, 112, 46, 10);
+        lblC ("OCT",   180, 153, 80, 10);
+        lblL ("RATIO", 264, 153, 80, 10);
+        lblC ("WT",    180, 182, 312, 10);
 
         // Plaits labels (always drawn — refreshPlaitsMode hides/shows controls)
         g.setFont (juce::Font ("Helvetica Neue", 8.5f, juce::Font::bold));
         g.setColour (dim);
-        g.drawText ("ENGINE", 8, 28, 484, 12, juce::Justification::centred);
+        lblC ("ENGINE", 8, 28, 484, 12);
         g.setColour (txt);
         g.setFont (juce::Font ("Helvetica Neue", 8.0f, juce::Font::plain));
-        g.drawText ("HARM",   8,   140, 46, 10, juce::Justification::centred);
-        g.drawText ("TIMBRE", 66,  140, 46, 10, juce::Justification::centred);
-        g.drawText ("MORPH",  124, 140, 46, 10, juce::Justification::centred);
-        g.drawText ("AUX",    182, 140, 46, 10, juce::Justification::centred);
+        lblC ("HARM",   8,   140, 46, 10);
+        lblC ("TIMBRE", 66,  140, 46, 10);
+        lblC ("MORPH",  124, 140, 46, 10);
+        lblC ("AUX",    182, 140, 46, 10);
     };
 
     // Update button appearance
@@ -4389,16 +4395,18 @@ void VoltageSeq2AudioProcessorEditor::openEnvPanel (int v)
         const auto txt = juce::Colour (0xffcccccc);
         g.setColour (txt);
         g.setFont (juce::Font ("Helvetica Neue", 8.0f, juce::Font::plain));
+        auto lbl = [&g](const char* t, int x, int y, int w, int h)
+        { g.drawFittedText (t, x, y, w, h, juce::Justification::centred, 1); };
         // ADSR knob labels (row 1)
-        g.drawText ("ATK",   8,   112, 46, 10, juce::Justification::centred);
-        g.drawText ("DEC",   62,  112, 46, 10, juce::Justification::centred);
-        g.drawText ("SUS",   116, 112, 46, 10, juce::Justification::centred);
-        g.drawText ("REL",   170, 112, 46, 10, juce::Justification::centred);
+        lbl ("ATK",   8,   112, 46, 10);
+        lbl ("DEC",   62,  112, 46, 10);
+        lbl ("SUS",   116, 112, 46, 10);
+        lbl ("REL",   170, 112, 46, 10);
         // Row 2 labels
-        g.drawText ("DEPTH", 8,   167, 46, 10, juce::Justification::centred);
-        g.drawText ("DEST",  62,  145, 130, 10, juce::Justification::centred);
-        g.drawText ("SYNC",  198, 145, 48,  10, juce::Justification::centred);
-        g.drawText ("DIV",   250, 145, 42,  10, juce::Justification::centred);
+        lbl ("DEPTH", 8,   167, 46, 10);
+        lbl ("DEST",  62,  145, 130, 10);
+        lbl ("SYNC",  198, 145, 48,  10);
+        lbl ("DIV",   250, 145, 42,  10);
     };
 
     envPanelBtn[v].setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff2a1a00));
@@ -4469,23 +4477,28 @@ void VoltageSeq2AudioProcessorEditor::openLfoPanel (int v)
         const auto txt = juce::Colour (0xffcccccc);
         const char* headers[] = { "LFO 1", "LFO 2", "LFO 3", "LFO 4" };
 
-        g.setFont (juce::Font ("Helvetica Neue", 8.5f, juce::Font::bold));
+        // drawFittedText shrinks to fit its box, so labels never collide
+        // horizontally regardless of the platform font's metrics.
+        auto lbl = [&g](const char* t, int x, int y, int w, int h)
+        { g.drawFittedText (t, x, y, w, h, juce::Justification::centred, 1); };
+
         for (int col = 0; col < 4; ++col)
         {
             const int cx = 5 + col * colW;
-            // Column header
+            // Each label sits in a free gap between controls (no vertical overlap):
+            //   24-44 header+WAVE | 44-62 combo | 62-76 RATE/DEPTH | 76-120 knobs
+            //   120-130 TARGET | 130-148 combo | 152-170 sync/div | 172+ SYNC/DIV
             g.setColour (dim);
-            g.drawText (headers[col], cx, 28, 94, 12, juce::Justification::centred);
-            // Per-row labels
+            g.setFont (juce::Font ("Helvetica Neue", 8.5f, juce::Font::bold));
+            lbl (headers[col], cx, 24, 94, 9);
             g.setColour (txt);
             g.setFont (juce::Font ("Helvetica Neue", 8.0f, juce::Font::plain));
-            g.drawText ("WAVE",   cx,    33, 94, 10, juce::Justification::centred);
-            g.drawText ("RATE",   cx,    126, 44, 10, juce::Justification::centred);
-            g.drawText ("DEPTH",  cx+50, 126, 44, 10, juce::Justification::centred);
-            g.drawText ("TARGET", cx,    149, 94, 10, juce::Justification::centred);
-            g.drawText ("SYNC",   cx,    171, 44, 10, juce::Justification::centred);
-            g.drawText ("DIV",    cx+48, 171, 46, 10, juce::Justification::centred);
-            g.setFont (juce::Font ("Helvetica Neue", 8.5f, juce::Font::bold));
+            lbl ("WAVE",   cx,    34,  94, 9);
+            lbl ("RATE",   cx,    64,  44, 10);
+            lbl ("DEPTH",  cx+50, 64,  44, 10);
+            lbl ("TARGET", cx,    120, 94, 9);
+            lbl ("SYNC",   cx,    172, 44, 10);
+            lbl ("DIV",    cx+48, 172, 46, 10);
         }
     };
 
