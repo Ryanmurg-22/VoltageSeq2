@@ -2405,7 +2405,7 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
                                                     + juce::String(midiNote / 12 - 1);
                         g.setFont (juce::Font (8.f));
                         g.setColour (dimColour);
-                        g.drawText (noteName + " \xe2\x86\x92 Slot " + juce::String(i + 1),
+                        g.drawText (noteName + juce::String::fromUTF8 (" \xe2\x86\x92 Slot ") + juce::String(i + 1),
                                     cx + 4, cy, cellW - 8, cellH, juce::Justification::centredLeft);
                     }
                 }
@@ -3979,7 +3979,7 @@ void VoltageSeq2AudioProcessorEditor::refreshMacroLabels()
             const auto& as = mac.assign[a];
             const int pct = juce::roundToInt (as.depth * 100.0f);
             txt << VoltageSeq2AudioProcessor::kMacroTargetNames[as.target]
-                << " \xc2\xb7 " << scopeTag[juce::jlimit (0, 2, as.scope)]
+                << juce::String::fromUTF8 (" \xc2\xb7 ") << scopeTag[juce::jlimit (0, 2, as.scope)]
                 << "  " << (pct >= 0 ? "+" : "") << pct << "%\n";
         }
         if (txt.isEmpty()) txt = "(right-click to assign)";
