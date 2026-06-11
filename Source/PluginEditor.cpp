@@ -35,14 +35,14 @@ namespace {
     // Sequencer strips
     constexpr int seqX       =    5;
     constexpr int seqW       = 1490;   // 16 steps × 88 px + margins
-    constexpr int seqH       =  120;
+    constexpr int seqH       =  134;   // taller lane
     constexpr int stepStride =   44;   // packed box columns (was 88)
 
     // Step controls (relative to strip Y origin)
     constexpr int stepSliderTop = 5;
-    constexpr int stepSliderH   = 85;
-    constexpr int gateRelY      = 93;
-    constexpr int slideRelY     = 107;
+    constexpr int stepSliderH   = 98;    // taller box columns
+    constexpr int gateRelY      = 106;
+    constexpr int slideRelY     = 120;
 
     // Sub-strips (taller — room for label row + control row)
     constexpr int subH = 40;
@@ -2902,9 +2902,11 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
             const int rX = seqX + 16 * stepStride + 96;
             g.setColour (dimColour);
             g.setFont (juce::Font (8.0f, juce::Font::bold));
-            g.drawText ("PLAY ORDER", rX,       sY + 27, 250, 10, juce::Justification::centredLeft);
-            g.drawText ("SWING",      rX + 300, sY + 27, 208, 10, juce::Justification::centredLeft);
-            g.drawText ("RANDOMISE",  rX,       sY + 61, 200, 10, juce::Justification::centredLeft);
+            g.drawText ("LENGTH",     rX + 128, sY + 16, 160, 10, juce::Justification::centredLeft);
+            g.drawText ("PLAY ORDER", rX,       sY + 50, 250, 10, juce::Justification::centredLeft);
+            g.drawText ("SWING",      rX + 300, sY + 50, 208, 10, juce::Justification::centredLeft);
+            g.drawText ("RANDOMISE",  rX,       sY + 84, 200, 10, juce::Justification::centredLeft);
+            g.drawText ("NUDGE",      rX + 300, sY + 84, 100, 10, juce::Justification::centredLeft);
         }
 
         // ── Pulse counter (top-right of sequencer strip) ───────────────────
@@ -3149,19 +3151,17 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     // (the old full-width sub-strip is gone). Origin just past the TOTAL/STAGES
     // cluster; four compact rows.
     const int rX   = seqX + 16 * stepStride + 96;   // ~805
-    const int rowA = seqTopY + 5;
-    const int rowB = seqTopY + 40;   // label "PLAY ORDER" / "SWING" above
-    const int rowC = seqTopY + 74;   // label "RANDOMISE" above
-    const int rowD = seqTopY + 96;
+    const int rowA = seqTopY + 27;   // label "LENGTH" above (over LEN)
+    const int rowB = seqTopY + 61;   // label "PLAY ORDER" / "SWING" above
+    const int rowC = seqTopY + 95;   // label "RANDOMISE" / "NUDGE" above
+    const int rowD = seqTopY + 116;
     const int bh   = 20;
 
-    // Row A — transport · length · reset/uni · nudge
-    runStopBtn     [v].setBounds (rX +   0, rowA, 100, bh);
-    seqLengthSlider[v].setBounds (rX + 116, rowA, 170, bh);
-    resetBtn       [v].setBounds (rX + 300, rowA,  62, bh);
-    bipolarBtn     [v].setBounds (rX + 368, rowA,  62, bh);
-    nudgeLeftBtn   [v].setBounds (rX + 446, rowA,  30, bh);
-    nudgeRightBtn  [v].setBounds (rX + 478, rowA,  30, bh);
+    // Row A — reset/uni (left) · length · stop (right, smaller)
+    resetBtn       [v].setBounds (rX +   0, rowA,  58, bh);
+    bipolarBtn     [v].setBounds (rX +  62, rowA,  58, bh);
+    seqLengthSlider[v].setBounds (rX + 128, rowA, 160, bh);
+    runStopBtn     [v].setBounds (rX + 300, rowA,  64, bh);
 
     // Row B — play order · swing
     playFwdBtn [v].setBounds (rX +   0, rowB, 58, bh);
@@ -3170,10 +3170,12 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     playRndBtn [v].setBounds (rX + 192, rowB, 58, bh);
     swingSlider[v].setBounds (rX + 300, rowB, 208, bh);
 
-    // Row C — random · velocity
-    randModeBtn[v].setBounds (rX +   0, rowC, 70, bh);
-    randomBtn  [v].setBounds (rX +  76, rowC, 64, bh);
-    veloModeBtn[v].setBounds (rX + 150, rowC, 60, bh);
+    // Row C — random · velocity · nudge (below swing)
+    randModeBtn  [v].setBounds (rX +   0, rowC, 70, bh);
+    randomBtn    [v].setBounds (rX +  76, rowC, 64, bh);
+    veloModeBtn  [v].setBounds (rX + 150, rowC, 60, bh);
+    nudgeLeftBtn [v].setBounds (rX + 300, rowC, 34, bh);
+    nudgeRightBtn[v].setBounds (rX + 338, rowC, 34, bh);
 
     // Row D — MIDI/VOICE config radio + the toggled config group
     midiViewBtn [v].setBounds (rX +   0, rowD, 56, bh);
