@@ -44,8 +44,9 @@ namespace {
     constexpr int gateRelY      = 106;
     constexpr int slideRelY     = 120;
 
-    // Sub-strips (taller — room for label row + control row)
-    constexpr int subH = 40;
+    // Sub-strip band removed (controls now live in the seq lane's RHS) — keep a
+    // thin gap between lanes.
+    constexpr int subH = 8;
 
     // Absolute Y positions
     constexpr int seqAY  = headerH + gapH;      //  50
