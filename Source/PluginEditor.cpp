@@ -36,11 +36,11 @@ namespace {
     constexpr int seqX       =    5;
     constexpr int seqW       = 1490;   // 16 steps × 88 px + margins
     constexpr int seqH       =  120;
-    constexpr int stepStride =   88;
+    constexpr int stepStride =   44;   // packed box columns (was 88)
 
     // Step controls (relative to strip Y origin)
-    constexpr int stepSliderTop = 14;
-    constexpr int stepSliderH   = 76;
+    constexpr int stepSliderTop = 5;
+    constexpr int stepSliderH   = 85;
     constexpr int gateRelY      = 93;
     constexpr int slideRelY     = 107;
 
@@ -1294,6 +1294,24 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     synthPageComponents.push_back (&midiOutBtn[v]);
     synthPageComponents.push_back (&randModeBtn[v]);
 
+    // ── MIDI / VOICE config radio (one config group visible at a time) ────────
+    {
+        auto styleRadio = [](juce::TextButton& b, const juce::String& t)
+        {
+            b.setButtonText (t);
+            b.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff161630));
+            b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff2255aa));
+            b.setColour (juce::TextButton::textColourOffId,  juce::Colour (0xffa0a0b4));
+            b.setColour (juce::TextButton::textColourOnId,   juce::Colour (0xffffffff));
+        };
+        styleRadio (midiViewBtn[v],  "MIDI");
+        styleRadio (voiceViewBtn[v], "VOICE");
+        midiViewBtn[v].onClick  = [this, v]() { cfgView[v] = 0; applyCfgView (v); };
+        voiceViewBtn[v].onClick = [this, v]() { cfgView[v] = 1; applyCfgView (v); };
+        addAndMakeVisible (midiViewBtn[v]);  synthPageComponents.push_back (&midiViewBtn[v]);
+        addAndMakeVisible (voiceViewBtn[v]); synthPageComponents.push_back (&voiceViewBtn[v]);
+    }
+
     for (int ch = 1; ch <= 16; ++ch)
         midiOutChBox[v].addItem ("Ch " + juce::String (ch), ch);
     midiOutChBox[v].setSelectedId (vp.midiOutChannel, juce::dontSendNotification);
@@ -2222,6 +2240,7 @@ void VoltageSeq2AudioProcessorEditor::showPage (int page)
             // their floating panels. The bulk-show above would have forced them
             // visible, so re-apply the collapsed state here.
             applySectionVisibility (v);
+            applyCfgView (v);   // re-enforce MIDI vs VOICE config group visibility
 
             // The bulk-show also forces the panel overlays themselves visible.
             // Restore each panel to its actual open/closed state.
@@ -2885,8 +2904,8 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
             for (int i = 0; i < vp2.sequenceLength; ++i)
                 totalPulses += vp2.stepPulses[i];
 
-            const int pCtrlX = seqX + 16 * stepStride + 4;
-            const int pCtrlW = seqW - 16 * stepStride - 8;
+            const int pCtrlX = seqX + 16 * stepStride + 8;
+            const int pCtrlW = 74;
 
             // Label
             g.setFont (juce::Font (7.5f, juce::Font::bold));
@@ -2931,23 +2950,10 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
             }
         }
 
-        // ── Sub-strip ─────────────────────────────────────────────────────────
-        g.setColour (subStripColour.withAlpha (0.88f));
-        g.fillRoundedRectangle ((float)seqX, (float)sbY, (float)seqW, (float)subH, 3.0f);
-        g.setColour (dimColour);
-        g.setFont (juce::Font (8.5f, juce::Font::bold));
-        g.drawText ("LEN",    14,   sbY + 3, 40,  10, juce::Justification::centredLeft);
-        g.drawText ("ORDER",  112,  sbY + 3, 50,  10, juce::Justification::centredLeft);
-        g.drawText ("NUDGE",  384,  sbY + 3, 46,  10, juce::Justification::centred);
-        g.drawText ("SWING",  492,  sbY + 3, 50,  10, juce::Justification::centredLeft);
-        g.drawText ("MODE",   608,  sbY + 3, 52,  10, juce::Justification::centred);
-        g.drawText ("RAND",   663,  sbY + 3, 50,  10, juce::Justification::centred);
-        g.drawText ("MIDI",   730,  sbY + 3, 80,  10, juce::Justification::centred);
-        g.drawText ("VOICE",  900,  sbY + 3, 68,  10, juce::Justification::centred);
-        g.drawText ("SLOTS",  974,  sbY + 3, 28,  10, juce::Justification::centred);
-        g.drawText ("SPREAD", 1008, sbY + 3, 90,  10, juce::Justification::centred);
-        g.drawText ("WIDTH",  1104, sbY + 3, 90,  10, juce::Justification::centred);
-        g.drawText ("RUN",    1204, sbY + 3, 54,  10, juce::Justification::centred);
+        // ── Sub-strip removed — its controls now live in the RHS block of the
+        // step row (see layoutVoice). The freed band gets reclaimed by the
+        // control-row relayout in the next checkpoint.
+        juce::ignoreUnused (sbY);
 
         // ── Control panels row ────────────────────────────────────────────────
         auto drawPanel = [&](int px, int pw, const juce::String& title)
@@ -3114,50 +3120,64 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     for (int i = 0; i < 16; ++i)
     {
         const int bx = seqX + i * stepStride;
-        stepKnob[v][i].setBounds (bx + 4,  seqTopY + stepSliderTop, stepStride - 8,  stepSliderH);
-        veloKnob[v][i].setBounds (bx + 4,  seqTopY + stepSliderTop, stepStride - 8,  stepSliderH);
-        gateBtn [v][i].setBounds (bx + 8,  seqTopY + gateRelY,      stepStride - 16, 13);
-        slideBtn[v][i].setBounds (bx + 8,  seqTopY + slideRelY,     stepStride - 16, 12);
+        // Packed box columns — slim with a hair of gap (PDF Example 2 style).
+        const int boxW = stepStride - 4;
+        const int boxX = bx + 2;
+        stepKnob[v][i].setBounds (boxX, seqTopY + stepSliderTop, boxW, stepSliderH);
+        veloKnob[v][i].setBounds (boxX, seqTopY + stepSliderTop, boxW, stepSliderH);
+        gateBtn [v][i].setBounds (bx + 2,  seqTopY + gateRelY,      stepStride - 4, 13);
+        slideBtn[v][i].setBounds (bx + 2,  seqTopY + slideRelY,     stepStride - 4, 12);
     }
 
     // ── Pulse counter / mode controls (right of sequencer steps) ─────────────
-    const int pCtrlX = seqX + 16 * stepStride + 4;   // x=1417
-    const int pCtrlW = seqW - 16 * stepStride - 8;   // ~74px
+    const int pCtrlX = seqX + 16 * stepStride + 8;   // just right of packed steps
+    const int pCtrlW = 74;
     pulseModeBtn[v].setBounds (pCtrlX, seqTopY + stepSliderTop + 34, pCtrlW, 15);
     pulseLenBox [v].setBounds (pCtrlX, seqTopY + stepSliderTop + 53, pCtrlW, 16);
 
-    // ── Sub-strip ─────────────────────────────────────────────────────────────
-    seqLengthSlider[v].setBounds (12,  sbCY, 82, 18);
-    playFwdBtn [v]    .setBounds (112, sbCY, 36, 18);
-    playRevBtn [v]    .setBounds (151, sbCY, 36, 18);
-    playConvBtn[v]    .setBounds (190, sbCY, 42, 18);
-    playRndBtn [v]    .setBounds (235, sbCY, 36, 18);
-    resetBtn   [v]    .setBounds (280, sbCY, 46, 18);
-    bipolarBtn   [v]  .setBounds (330, sbCY,  46, 18);
-    nudgeLeftBtn [v]  .setBounds (384, sbCY,  22, 18);
-    nudgeRightBtn[v]  .setBounds (408, sbCY,  22, 18);
-    swingSlider  [v]  .setBounds (490, sbCY, 110, 18);
+    // ── Sequencer-control block — moved into the freed space RIGHT of the steps
+    // (the old full-width sub-strip is gone). Origin just past the TOTAL/STAGES
+    // cluster; four compact rows.
+    const int rX   = seqX + 16 * stepStride + 90;
+    const int rowA = seqTopY + 8;
+    const int rowB = seqTopY + 30;
+    const int rowC = seqTopY + 52;
+    const int rowD = seqTopY + 78;
 
-    // RAND: mode cycler + trigger
-    randModeBtn[v].setBounds (608, sbCY, 52, 18);
-    randomBtn  [v].setBounds (663, sbCY, 50, 18);
+    // Row A — transport + length + reset/uni + nudge
+    runStopBtn   [v].setBounds (rX +   0, rowA, 64, 18);
+    seqLengthSlider[v].setBounds (rX +  70, rowA, 84, 18);
+    resetBtn     [v].setBounds (rX + 160, rowA, 44, 18);
+    bipolarBtn   [v].setBounds (rX + 208, rowA, 44, 18);
+    nudgeLeftBtn [v].setBounds (rX + 258, rowA, 22, 18);
+    nudgeRightBtn[v].setBounds (rX + 282, rowA, 22, 18);
 
-    // VELO toggle
-    veloModeBtn[v].setBounds (720, sbCY, 44, 18);
+    // Row B — play order + swing
+    playFwdBtn [v].setBounds (rX +   0, rowB, 36, 18);
+    playRevBtn [v].setBounds (rX +  38, rowB, 36, 18);
+    playConvBtn[v].setBounds (rX +  76, rowB, 42, 18);
+    playRndBtn [v].setBounds (rX + 120, rowB, 36, 18);
+    swingSlider[v].setBounds (rX + 166, rowB, 130, 18);
 
-    // ── MIDI Out — right side of sub-strip ────────────────────────────────────
-    midiOutBtn  [v].setBounds (770, sbCY,  80, 18);
-    midiOutChBox[v].setBounds (858, sbCY,  62, 18);
+    // Row C — random + velocity
+    randModeBtn[v].setBounds (rX +   0, rowC, 52, 18);
+    randomBtn  [v].setBounds (rX +  54, rowC, 50, 18);
+    veloModeBtn[v].setBounds (rX + 112, rowC, 44, 18);
 
-    // ── Voice mode controls ──────────────────────────────────────────────────
-    voiceModeBox   [v].setBounds (900,  sbCY, 68, 18);
-    uniCountBtn    [v].setBounds (974,  sbCY, 28, 18);
-    chordModeBtn   [v].setBounds (1004, sbCY, 36, 18);
-    uniSpreadSlider[v].setBounds (1046, sbCY, 90, 18);
-    uniWidthSlider [v].setBounds (1142, sbCY, 90, 18);
+    // Row D — MIDI/VOICE config radio + the toggled config group
+    midiViewBtn [v].setBounds (rX +   0, rowD, 44, 18);
+    voiceViewBtn[v].setBounds (rX +  46, rowD, 44, 18);
+    // MIDI group (visible when cfgView==0)
+    midiOutBtn  [v].setBounds (rX + 100, rowD, 70, 18);
+    midiOutChBox[v].setBounds (rX + 174, rowD, 62, 18);
+    // VOICE group (visible when cfgView==1) — shares the same row slot
+    voiceModeBox   [v].setBounds (rX + 100, rowD, 64, 18);
+    uniCountBtn    [v].setBounds (rX + 166, rowD, 28, 18);
+    chordModeBtn   [v].setBounds (rX + 196, rowD, 36, 18);
+    uniSpreadSlider[v].setBounds (rX + 234, rowD, 80, 18);
+    uniWidthSlider [v].setBounds (rX + 316, rowD, 80, 18);
 
-    // RUN/STOP moved to far-right end of sub-strip
-    runStopBtn [v]    .setBounds (1240, sbCY, 54, 18);
+    applyCfgView (v);   // enforce which config group is visible
 
     // ── SEQ panel ─────────────────────────────────────────────────────────────
     rangeSlider[v]  .setBounds (pSeqX + 5,                     cy1 - 2, pSeqW - 10, 22);
@@ -4529,6 +4549,22 @@ void VoltageSeq2AudioProcessorEditor::closeLfoPanel (int v)
 }
 
 //==============================================================================
+void VoltageSeq2AudioProcessorEditor::applyCfgView (int v)
+{
+    const bool midi = (cfgView[v] == 0);
+    midiViewBtn [v].setToggleState ( midi, juce::dontSendNotification);
+    voiceViewBtn[v].setToggleState (!midi, juce::dontSendNotification);
+    // MIDI group
+    midiOutBtn  [v].setVisible (midi);
+    midiOutChBox[v].setVisible (midi);
+    // VOICE group
+    voiceModeBox   [v].setVisible (!midi);
+    uniCountBtn    [v].setVisible (!midi);
+    chordModeBtn   [v].setVisible (!midi);
+    uniSpreadSlider[v].setVisible (!midi);
+    uniWidthSlider [v].setVisible (!midi);
+}
+
 void VoltageSeq2AudioProcessorEditor::applySectionVisibility (int v)
 {
     // Section controls are hidden by default — only visible when their panel is open.

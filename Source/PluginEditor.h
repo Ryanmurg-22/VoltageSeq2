@@ -432,6 +432,12 @@ private:
     juce::TextButton midiOutBtn    [2];   // enable toggle
     juce::ComboBox   midiOutChBox  [2];   // MIDI channel 1–16
 
+    // ── MIDI/VOICE config radio (toggles which config sub-group is visible) ──
+    juce::TextButton midiViewBtn   [2];   // "MIDI" radio
+    juce::TextButton voiceViewBtn  [2];   // "VOICE" radio
+    int              cfgView       [2] = { 0, 0 };   // 0 = MIDI, 1 = VOICE
+    void applyCfgView (int v);
+
     // ── Unison / Poly mode (per voice, on Synth page) ──────────────────────
     juce::ComboBox   voiceModeBox   [2];   // MONO / UNISON / POLY
     juce::TextButton uniCountBtn    [2];   // "2V" / "4V" toggle
