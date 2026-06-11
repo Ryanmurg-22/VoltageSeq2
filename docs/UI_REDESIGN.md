@@ -28,20 +28,28 @@ Branch: `ui-redesign` (keep `main`/v4.6 releasable until merge).
 - Right cluster (compact): Length (fix the "…" readout), Order, Swing, Nudge,
   Transport (RUN/STOP), Total-steps readout (fix: update live, not just on rand).
 
-### Always-visible core (per voice)
-- Filter: Cutoff, Res, Drive, Mode/Slope.
-- Amp ENV: A D S R.
-- OSC quick: Wave, Level, Oct (OSC 1) — with the OSC1/OSC2/ENGINE radio (below).
+### OSC section — ALWAYS visible, OSC1/OSC2 toggle (per voice)
+- The full OSC controls live on the front panel (no popup). A radio
+  **[ OSC 1 ] [ OSC 2 ]** toggles *which oscillator's* params are shown in the
+  OSC footprint (wave, level, oct, PWM/FB/drift, pos, FM, etc.).
+- An **ENGINE** (Plaits) toggle replaces the native OSC controls with the engine
+  controls and **greys out** the native OSC radio while active.
+
+### Filter section — hero Cutoff
+- **Cutoff = significantly larger "hero" knob** (most-reached control, visual
+  anchor of the section). Res / Drive / Mode / Slope around it.
+- Amp ENV (A D S R) always visible.
+
+### Knob sizing
+- **All knobs slightly larger** than current for approachability.
+- **Filter Cutoff notably larger** than the rest.
 
 ### Set-and-forget (demoted, compact)
-- Range knob, Root, Scale, **Clock as a small knob** (not a wide dropdown).
-- Target ~half current width.
+- Range knob, **Root / Scale compact**, **Clock as a small knob** (not a wide
+  dropdown). Target ~half current width.
 
-### Detail panel — ONE radio group replaces all popups
-Radio buttons per voice: **[ OSC ] [ LFO ] [ MOD ENV ]** → swaps the inline
-detail panel (fixed footprint, no popup):
-- **OSC**: OSC1 adv (PWM/FB/drift) + OSC2/FM + sub-radio **[OSC1][OSC2][ENGINE]**;
-  ENGINE (Plaits) greys the native OSC controls when active.
+### Modulation slot — [ LFO | MOD ENV ] radio (per voice)
+One inline slot toggled by a radio (replaces the LFO + MOD-ENV popups):
 - **LFO**: the 4 LFOs; give them the **macro-style assign** workflow.
 - **MOD ENV**: the mod envelope + destination.
 
