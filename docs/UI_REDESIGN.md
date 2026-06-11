@@ -38,7 +38,11 @@ Branch: `ui-redesign` (keep `main`/v4.6 releasable until merge).
 ### Filter section — hero Cutoff
 - **Cutoff = significantly larger "hero" knob** (most-reached control, visual
   anchor of the section). Res / Drive / Mode / Slope around it.
-- Amp ENV (A D S R) always visible.
+
+### Envelopes column (always visible)
+- **AMP ADSR** on top, **FILTER ADSR** directly below (shared "shapers" column).
+- **ENV AMT** (filter-env depth) knob with the filter envelope (or beside Cutoff
+  — TBD on first render). Now scaled to 8 octaves so it has real range.
 
 ### Knob sizing
 - **All knobs slightly larger** than current for approachability.
