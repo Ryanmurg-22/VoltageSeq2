@@ -644,6 +644,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     {
         stepKnob[v][i].setSliderStyle (juce::Slider::LinearVertical);
         stepKnob[v][i].setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        stepKnob[v][i].getProperties().set ("boxStyle", true);   // readable box render
         stepKnob[v][i].setColour (juce::Slider::trackColourId,      knobColour);
         stepKnob[v][i].setColour (juce::Slider::backgroundColourId, juce::Colour (0xff252540));
         addAndMakeVisible (stepKnob[v][i]);
@@ -656,6 +657,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
         // ── Velocity overlay slider (hidden until VELO mode active) ───────────
         veloKnob[v][i].setSliderStyle (juce::Slider::LinearVertical);
         veloKnob[v][i].setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        veloKnob[v][i].getProperties().set ("boxStyle", true);   // readable box render
         veloKnob[v][i].setRange (1.0, 127.0, 1.0);
         veloKnob[v][i].setValue (audioProcessor.voice[v].stepVelocity[i], juce::dontSendNotification);
         veloKnob[v][i].setColour (juce::Slider::trackColourId,      juce::Colour (0xff00aaff));  // cyan — clearly distinct from pitch amber

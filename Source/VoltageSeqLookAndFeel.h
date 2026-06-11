@@ -158,9 +158,73 @@ public:
                            juce::Slider& slider) override
     {
         if (style == juce::Slider::LinearVertical)
-            drawVerticalSlider (g, x, y, width, height, sliderPos, slider);
+        {
+            // Step/velo sliders opt into a readable box style via a property.
+            if (slider.getProperties().getWithDefault ("boxStyle", false))
+                drawBoxSlider (g, x, y, width, height, sliderPos, slider);
+            else
+                drawVerticalSlider (g, x, y, width, height, sliderPos, slider);
+        }
         else
             drawHorizontalSlider (g, x, y, width, height, sliderPos, slider);
+    }
+
+    // =========================================================================
+    // BOX-STYLE VERTICAL SLIDER — filled column + value readout (sequencer steps)
+    // Bipolar ranges fill from the centre line; unipolar from the bottom.
+    // =========================================================================
+    void drawBoxSlider (juce::Graphics& g,
+                        int x, int y, int width, int height,
+                        float sliderPos, juce::Slider& slider)
+    {
+        const juce::Colour trackCol = slider.findColour (juce::Slider::trackColourId);
+        const juce::Colour bgCol    = slider.findColour (juce::Slider::backgroundColourId);
+        auto box = juce::Rectangle<float> ((float) x, (float) y, (float) width, (float) height)
+                       .reduced (1.5f);
+        const float corner = 3.0f;
+
+        // Body
+        g.setColour (bgCol);
+        g.fillRoundedRectangle (box, corner);
+
+        const bool  bipolar = slider.getMinimum() < -0.001;
+        const float baseY   = bipolar ? box.getCentreY() : box.getBottom();
+        const float valY    = juce::jlimit (box.getY(), box.getBottom(), sliderPos);
+        const float top     = juce::jmin (baseY, valY);
+        const float bot      = juce::jmax (baseY, valY);
+
+        // Fill (clipped to the rounded body)
+        {
+            juce::Graphics::ScopedSaveState ss (g);
+            juce::Path clip; clip.addRoundedRectangle (box, corner);
+            g.reduceClipRegion (clip);
+            g.setColour (trackCol.withAlpha (0.20f));
+            g.fillRect (box.getX(), top, box.getWidth(), bot - top);            // glow
+            g.setColour (trackCol.withAlpha (0.60f));
+            g.fillRect (box.getX() + 1.0f, top, box.getWidth() - 2.0f, bot - top);
+        }
+
+        // Centre reference line (bipolar)
+        if (bipolar)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.14f));
+            g.fillRect (box.getX() + 1.0f, box.getCentreY() - 0.5f, box.getWidth() - 2.0f, 1.0f);
+        }
+
+        // Value cap
+        g.setColour (trackCol.brighter (0.3f));
+        g.fillRect (box.getX() + 1.0f, valY - 1.0f, box.getWidth() - 2.0f, 2.0f);
+
+        // Border
+        g.setColour (bgCol.brighter (0.35f));
+        g.drawRoundedRectangle (box, corner, 1.0f);
+
+        // Value readout
+        g.setColour (juce::Colours::white.withAlpha (0.8f));
+        g.setFont (getUIFont (juce::jmin (11.0f, box.getWidth() * 0.46f), false));
+        g.drawText (slider.getTextFromValue (slider.getValue()),
+                    box.reduced (1.0f).withTrimmedBottom (1.0f).toNearestInt(),
+                    juce::Justification::centredBottom, false);
     }
 
     // =========================================================================
