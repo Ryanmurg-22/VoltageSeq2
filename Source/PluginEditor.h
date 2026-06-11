@@ -435,7 +435,7 @@ private:
     // ── MIDI/VOICE config radio (toggles which config sub-group is visible) ──
     juce::TextButton midiViewBtn   [2];   // "MIDI" radio
     juce::TextButton voiceViewBtn  [2];   // "VOICE" radio
-    int              cfgView       [2] = { 0, 0 };   // 0 = MIDI, 1 = VOICE
+    int              cfgView       [2] = { 1, 1 };   // 0 = MIDI, 1 = VOICE (default)
     void applyCfgView (int v);
 
     // ── Unison / Poly mode (per voice, on Synth page) ──────────────────────

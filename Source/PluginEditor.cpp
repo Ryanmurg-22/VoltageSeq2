@@ -2897,6 +2897,16 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         g.setColour (slideOnColour);
         g.drawText ("SLIDE", seqX + 16 * stepStride + 3, sY + slideRelY, 50, 13, juce::Justification::centredLeft);
 
+        // RHS control-block group labels (match layoutVoice's rX / rows)
+        {
+            const int rX = seqX + 16 * stepStride + 96;
+            g.setColour (dimColour);
+            g.setFont (juce::Font (8.0f, juce::Font::bold));
+            g.drawText ("PLAY ORDER", rX,       sY + 27, 250, 10, juce::Justification::centredLeft);
+            g.drawText ("SWING",      rX + 300, sY + 27, 208, 10, juce::Justification::centredLeft);
+            g.drawText ("RANDOMISE",  rX,       sY + 61, 200, 10, juce::Justification::centredLeft);
+        }
+
         // ── Pulse counter (top-right of sequencer strip) ───────────────────
         {
             const auto& vp2 = audioProcessor.voice[v];
@@ -3138,44 +3148,45 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     // ── Sequencer-control block — moved into the freed space RIGHT of the steps
     // (the old full-width sub-strip is gone). Origin just past the TOTAL/STAGES
     // cluster; four compact rows.
-    const int rX   = seqX + 16 * stepStride + 90;
-    const int rowA = seqTopY + 8;
-    const int rowB = seqTopY + 30;
-    const int rowC = seqTopY + 52;
-    const int rowD = seqTopY + 78;
+    const int rX   = seqX + 16 * stepStride + 96;   // ~805
+    const int rowA = seqTopY + 5;
+    const int rowB = seqTopY + 40;   // label "PLAY ORDER" / "SWING" above
+    const int rowC = seqTopY + 74;   // label "RANDOMISE" above
+    const int rowD = seqTopY + 96;
+    const int bh   = 20;
 
-    // Row A — transport + length + reset/uni + nudge
-    runStopBtn   [v].setBounds (rX +   0, rowA, 64, 18);
-    seqLengthSlider[v].setBounds (rX +  70, rowA, 84, 18);
-    resetBtn     [v].setBounds (rX + 160, rowA, 44, 18);
-    bipolarBtn   [v].setBounds (rX + 208, rowA, 44, 18);
-    nudgeLeftBtn [v].setBounds (rX + 258, rowA, 22, 18);
-    nudgeRightBtn[v].setBounds (rX + 282, rowA, 22, 18);
+    // Row A — transport · length · reset/uni · nudge
+    runStopBtn     [v].setBounds (rX +   0, rowA, 100, bh);
+    seqLengthSlider[v].setBounds (rX + 116, rowA, 170, bh);
+    resetBtn       [v].setBounds (rX + 300, rowA,  62, bh);
+    bipolarBtn     [v].setBounds (rX + 368, rowA,  62, bh);
+    nudgeLeftBtn   [v].setBounds (rX + 446, rowA,  30, bh);
+    nudgeRightBtn  [v].setBounds (rX + 478, rowA,  30, bh);
 
-    // Row B — play order + swing
-    playFwdBtn [v].setBounds (rX +   0, rowB, 36, 18);
-    playRevBtn [v].setBounds (rX +  38, rowB, 36, 18);
-    playConvBtn[v].setBounds (rX +  76, rowB, 42, 18);
-    playRndBtn [v].setBounds (rX + 120, rowB, 36, 18);
-    swingSlider[v].setBounds (rX + 166, rowB, 130, 18);
+    // Row B — play order · swing
+    playFwdBtn [v].setBounds (rX +   0, rowB, 58, bh);
+    playRevBtn [v].setBounds (rX +  62, rowB, 58, bh);
+    playConvBtn[v].setBounds (rX + 124, rowB, 64, bh);
+    playRndBtn [v].setBounds (rX + 192, rowB, 58, bh);
+    swingSlider[v].setBounds (rX + 300, rowB, 208, bh);
 
-    // Row C — random + velocity
-    randModeBtn[v].setBounds (rX +   0, rowC, 52, 18);
-    randomBtn  [v].setBounds (rX +  54, rowC, 50, 18);
-    veloModeBtn[v].setBounds (rX + 112, rowC, 44, 18);
+    // Row C — random · velocity
+    randModeBtn[v].setBounds (rX +   0, rowC, 70, bh);
+    randomBtn  [v].setBounds (rX +  76, rowC, 64, bh);
+    veloModeBtn[v].setBounds (rX + 150, rowC, 60, bh);
 
     // Row D — MIDI/VOICE config radio + the toggled config group
-    midiViewBtn [v].setBounds (rX +   0, rowD, 44, 18);
-    voiceViewBtn[v].setBounds (rX +  46, rowD, 44, 18);
-    // MIDI group (visible when cfgView==0)
-    midiOutBtn  [v].setBounds (rX + 100, rowD, 70, 18);
-    midiOutChBox[v].setBounds (rX + 174, rowD, 62, 18);
-    // VOICE group (visible when cfgView==1) — shares the same row slot
-    voiceModeBox   [v].setBounds (rX + 100, rowD, 64, 18);
-    uniCountBtn    [v].setBounds (rX + 166, rowD, 28, 18);
-    chordModeBtn   [v].setBounds (rX + 196, rowD, 36, 18);
-    uniSpreadSlider[v].setBounds (rX + 234, rowD, 80, 18);
-    uniWidthSlider [v].setBounds (rX + 316, rowD, 80, 18);
+    midiViewBtn [v].setBounds (rX +   0, rowD, 56, bh);
+    voiceViewBtn[v].setBounds (rX +  60, rowD, 56, bh);
+    // MIDI group (cfgView==0)
+    midiOutBtn  [v].setBounds (rX + 140, rowD, 90, bh);
+    midiOutChBox[v].setBounds (rX + 236, rowD, 70, bh);
+    // VOICE group (cfgView==1) — shares the same slot
+    voiceModeBox   [v].setBounds (rX + 140, rowD, 80, bh);
+    uniCountBtn    [v].setBounds (rX + 226, rowD, 36, bh);
+    chordModeBtn   [v].setBounds (rX + 268, rowD, 44, bh);
+    uniSpreadSlider[v].setBounds (rX + 320, rowD, 90, bh);
+    uniWidthSlider [v].setBounds (rX + 416, rowD, 90, bh);
 
     applyCfgView (v);   // enforce which config group is visible
 
