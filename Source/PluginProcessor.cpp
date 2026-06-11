@@ -1901,8 +1901,10 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
     //--------------------------------------------------------------------------
     float fEnvSample   = vs.filterEnv.getNextSample();
     const float accentEnvAmt = vp.filterEnvAmount + (vs.accentActive ? 0.25f : 0.0f);
+    // Env depth: up to 8 octaves at full amount so a low base cutoff can sweep
+    // the full audible range (4 octaves felt ~30% of expected — beta feedback).
     float effectiveCut = vp.filterCutoff
-                         * std::pow (2.0f, juce::jlimit (0.0f, 1.0f, accentEnvAmt) * 4.0f * fEnvSample);
+                         * std::pow (2.0f, juce::jlimit (0.0f, 1.0f, accentEnvAmt) * 8.0f * fEnvSample);
     effectiveCut = juce::jlimit (20.0f, 20000.0f,
                                  (effectiveCut + cutoffMod) * cenvCutoffMod);
 
