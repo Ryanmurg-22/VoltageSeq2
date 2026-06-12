@@ -82,10 +82,14 @@ One inline slot toggled by a radio (replaces the LFO + MOD-ENV popups):
       ctor unipolar, RESET bipolar). Now UNI everywhere (struct + ctor + RESET).
 - [x] Random pitch range correlates with UNI/BIPOLAR (already did: UNI→0..5 V,
       BI→-5..+5 V; the visible "only positive" was just the unipolar default).
-- [ ] Run/Stop button not working.
-- [ ] "Total" steps not updating except on randomize.
-- [ ] Delay Time not synced.
-- [ ] Chorus Depth clicky aliasing.
+- [x] Run/Stop button not working — host path ignored the button; now gates the
+      transport in both modes (voice runs when transport rolling AND enabled).
+- [x] "Total" steps not updating except on randomize — timer now repaints the
+      readout when the pulse sum changes.
+- [x] Delay Time not synced — synced delay used internalBPM not the host tempo;
+      now uses liveBPM (= effective host/internal tempo).
+- [x] Chorus Depth clicky aliasing — delay time went negative past depth 0.5;
+      recentred to 12±9ms (strictly positive) + smoothed depth.
 - [ ] LFO-popup-close overlay bug (removed with popups).
 - [ ] Voice/Unison settings don't affect Plaits (consider moving into OSC section).
 
