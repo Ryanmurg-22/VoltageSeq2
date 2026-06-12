@@ -438,15 +438,13 @@ private:
     int              cfgView       [2] = { 1, 1 };   // 0 = MIDI, 1 = VOICE (default)
     void applyCfgView (int v);
 
-    // ── TOOLS toggle (hides the secondary/utility cluster by default) ───────
-    juce::TextButton toolsBtn      [2];   // "TOOLS" reveal toggle
-    int              toolsView     [2] = { 0, 0 };   // 0 = hidden, 1 = shown
-    void applyToolsView (int v);
+    // TOOLS is the 3rd option of the QUANT/ORDER/TOOLS radio (see midView below).
+    juce::TextButton toolsBtn      [2];   // "TOOLS" radio
 
     // ── Middle radio slot: QUANT (Root/Scale/Clock) ↔ ORDER (play order) ────
     juce::TextButton quantViewBtn  [2];   // "QUANT" radio
     juce::TextButton orderViewBtn  [2];   // "ORDER" radio
-    int              midView       [2] = { 0, 0 };   // 0 = QUANT, 1 = ORDER
+    int              midView       [2] = { 0, 0 };   // 0 = QUANT, 1 = ORDER, 2 = TOOLS
     void applyMidView (int v);
 
     // Cached TOTAL-pulses per voice; timer repaints the readout when it changes.

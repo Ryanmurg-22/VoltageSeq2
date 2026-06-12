@@ -755,7 +755,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     seqLengthSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
     seqLengthSlider[v].setRange (2.0, 16.0, 1.0);
     seqLengthSlider[v].setValue (vp.sequenceLength, juce::dontSendNotification);
-    seqLengthSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 18, 18);
+    seqLengthSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 40, 18);
     seqLengthSlider[v].setColour (juce::Slider::trackColourId,             knobColour);
     seqLengthSlider[v].setColour (juce::Slider::backgroundColourId,        juce::Colour (0xff252540));
     seqLengthSlider[v].setColour (juce::Slider::textBoxTextColourId,       textColour);
@@ -878,7 +878,8 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     swingSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
     swingSlider[v].setRange (0.5, 0.75, 0.001);
     swingSlider[v].setValue (vp.swingAmount, juce::dontSendNotification);
-    swingSlider[v].setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    swingSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 40, 18);
+    swingSlider[v].textFromValueFunction = [](double val) { return juce::String (juce::roundToInt (val * 100.0)) + "%"; };
     swingSlider[v].setColour (juce::Slider::trackColourId,      knobColour);
     swingSlider[v].setColour (juce::Slider::backgroundColourId, juce::Colour (0xff252540));
     swingSlider[v].onValueChange = [this, v]() { audioProcessor.voice[v].swingAmount = (float)swingSlider[v].getValue(); };
@@ -904,7 +905,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     rangeSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
     rangeSlider[v].setRange (0.0, 1.0, 0.01);
     rangeSlider[v].setValue (vp.rangeVCA, juce::dontSendNotification);
-    rangeSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 20);
+    rangeSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 40, 18);
     rangeSlider[v].setColour (juce::Slider::trackColourId,            knobColour);
     rangeSlider[v].setColour (juce::Slider::backgroundColourId,       juce::Colour (0xff252540));
     rangeSlider[v].setColour (juce::Slider::textBoxTextColourId,      textColour);
@@ -1349,22 +1350,9 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
         addAndMakeVisible (midiViewBtn[v]);  synthPageComponents.push_back (&midiViewBtn[v]);
         addAndMakeVisible (voiceViewBtn[v]); synthPageComponents.push_back (&voiceViewBtn[v]);
 
-        // TOOLS reveal toggle — collapses the secondary utility cluster
-        // (RST/UNI · randomise · nudge · MIDI/VOICE config) behind one switch.
-        toolsBtn[v].setButtonText (juce::String::fromUTF8 ("TOOLS"));
-        toolsBtn[v].setClickingTogglesState (true);
-        toolsBtn[v].setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff161630));
-        toolsBtn[v].setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff5a3aa0));
-        toolsBtn[v].setColour (juce::TextButton::textColourOffId,  juce::Colour (0xffa0a0b4));
-        toolsBtn[v].setColour (juce::TextButton::textColourOnId,   juce::Colour (0xffffffff));
-        toolsBtn[v].onClick = [this, v]()
-        {
-            toolsView[v] = toolsBtn[v].getToggleState() ? 1 : 0;
-            applyToolsView (v);
-        };
-        addAndMakeVisible (toolsBtn[v]); synthPageComponents.push_back (&toolsBtn[v]);
-
-        // QUANT ↔ ORDER radio (shares one middle slot in the pattern section)
+        // QUANT / ORDER / TOOLS — one 3-way radio sharing the middle slot.
+        // QUANT = Root/Scale/Clock · ORDER = play order · TOOLS = RST/UNI,
+        // randomise, nudge, MIDI/VOICE config (all collapsed behind one switch).
         auto styleMid = [](juce::TextButton& b, const juce::String& t)
         {
             b.setButtonText (t);
@@ -1375,10 +1363,13 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
         };
         styleMid (quantViewBtn[v], "QUANT");
         styleMid (orderViewBtn[v], "ORDER");
+        styleMid (toolsBtn[v],     "TOOLS");
         quantViewBtn[v].onClick = [this, v]() { midView[v] = 0; applyMidView (v); };
         orderViewBtn[v].onClick = [this, v]() { midView[v] = 1; applyMidView (v); };
+        toolsBtn[v].onClick     = [this, v]() { midView[v] = 2; applyMidView (v); };
         addAndMakeVisible (quantViewBtn[v]); synthPageComponents.push_back (&quantViewBtn[v]);
         addAndMakeVisible (orderViewBtn[v]); synthPageComponents.push_back (&orderViewBtn[v]);
+        addAndMakeVisible (toolsBtn[v]);     synthPageComponents.push_back (&toolsBtn[v]);
     }
 
     for (int ch = 1; ch <= 16; ++ch)
@@ -2277,8 +2268,7 @@ void VoltageSeq2AudioProcessorEditor::showPage (int page)
             // their floating panels. The bulk-show above would have forced them
             // visible, so re-apply the collapsed state here.
             applySectionVisibility (v);
-            applyMidView (v);    // QUANT (root/scale/clock) vs ORDER (play order)
-            applyToolsView (v);  // TOOLS reveal + (when on) MIDI/VOICE config group
+            applyMidView (v);    // QUANT / ORDER / TOOLS slot (+ MIDI/VOICE config)
             refreshOscView (v);  // inline OSC1/OSC2/Plaits visibility (after section hide)
             refreshModSlot (v);  // inline LFO/MOD ENV slot (after section hide)
 
@@ -2941,23 +2931,19 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         {
             const int perfX = seqX + 16 * stepStride + 96;
             const int midX  = perfX + 295;
-            const int toolX = midX + 200;
             g.setColour (dimColour);
             g.setFont (juce::Font (8.0f, juce::Font::bold));
             // Performance sliders
             g.drawText ("RANGE",  perfX, sY + 5,  120, 10, juce::Justification::centredLeft);
             g.drawText ("LENGTH", perfX, sY + 50, 180, 10, juce::Justification::centredLeft);
             g.drawText ("SWING",  perfX, sY + 92, 180, 10, juce::Justification::centredLeft);
-            // Middle slot — QUANT row labels (ORDER view buttons self-label)
-            if (midView[v] == 0)
+            // Middle slot — labels per view (ORDER/TOOLS buttons self-label)
+            if (midView[v] == 0)        // QUANT
             {
                 g.drawText ("ROOT",  midX, sY + 31, 36, 12, juce::Justification::centredRight);
                 g.drawText ("SCALE", midX, sY + 59, 36, 12, juce::Justification::centredRight);
                 g.drawText ("CLOCK", midX, sY + 87, 36, 12, juce::Justification::centredRight);
             }
-            // TOOLS column — nudge hint (only when revealed)
-            if (toolsView[v] != 0)
-                g.drawText ("NUDGE", toolX + 104, sY + 16, 58, 10, juce::Justification::centredLeft);
         }
 
         // ── Pulse counter (top-right of sequencer strip) ───────────────────
@@ -3249,55 +3235,48 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
 
     // ── Zone 1 — PERFORMANCE (Range / Length / Swing, aligned & shrunk ~75%) ───
     const int perfX = seqX + 16 * stepStride + 96;   // ~800
-    const int perfW = 150;                            // all three same width, aligned
-    rangeSlider    [v].setBounds (perfX, seqTopY + 20,  perfW, 22);
-    seqLengthSlider[v].setBounds (perfX, seqTopY + 62,  perfW, bh);
-    swingSlider    [v].setBounds (perfX, seqTopY + 104, perfW, bh);
+    const int perfW = 175;                            // all three identical: same
+    const int perfH = 18;                             // width, height + 40px value box
+    rangeSlider    [v].setBounds (perfX, seqTopY + 20,  perfW, perfH);
+    seqLengthSlider[v].setBounds (perfX, seqTopY + 62,  perfW, perfH);
+    swingSlider    [v].setBounds (perfX, seqTopY + 104, perfW, perfH);
     // STOP + VELO live under the TOTAL/STAGES/pulse column (frees the perf zone)
     runStopBtn     [v].setBounds (pCtrlX, seqTopY + 88,  pCtrlW, bh);
     veloModeBtn    [v].setBounds (pCtrlX, seqTopY + 110, pCtrlW, bh);
 
-    // ── Zone 2 — MIDDLE radio slot: QUANT (Root/Scale/Clock) ↔ ORDER ───────────
+    // ── Zone 2 — MIDDLE slot: QUANT / ORDER / TOOLS 3-way radio (shared slot) ──
     const int midX = perfX + 295;   // ~1095
-    quantViewBtn[v].setBounds (midX,      seqTopY + 6, 58, bh);
-    orderViewBtn[v].setBounds (midX + 62, seqTopY + 6, 58, bh);
-    // QUANT view — Root / Scale / Clock stacked (halved width: only as wide as
-    // their content needs; labels painted to the left)
+    quantViewBtn[v].setBounds (midX,       seqTopY + 6, 58, bh);
+    orderViewBtn[v].setBounds (midX + 60,  seqTopY + 6, 58, bh);
+    toolsBtn    [v].setBounds (midX + 120, seqTopY + 6, 58, bh);
+
+    // QUANT view — Root / Scale / Clock stacked (labels painted to the left)
     rootBox    [v].setBounds (midX + 40, seqTopY + 30, 82, 20);
     scaleBox   [v].setBounds (midX + 40, seqTopY + 58, 82, 20);
     clockDivBox[v].setBounds (midX + 40, seqTopY + 86, 82, 20);
-    // ORDER view — play order as 4 stacked options (shrunk, shares the slot)
+    // ORDER view — play order as 4 stacked options (shares the slot)
     playFwdBtn [v].setBounds (midX, seqTopY + 30, 78, 18);
     playRevBtn [v].setBounds (midX, seqTopY + 50, 78, 18);
     playConvBtn[v].setBounds (midX, seqTopY + 70, 78, 18);
     playRndBtn [v].setBounds (midX, seqTopY + 90, 78, 18);
+    // TOOLS view — RST/UNI · randomise · nudge · MIDI/VOICE config (shares slot)
+    resetBtn     [v].setBounds (midX,       seqTopY + 30, 46, bh);
+    bipolarBtn   [v].setBounds (midX + 50,  seqTopY + 30, 46, bh);
+    nudgeLeftBtn [v].setBounds (midX + 104, seqTopY + 30, 28, bh);
+    nudgeRightBtn[v].setBounds (midX + 134, seqTopY + 30, 28, bh);
+    randModeBtn  [v].setBounds (midX,       seqTopY + 52, 56, bh);
+    randomBtn    [v].setBounds (midX + 60,  seqTopY + 52, 56, bh);
+    midiViewBtn  [v].setBounds (midX,       seqTopY + 74, 48, bh);
+    voiceViewBtn [v].setBounds (midX + 50,  seqTopY + 74, 48, bh);
+    midiOutBtn   [v].setBounds (midX,       seqTopY + 96, 80, bh);
+    midiOutChBox [v].setBounds (midX + 84,  seqTopY + 96, 66, bh);
+    voiceModeBox [v].setBounds (midX,       seqTopY + 96, 78, bh);
+    uniCountBtn  [v].setBounds (midX + 80,  seqTopY + 96, 34, bh);
+    chordModeBtn [v].setBounds (midX + 116, seqTopY + 96, 42, bh);
+    uniSpreadSlider[v].setBounds (midX,      seqTopY + 116, 90, bh);
+    uniWidthSlider [v].setBounds (midX + 94, seqTopY + 116, 90, bh);
 
-    // ── Zone 3 — TOOLS toggle + revealed utility cluster (set-and-forget) ──────
-    const int toolX = midX + 200;   // ~1295
-    toolsBtn[v].setBounds (toolX, seqTopY + 6, 56, bh);
-    // Row 1 — reset / uni / nudge
-    resetBtn     [v].setBounds (toolX,       seqTopY + 30, 46, bh);
-    bipolarBtn   [v].setBounds (toolX + 50,  seqTopY + 30, 46, bh);
-    nudgeLeftBtn [v].setBounds (toolX + 104, seqTopY + 30, 28, bh);
-    nudgeRightBtn[v].setBounds (toolX + 134, seqTopY + 30, 28, bh);
-    // Row 2 — randomise targets
-    randModeBtn  [v].setBounds (toolX,       seqTopY + 52, 56, bh);
-    randomBtn    [v].setBounds (toolX + 60,  seqTopY + 52, 56, bh);
-    // Row 3 — MIDI / VOICE config radio
-    midiViewBtn [v].setBounds (toolX,       seqTopY + 74, 48, bh);
-    voiceViewBtn[v].setBounds (toolX + 50,  seqTopY + 74, 48, bh);
-    // Row 4 — config group (MIDI or VOICE shares the slot)
-    midiOutBtn  [v].setBounds (toolX,       seqTopY + 96, 80, bh);
-    midiOutChBox[v].setBounds (toolX + 84,  seqTopY + 96, 66, bh);
-    voiceModeBox [v].setBounds (toolX,      seqTopY + 96, 78, bh);
-    uniCountBtn  [v].setBounds (toolX + 80, seqTopY + 96, 34, bh);
-    chordModeBtn [v].setBounds (toolX + 116,seqTopY + 96, 42, bh);
-    // Row 5 — unison spread / width (VOICE view only)
-    uniSpreadSlider[v].setBounds (toolX,      seqTopY + 116, 90, bh);
-    uniWidthSlider [v].setBounds (toolX + 94, seqTopY + 116, 90, bh);
-
-    applyMidView   (v);   // QUANT vs ORDER slot
-    applyToolsView (v);   // enforce TOOLS reveal + config-group visibility
+    applyMidView (v);   // QUANT / ORDER / TOOLS slot + (TOOLS) config-group
 
     // ── GLIDE panel — PORTA only (Range/Root/Scale/Clock now live up top) ──────
     portaSlider[v].setBounds (pSeqX + (pSeqW - kSz) / 2, ctrlTopY + 64, kSz, kSz);
@@ -4700,25 +4679,36 @@ void VoltageSeq2AudioProcessorEditor::applyCfgView (int v)
     uniWidthSlider [v].setVisible (!midi);
 }
 
-void VoltageSeq2AudioProcessorEditor::applyToolsView (int v)
+void VoltageSeq2AudioProcessorEditor::applyMidView (int v)
 {
-    const bool on = (toolsView[v] != 0);
-    toolsBtn[v].setToggleState (on, juce::dontSendNotification);
+    const bool quant = (midView[v] == 0);
+    const bool order = (midView[v] == 1);
+    const bool tools = (midView[v] == 2);
+    quantViewBtn[v].setToggleState (quant, juce::dontSendNotification);
+    orderViewBtn[v].setToggleState (order, juce::dontSendNotification);
+    toolsBtn    [v].setToggleState (tools, juce::dontSendNotification);
 
-    // Row C — reset/uni · randomise · nudge
-    resetBtn     [v].setVisible (on);
-    bipolarBtn   [v].setVisible (on);
-    randModeBtn  [v].setVisible (on);
-    randomBtn    [v].setVisible (on);
-    nudgeLeftBtn [v].setVisible (on);
-    nudgeRightBtn[v].setVisible (on);
-
-    // Row D — MIDI/VOICE config radio + the active sub-group
-    midiViewBtn [v].setVisible (on);
-    voiceViewBtn[v].setVisible (on);
-    if (on)
+    // QUANT view — Root / Scale / Clock
+    rootBox    [v].setVisible (quant);
+    scaleBox   [v].setVisible (quant);
+    clockDivBox[v].setVisible (quant);
+    // ORDER view — play-order buttons
+    playFwdBtn [v].setVisible (order);
+    playRevBtn [v].setVisible (order);
+    playConvBtn[v].setVisible (order);
+    playRndBtn [v].setVisible (order);
+    // TOOLS view — RST/UNI · randomise · nudge · MIDI/VOICE config
+    resetBtn     [v].setVisible (tools);
+    bipolarBtn   [v].setVisible (tools);
+    randModeBtn  [v].setVisible (tools);
+    randomBtn    [v].setVisible (tools);
+    nudgeLeftBtn [v].setVisible (tools);
+    nudgeRightBtn[v].setVisible (tools);
+    midiViewBtn  [v].setVisible (tools);
+    voiceViewBtn [v].setVisible (tools);
+    if (tools)
     {
-        applyCfgView (v);   // shows the active sub-group, hides the other
+        applyCfgView (v);   // shows the active MIDI/VOICE sub-group, hides the other
     }
     else
     {
@@ -4730,24 +4720,6 @@ void VoltageSeq2AudioProcessorEditor::applyToolsView (int v)
         uniSpreadSlider[v].setVisible (false);
         uniWidthSlider [v].setVisible (false);
     }
-
-    repaint();
-}
-
-void VoltageSeq2AudioProcessorEditor::applyMidView (int v)
-{
-    const bool quant = (midView[v] == 0);
-    quantViewBtn[v].setToggleState ( quant, juce::dontSendNotification);
-    orderViewBtn[v].setToggleState (!quant, juce::dontSendNotification);
-    // QUANT view — Root / Scale / Clock
-    rootBox    [v].setVisible (quant);
-    scaleBox   [v].setVisible (quant);
-    clockDivBox[v].setVisible (quant);
-    // ORDER view — play-order buttons
-    playFwdBtn [v].setVisible (!quant);
-    playRevBtn [v].setVisible (!quant);
-    playConvBtn[v].setVisible (!quant);
-    playRndBtn [v].setVisible (!quant);
     repaint();
 }
 
