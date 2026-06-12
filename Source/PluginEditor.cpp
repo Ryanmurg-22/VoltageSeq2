@@ -755,7 +755,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     seqLengthSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
     seqLengthSlider[v].setRange (2.0, 16.0, 1.0);
     seqLengthSlider[v].setValue (vp.sequenceLength, juce::dontSendNotification);
-    seqLengthSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 40, 18);
+    seqLengthSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 34, 18);
     seqLengthSlider[v].setColour (juce::Slider::trackColourId,             knobColour);
     seqLengthSlider[v].setColour (juce::Slider::backgroundColourId,        juce::Colour (0xff252540));
     seqLengthSlider[v].setColour (juce::Slider::textBoxTextColourId,       textColour);
@@ -876,13 +876,13 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
 
     // Swing
     swingSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
-    swingSlider[v].setRange (0.5, 0.75, 0.001);
-    swingSlider[v].setValue (vp.swingAmount, juce::dontSendNotification);
-    swingSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 40, 18);
-    swingSlider[v].textFromValueFunction = [](double val) { return juce::String (juce::roundToInt (val * 100.0)) + "%"; };
+    swingSlider[v].setRange (50.0, 75.0, 1.0);            // displayed as integer %
+    swingSlider[v].setValue (vp.swingAmount * 100.0, juce::dontSendNotification);
+    swingSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 34, 18);
+    swingSlider[v].setTextValueSuffix ("%");
     swingSlider[v].setColour (juce::Slider::trackColourId,      knobColour);
     swingSlider[v].setColour (juce::Slider::backgroundColourId, juce::Colour (0xff252540));
-    swingSlider[v].onValueChange = [this, v]() { audioProcessor.voice[v].swingAmount = (float)swingSlider[v].getValue(); };
+    swingSlider[v].onValueChange = [this, v]() { audioProcessor.voice[v].swingAmount = (float) (swingSlider[v].getValue() / 100.0); };
     addAndMakeVisible (swingSlider[v]);
 
     // Run / Stop
@@ -905,7 +905,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     rangeSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
     rangeSlider[v].setRange (0.0, 1.0, 0.01);
     rangeSlider[v].setValue (vp.rangeVCA, juce::dontSendNotification);
-    rangeSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 40, 18);
+    rangeSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 34, 18);
     rangeSlider[v].setColour (juce::Slider::trackColourId,            knobColour);
     rangeSlider[v].setColour (juce::Slider::backgroundColourId,       juce::Colour (0xff252540));
     rangeSlider[v].setColour (juce::Slider::textBoxTextColourId,      textColour);
@@ -4224,8 +4224,8 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
                                      juce::dontSendNotification);
         }
 
-        seqLengthSlider[v].setValue (vp.sequenceLength, juce::dontSendNotification);
-        swingSlider    [v].setValue (vp.swingAmount,    juce::dontSendNotification);
+        seqLengthSlider[v].setValue (vp.sequenceLength,      juce::dontSendNotification);
+        swingSlider    [v].setValue (vp.swingAmount * 100.0, juce::dontSendNotification);   // shown as %
 
         juce::TextButton* pBtns[4] = { &playFwdBtn[v], &playRevBtn[v], &playConvBtn[v], &playRndBtn[v] };
         for (int i = 0; i < 4; ++i)
