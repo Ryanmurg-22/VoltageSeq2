@@ -61,16 +61,17 @@ namespace {
     // Label / knob row offsets inside a control panel
     constexpr int lOff1 = 18, lOff2 = 72, lOff3 = 122;
     constexpr int cOff1 = 30, cOff2 = 84, cOff3 = 134;
-    // Knob size: 38 × 38 px
-    constexpr int kSz = 38;
+    // Knob size: 42 × 42 px (bumped from 38 for approachability)
+    constexpr int kSz = 42;
 
-    // Control panel X positions (total span 5…1490 = 1485 px inside 1500 px window)
-    constexpr int pSeqX  =    5, pSeqW  = 155;
-    constexpr int pQntX  =  165, pQntW  = 175;
-    constexpr int pO1X   =  345, pO1W   = 185;
-    constexpr int pO2X   =  535, pO2W   = 175;
-    constexpr int pFltX  =  715, pFltW  = 170;
-    constexpr int pAEX   =  890, pAEW   = 200;
+    // Control panel X positions — set-and-forget (SEQ/QUANTIZER) shrunk, the rest
+    // shifted left ~100px to reclaim a band on the right for the modulation slot.
+    constexpr int pSeqX  =    5, pSeqW  = 110;
+    constexpr int pQntX  =  120, pQntW  = 120;
+    constexpr int pO1X   =  246, pO1W   = 185;
+    constexpr int pO2X   =  436, pO2W   = 175;
+    constexpr int pFltX  =  612, pFltW  = 188;
+    constexpr int pAEX   =  806, pAEW   = 200;
     constexpr int pLfo1X = 1095, pLfoW  =  95;  // all 4 LFO panels same width
     constexpr int pLfo2X = 1195;
     constexpr int pLfo3X = 1295;
@@ -3033,17 +3034,17 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
                 g.drawText ("RATIO", oscX + 86, cY + 112, 200, 10, juce::Justification::centredLeft);
             }
         }
-        // Filter
-        g.drawText ("CUTOFF",  pFltX+5,  lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("RES",     pFltX+48, lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("DRIVE",   pFltX+91, lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("MODE",    pFltX+5,  lY2, 65,  12, juce::Justification::centred);
-        g.drawText ("SLOPE",   pFltX+74, lY2, 32,  12, juce::Justification::centred);
-        g.drawText ("ENV",     pFltX+110,lY2, kSz, 12, juce::Justification::centred);
+        // Filter — hero Cutoff label spans the bigger knob
+        g.drawText ("CUTOFF",  pFltX+6,   lY1, 52,  12, juce::Justification::centred);
+        g.drawText ("RES",     pFltX+66,  lY1, kSz, 12, juce::Justification::centred);
+        g.drawText ("DRIVE",   pFltX+112, lY1, kSz, 12, juce::Justification::centred);
+        g.drawText ("MODE",    pFltX+6,   lY2, 64,  12, juce::Justification::centred);
+        g.drawText ("SLOPE",   pFltX+74,  lY2, 30,  12, juce::Justification::centred);
+        g.drawText ("ENV",     pFltX+112, lY2, kSz, 12, juce::Justification::centred);
         g.drawText ("A",  pFltX+2,   lY3, kSz, 12, juce::Justification::centred);
-        g.drawText ("D",  pFltX+42,  lY3, kSz, 12, juce::Justification::centred);
-        g.drawText ("S",  pFltX+82,  lY3, kSz, 12, juce::Justification::centred);
-        g.drawText ("R",  pFltX+122, lY3, kSz, 12, juce::Justification::centred);
+        g.drawText ("D",  pFltX+48,  lY3, kSz, 12, juce::Justification::centred);
+        g.drawText ("S",  pFltX+94,  lY3, kSz, 12, juce::Justification::centred);
+        g.drawText ("R",  pFltX+140, lY3, kSz, 12, juce::Justification::centred);
         // AMP ENV labels (Amp ADSR stays permanently on front page)
         g.setColour (dimColour); g.setFont (juce::Font (7.5f, juce::Font::bold));
         g.drawText ("AMP",   pAEX, cY+14, pAEW, 10, juce::Justification::centred);
@@ -3189,13 +3190,14 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     // Row B (always) — length · swing (sliders side by side)
     seqLengthSlider[v].setBounds (rX +   0, rowB, 180, bh);
     swingSlider    [v].setBounds (rX + 200, rowB, 180, bh);
+    // VELO lives under SWING, visible by default (hidden when TOOLS expands)
+    veloModeBtn    [v].setBounds (rX + 200, rowB + 20, 52, bh);
 
     // Row C (TOOLS) — reset/uni · randomise · nudge
     resetBtn     [v].setBounds (rX +   0, rowC, 46, bh);
     bipolarBtn   [v].setBounds (rX +  48, rowC, 46, bh);
     randModeBtn  [v].setBounds (rX + 110, rowC, 56, bh);
-    randomBtn    [v].setBounds (rX + 168, rowC, 52, bh);
-    veloModeBtn  [v].setBounds (rX + 222, rowC, 52, bh);
+    randomBtn    [v].setBounds (rX + 168, rowC, 56, bh);
     nudgeLeftBtn [v].setBounds (rX + 300, rowC, 28, bh);
     nudgeRightBtn[v].setBounds (rX + 330, rowC, 28, bh);
 
@@ -3268,13 +3270,14 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     plaitsTrigBtn[v].setBounds (oscX + 6,  ctrlTopY + 114, 84, 22);
     plaitsOctBox [v].setBounds (oscX + 96, ctrlTopY + 114, 90, 22);
 
-    // ── Filter ────────────────────────────────────────────────────────────────
-    cutoffSlider      [v].setBounds (pFltX + 5,  cy1, kSz, kSz);
-    resonanceSlider   [v].setBounds (pFltX + 49, cy1, kSz, kSz);
-    filterDriveSlider [v].setBounds (pFltX + 93, cy1, kSz, kSz);
-    filterModeBox     [v].setBounds (pFltX + 5,  cy2, 70,  20);
-    filterSlopeBtn    [v].setBounds (pFltX + 80, cy2, 32,  20);
-    filterEnvAmtSlider[v].setBounds (pFltX + 118,cy2, kSz, kSz);
+    // ── Filter — hero Cutoff (52px) anchors the section ─────────────────────────
+    const int heroSz = 52;
+    cutoffSlider      [v].setBounds (pFltX + 6,   cy1,     heroSz, heroSz);
+    resonanceSlider   [v].setBounds (pFltX + 66,  cy1 + 5, kSz, kSz);
+    filterDriveSlider [v].setBounds (pFltX + 112, cy1 + 5, kSz, kSz);
+    filterModeBox     [v].setBounds (pFltX + 6,   cy2, 64, 20);
+    filterSlopeBtn    [v].setBounds (pFltX + 74,  cy2, 30, 20);
+    filterEnvAmtSlider[v].setBounds (pFltX + 112, cy2, kSz, kSz);
 
     // ── Amp Envelope ──────────────────────────────────────────────────────────
     envResetBtn[v].setBounds (pAEX + pAEW - 44, ctrlTopY + 2, 42, 14);
@@ -3285,7 +3288,7 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     releaseSlider[v].setBounds (pAEX + 2 + aeStride*3, cy1, kSz, kSz);
 
     // ── Filter Envelope (in Filter panel cy3) ─────────────────────────────────
-    const int feStride = 40;
+    const int feStride = 46;
     fAttackSlider [v].setBounds (pFltX + 2,               cy3, kSz, kSz);
     fDecaySlider  [v].setBounds (pFltX + 2 + feStride,    cy3, kSz, kSz);
     fSustainSlider[v].setBounds (pFltX + 2 + feStride*2,  cy3, kSz, kSz);
@@ -4604,12 +4607,14 @@ void VoltageSeq2AudioProcessorEditor::applyToolsView (int v)
     const bool on = (toolsView[v] != 0);
     toolsBtn[v].setToggleState (on, juce::dontSendNotification);
 
+    // VELO is visible by default; it hides when TOOLS expands (its slot is reused)
+    veloModeBtn  [v].setVisible (!on);
+
     // Row C — reset/uni · randomise · nudge
     resetBtn     [v].setVisible (on);
     bipolarBtn   [v].setVisible (on);
     randModeBtn  [v].setVisible (on);
     randomBtn    [v].setVisible (on);
-    veloModeBtn  [v].setVisible (on);
     nudgeLeftBtn [v].setVisible (on);
     nudgeRightBtn[v].setVisible (on);
 
