@@ -616,6 +616,7 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     // setSize LAST — triggers resized() which calls layoutVoice()
     setSize (1500, winH);
     showPage (0);   // ensure FX / pattern / gen controls start hidden
+    syncUIFromProcessor();   // sync all controls (incl. step uni/bi ranges) at startup
     startTimerHz (30);
 }
 
@@ -4188,8 +4189,25 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
         bipolarBtn[v].setButtonText  (vp.unipolar ? "UNI" : "BI");
         bipolarBtn[v].setColour (juce::TextButton::buttonColourId,
                                   vp.unipolar ? juce::Colour (0xff305050) : juce::Colour (0xff2a2050));
-        // Note: step knob ranges are fixed at -5..+5 by the APVTS attachment.
-        // Portamento and Range are also APVTS-attached — no manual setValue needed.
+        // Sync each step-slider range to the unipolar flag so the box render
+        // matches at startup / state-load (previously only the button onClick
+        // did this, so a fresh voice rendered bipolar despite unipolar=true).
+        for (int i = 0; i < 16; ++i)
+        {
+            if (vp.unipolar)
+            {
+                stepKnob[v][i].setRange (0.0, 5.0, 0.01);
+                float c = juce::jmax (0.0f, vp.stepVoltages[i]);
+                audioProcessor.voice[v].stepVoltages[i] = c;
+                stepKnob[v][i].setValue (c, juce::dontSendNotification);
+            }
+            else
+            {
+                stepKnob[v][i].setRange (-5.0, 5.0, 0.01);
+                stepKnob[v][i].setValue (vp.stepVoltages[i], juce::dontSendNotification);
+            }
+        }
+        // Portamento and Range are APVTS-attached — no manual setValue needed.
         clockDivBox[v].setSelectedItemIndex (vp.clockDivision, juce::dontSendNotification);
         rootBox [v].setSelectedItemIndex (vp.rootNote,     juce::dontSendNotification);
         scaleBox[v].setSelectedItemIndex (vp.currentScale, juce::dontSendNotification);
