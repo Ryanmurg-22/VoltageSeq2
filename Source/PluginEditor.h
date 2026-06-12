@@ -449,6 +449,12 @@ private:
     int              midView       [2] = { 0, 0 };   // 0 = QUANT, 1 = ORDER
     void applyMidView (int v);
 
+    // ── Modulation slot: inline [ LFO | MOD ENV ] (replaces both popups) ────
+    int              modSlotView   [2] = { 0, 0 };   // 0 = LFO, 1 = MOD ENV
+    int              lfoSel        [2] = { 0, 0 };   // which LFO (0..3) is shown
+    juce::TextButton lfoSelBtn     [2][4];           // "1".."4" LFO selector
+    void refreshModSlot (int v);
+
     // ── Unison / Poly mode (per voice, on Synth page) ──────────────────────
     juce::ComboBox   voiceModeBox   [2];   // MONO / UNISON / POLY
     juce::TextButton uniCountBtn    [2];   // "2V" / "4V" toggle

@@ -378,23 +378,47 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
             addAndMakeVisible (oscView2Btn[v]);  synthPageComponents.push_back (&oscView2Btn[v]);
         }
 
-        envPanelBtn[v].setButtonText (juce::String::fromUTF8 ("MOD \xe2\x96\xbc"));
-        envPanelBtn[v].setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff161630));
-        envPanelBtn[v].setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe0e0e0));
-        envPanelBtn[v].onClick = [this, v]() {
-            envPanelOpen[v] ? closeEnvPanel(v) : openEnvPanel(v);
+        // ── Modulation slot radio: [ LFO | MOD ENV ] (inline, no popups) ──────
+        auto styleModRadio = [](juce::TextButton& b, const juce::String& t)
+        {
+            b.setButtonText (t);
+            b.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff161630));
+            b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff2255aa));
+            b.setColour (juce::TextButton::textColourOffId,  juce::Colour (0xffa0a0b4));
+            b.setColour (juce::TextButton::textColourOnId,   juce::Colour (0xffffffff));
         };
-        addAndMakeVisible (envPanelBtn[v]);
-        synthPageComponents.push_back (&envPanelBtn[v]);
+        styleModRadio (lfoPanelBtn[v], "LFO");
+        styleModRadio (envPanelBtn[v], "MOD ENV");
+        lfoPanelBtn[v].onClick = [this, v]() { modSlotView[v] = 0; refreshModSlot (v); };
+        envPanelBtn[v].onClick = [this, v]() { modSlotView[v] = 1; refreshModSlot (v); };
+        addAndMakeVisible (lfoPanelBtn[v]); synthPageComponents.push_back (&lfoPanelBtn[v]);
+        addAndMakeVisible (envPanelBtn[v]); synthPageComponents.push_back (&envPanelBtn[v]);
 
-        lfoPanelBtn[v].setButtonText (juce::String::fromUTF8 ("LFO \xe2\x96\xbc"));
-        lfoPanelBtn[v].setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff161630));
-        lfoPanelBtn[v].setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe0e0e0));
-        lfoPanelBtn[v].onClick = [this, v]() {
-            lfoPanelOpen[v] ? closeLfoPanel(v) : openLfoPanel(v);
+        // LFO selector tabs (1..4) — visible only in LFO view
+        for (int i = 0; i < 4; ++i)
+        {
+            auto& b = lfoSelBtn[v][i];
+            b.setButtonText (juce::String (i + 1));
+            b.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff161630));
+            b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff3a6ad0));
+            b.setColour (juce::TextButton::textColourOffId,  juce::Colour (0xffa0a0b4));
+            b.setColour (juce::TextButton::textColourOnId,   juce::Colour (0xffffffff));
+            b.onClick = [this, v, i]() { lfoSel[v] = i; refreshModSlot (v); };
+            addAndMakeVisible (b); synthPageComponents.push_back (&b);
+        }
+
+        // The LFO + Mod-Env controls are set up later (after the synthPageComponents
+        // catch-all), so they aren't swept into it. Register them here so they hide
+        // on non-synth pages (refreshModSlot then refines which is visible on page 0).
+        juce::Component* slotComps[] = {
+            &lfoWaveBox[v],  &lfoRateSlider[v],  &lfoDepthSlider[v],  &lfoTargetBox[v],  &lfoSyncBtn[v],  &lfoSyncDivBox[v],
+            &lfo2WaveBox[v], &lfo2RateSlider[v], &lfo2DepthSlider[v], &lfo2TargetBox[v], &lfo2SyncBtn[v], &lfo2SyncDivBox[v],
+            &lfo3WaveBox[v], &lfo3RateSlider[v], &lfo3DepthSlider[v], &lfo3TargetBox[v], &lfo3SyncBtn[v], &lfo3SyncDivBox[v],
+            &lfo4WaveBox[v], &lfo4RateSlider[v], &lfo4DepthSlider[v], &lfo4TargetBox[v], &lfo4SyncBtn[v], &lfo4SyncDivBox[v],
+            &modEnvAtkSlider[v], &modEnvDecSlider[v], &modEnvSusSlider[v], &modEnvRelSlider[v],
+            &modEnvDepthSlider[v], &modEnvDestBox[v], &modEnvSyncBtn[v], &modEnvDivBox[v]
         };
-        addAndMakeVisible (lfoPanelBtn[v]);
-        synthPageComponents.push_back (&lfoPanelBtn[v]);
+        for (auto* c : slotComps) synthPageComponents.push_back (c);
     }
 
     //==========================================================================
@@ -2253,9 +2277,10 @@ void VoltageSeq2AudioProcessorEditor::showPage (int page)
             // their floating panels. The bulk-show above would have forced them
             // visible, so re-apply the collapsed state here.
             applySectionVisibility (v);
-            applyMidView (v);   // QUANT (root/scale/clock) vs ORDER (play order)
-            applyToolsView (v); // TOOLS reveal + (when on) MIDI/VOICE config group
-            refreshOscView (v); // inline OSC1/OSC2/Plaits visibility (after section hide)
+            applyMidView (v);    // QUANT (root/scale/clock) vs ORDER (play order)
+            applyToolsView (v);  // TOOLS reveal + (when on) MIDI/VOICE config group
+            refreshOscView (v);  // inline OSC1/OSC2/Plaits visibility (after section hide)
+            refreshModSlot (v);  // inline LFO/MOD ENV slot (after section hide)
 
             // The bulk-show also forces the panel overlays themselves visible.
             // Restore each panel to its actual open/closed state.
@@ -3006,10 +3031,15 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         drawPanel (pO1X,   pO1W + pO2W, "");   // OSC section (radio shows active view)
         drawPanel (pFltX,  pFltW,  "FILTER");
         drawPanel (pAEX,   pAEW,   "");   // ENVELOPES — Amp/Filter tags drawn below
-        // LFO 1-4 panels removed — extend ctrl strip background to right edge
-        // so the freed/branding zone matches the section colour (not base black).
+        // Extend ctrl strip background to right edge so the freed/branding zone
+        // matches the section colour (not base black).
         g.setColour (sectionColour.withAlpha (0.85f));
         g.fillRect (pAEX + pAEW, cY, getWidth() - (pAEX + pAEW), ctrlH);
+        // Modulation slot panel (inline LFO / MOD ENV)
+        {
+            const int mX = pAEX + pAEW + 6, mW = 1090 - mX - 4;
+            drawPanel (mX, mW, "");
+        }
 
         // Control panel labels
         const int lY1 = cY + lOff1, lY2 = cY + lOff2, lY3 = cY + lOff3;
@@ -3077,7 +3107,21 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
                 g.drawText (adsr[k], pAEX + 2 + 48 * k, lY2, kSz, 12, juce::Justification::centred);
             }
         }
-        // MOD ENV still lives in its floating panel for now (inlined next build)
+        // ── Modulation slot labels (per view) ────────────────────────────────
+        {
+            const int mX = pAEX + pAEW + 6;
+            if (modSlotView[v] == 1)   // MOD ENV — label the ADSR + depth/dest
+            {
+                g.setColour (textColour); g.setFont (juce::Font (8.0f));
+                const char* me[4] = { "A", "D", "S", "R" };
+                for (int k = 0; k < 4; ++k)
+                    g.drawText (me[k], mX + 6 + 52 * k, cY + 32, kSz, 10, juce::Justification::centred);
+                g.setColour (dimColour); g.setFont (juce::Font (7.0f, juce::Font::bold));
+                g.drawText ("DEPTH", mX + 6,  cY + 94, 44,  10, juce::Justification::centred);
+                g.drawText ("DEST",  mX + 56, cY + 96, 118, 10, juce::Justification::centredLeft);
+            }
+            // LFO view: wave + target dropdowns and the 1-4 selector are self-labelling
+        }
 
         // Accent stripe on control panel left edge
         g.setColour (accent.withAlpha (0.4f));
@@ -3250,12 +3294,13 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     // ── GLIDE panel — PORTA only (Range/Root/Scale/Clock now live up top) ──────
     portaSlider[v].setBounds (pSeqX + (pSeqW - kSz) / 2, ctrlTopY + 64, kSz, kSz);
 
-    // Panel toggle buttons (MOD/LFO still use popups for now; OSC is inline)
-    {
-        constexpr int btnH = 16, btnW = 52;
-        envPanelBtn[v].setBounds (pAEX + pAEW - btnW - 4,         ctrlTopY + 4, btnW, btnH);
-        lfoPanelBtn[v].setBounds (pLfo4X + pLfoW - btnW - 4,      ctrlTopY + 4, btnW, btnH);
-    }
+    // ── Modulation slot — inline [LFO | MOD ENV] (between envelopes & branding)
+    const int modX = pAEX + pAEW + 6;     // ~852
+    const int modW = 1090 - modX - 4;     // ~232 (stops short of MACROS at 1090)
+    lfoPanelBtn[v].setBounds (modX,      ctrlTopY + 4, 50, 18);
+    envPanelBtn[v].setBounds (modX + 54, ctrlTopY + 4, 64, 18);
+    for (int i = 0; i < 4; ++i)
+        lfoSelBtn[v][i].setBounds (modX + i * 44, ctrlTopY + 26, 40, 16);
 
     // ── OSC section (inline; OSC1 / OSC2 / PLAITS overlap, toggled by view) ────
     const int oscX = pO1X;
@@ -3318,13 +3363,7 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     fSustainSlider[v].setBounds (pAEX + 2 + aeStride*2, cy2, kSz, kSz);
     fReleaseSlider[v].setBounds (pAEX + 2 + aeStride*3, cy2, kSz, kSz);
 
-    // ── 4 LFO panels ─────────────────────────────────────────────────────────
-    // Each panel is pLfoW=85px wide. Layout within each:
-    //   ctrlTopY+26 : wave combo
-    //   ctrlTopY+62 : rate knob | depth knob
-    //   ctrlTopY+116: target combo
-    //   ctrlTopY+150: sync btn | div combo
-    const int lfoXArr[4] = { pLfo1X, pLfo2X, pLfo3X, pLfo4X };
+    // ── LFO controls — all 4 sets share the slot; refreshModSlot shows one ────
     juce::Slider*    rateSliders[4]  = { &lfoRateSlider[v],  &lfo2RateSlider[v],  &lfo3RateSlider[v],  &lfo4RateSlider[v]  };
     juce::Slider*    depSliders[4]   = { &lfoDepthSlider[v], &lfo2DepthSlider[v], &lfo3DepthSlider[v], &lfo4DepthSlider[v] };
     juce::ComboBox*  waveBoxes[4]    = { &lfoWaveBox[v],     &lfo2WaveBox[v],     &lfo3WaveBox[v],     &lfo4WaveBox[v]     };
@@ -3334,24 +3373,25 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
 
     for (int li = 0; li < 4; ++li)
     {
-        const int lx = lfoXArr[li];
-        waveBoxes [li]->setBounds (lx + 3,  ctrlTopY + 26,  pLfoW - 6,  18);
-        rateSliders[li]->setBounds (lx + 3,  ctrlTopY + 62,  kSz, kSz);
-        depSliders [li]->setBounds (lx + 51, ctrlTopY + 62,  kSz, kSz);
-        tgtBoxes  [li]->setBounds (lx + 3,  ctrlTopY + 116, pLfoW - 6,  18);
-        syncBtns  [li]->setBounds (lx + 3,  ctrlTopY + 152, 42, 18);
-        divBoxes  [li]->setBounds (lx + 49, ctrlTopY + 152, 43, 18);
+        waveBoxes [li]->setBounds (modX + 4,  ctrlTopY + 50,  modW - 8, 18);
+        rateSliders[li]->setBounds (modX + 14, ctrlTopY + 76,  kSz, kSz);
+        depSliders [li]->setBounds (modX + 92, ctrlTopY + 76,  kSz, kSz);
+        tgtBoxes  [li]->setBounds (modX + 4,  ctrlTopY + 124, modW - 8, 18);
+        syncBtns  [li]->setBounds (modX + 4,  ctrlTopY + 150, 50, 18);
+        divBoxes  [li]->setBounds (modX + 58, ctrlTopY + 150, 50, 18);
     }
 
-    // ── Mod Envelope (in AMP ENV panel cy2 + cy3) ─────────────────────────────
-    modEnvAtkSlider  [v].setBounds (pAEX + 2,            cy2, kSz, kSz);
-    modEnvDecSlider  [v].setBounds (pAEX + 2 + 48,       cy2, kSz, kSz);
-    modEnvSusSlider  [v].setBounds (pAEX + 2 + 96,       cy2, kSz, kSz);
-    modEnvRelSlider  [v].setBounds (pAEX + 2 + 144,      cy2, kSz, kSz);
-    modEnvDepthSlider[v].setBounds (pAEX + 2,            cy3, kSz, kSz);
-    modEnvDestBox    [v].setBounds (pAEX + 50,           cy3 + 6, 100, 20);
-    modEnvSyncBtn    [v].setBounds (pAEX + 156,          cy3 + 6,  42, 20);
-    modEnvDivBox     [v].setBounds (pAEX + 156,          cy3 + 27, 42, 20);
+    // ── Mod Envelope — shares the slot; shown in MOD ENV view ─────────────────
+    modEnvAtkSlider  [v].setBounds (modX + 6,   ctrlTopY + 46, kSz, kSz);
+    modEnvDecSlider  [v].setBounds (modX + 58,  ctrlTopY + 46, kSz, kSz);
+    modEnvSusSlider  [v].setBounds (modX + 110, ctrlTopY + 46, kSz, kSz);
+    modEnvRelSlider  [v].setBounds (modX + 162, ctrlTopY + 46, kSz, kSz);
+    modEnvDepthSlider[v].setBounds (modX + 6,   ctrlTopY + 106, kSz, kSz);
+    modEnvDestBox    [v].setBounds (modX + 54,  ctrlTopY + 112, 120, 20);
+    modEnvSyncBtn    [v].setBounds (modX + 6,   ctrlTopY + 150, 50, 18);
+    modEnvDivBox     [v].setBounds (modX + 60,  ctrlTopY + 150, 46, 18);
+
+    refreshModSlot (v);   // show the active modulation view (LFO/sel or MOD ENV)
 }
 
 //==============================================================================
@@ -4691,6 +4731,46 @@ void VoltageSeq2AudioProcessorEditor::applyMidView (int v)
     playRevBtn [v].setVisible (!quant);
     playConvBtn[v].setVisible (!quant);
     playRndBtn [v].setVisible (!quant);
+    repaint();
+}
+
+void VoltageSeq2AudioProcessorEditor::refreshModSlot (int v)
+{
+    const bool lfo = (modSlotView[v] == 0);
+    lfoPanelBtn[v].setToggleState ( lfo, juce::dontSendNotification);
+    envPanelBtn[v].setToggleState (!lfo, juce::dontSendNotification);
+
+    // LFO selector tabs — only in LFO view
+    for (int i = 0; i < 4; ++i)
+    {
+        lfoSelBtn[v][i].setVisible (lfo);
+        lfoSelBtn[v][i].setToggleState (i == lfoSel[v], juce::dontSendNotification);
+    }
+
+    // LFO control sets — show only the selected one (LFO view), else hide all
+    juce::Component* lfoSets[4][6] = {
+        { &lfoWaveBox[v],  &lfoRateSlider[v],  &lfoDepthSlider[v],  &lfoTargetBox[v],  &lfoSyncBtn[v],  &lfoSyncDivBox[v]  },
+        { &lfo2WaveBox[v], &lfo2RateSlider[v], &lfo2DepthSlider[v], &lfo2TargetBox[v], &lfo2SyncBtn[v], &lfo2SyncDivBox[v] },
+        { &lfo3WaveBox[v], &lfo3RateSlider[v], &lfo3DepthSlider[v], &lfo3TargetBox[v], &lfo3SyncBtn[v], &lfo3SyncDivBox[v] },
+        { &lfo4WaveBox[v], &lfo4RateSlider[v], &lfo4DepthSlider[v], &lfo4TargetBox[v], &lfo4SyncBtn[v], &lfo4SyncDivBox[v] },
+    };
+    for (int li = 0; li < 4; ++li)
+    {
+        const bool show = lfo && (li == lfoSel[v]);
+        for (int k = 0; k < 6; ++k) lfoSets[li][k]->setVisible (show);
+    }
+
+    // MOD ENV controls — only in MOD ENV view
+    const bool modv = !lfo;
+    modEnvAtkSlider  [v].setVisible (modv);
+    modEnvDecSlider  [v].setVisible (modv);
+    modEnvSusSlider  [v].setVisible (modv);
+    modEnvRelSlider  [v].setVisible (modv);
+    modEnvDepthSlider[v].setVisible (modv);
+    modEnvDestBox    [v].setVisible (modv);
+    modEnvSyncBtn    [v].setVisible (modv);
+    modEnvDivBox     [v].setVisible (modv);
+
     repaint();
 }
 
