@@ -3024,7 +3024,9 @@ void VoltageSeq2AudioProcessor::loadPatternAudio (int vi, int slot, bool resetPo
     v.swingAmount    = p.swingAmount;
     v.portamentoTime = p.portamentoTime;
     v.playOrder      = p.playOrder;
-    v.unipolar       = p.unipolar;
+    // NOTE: v.unipolar is intentionally NOT loaded here. It's a live display/edit
+    // preference (UNI vs BI), not pattern data — auto-advancing the pattern
+    // sequencer was reverting a user's BI choice to UNI every cycle.
     v.rootNote       = p.rootNote;
     v.currentScale   = p.currentScale;
     v.rangeVCA       = p.rangeVCA;

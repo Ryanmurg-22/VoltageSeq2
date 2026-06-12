@@ -36,13 +36,13 @@ namespace {
     constexpr int seqX       =    5;
     constexpr int seqW       = 1490;   // 16 steps × 88 px + margins
     constexpr int seqH       =  164;   // taller lane (uses freed space below)
-    constexpr int stepStride =   44;   // packed box columns (was 88)
+    constexpr int stepStride =   58;   // wider columns — sequencer is the hero (~70/30)
 
     // Step controls (relative to strip Y origin)
     constexpr int stepSliderTop = 5;
     constexpr int stepSliderH   = 128;   // taller box columns
-    constexpr int gateRelY      = 136;
-    constexpr int slideRelY     = 150;
+    constexpr int gateRelY      = 135;   // gate row (now taller — see layoutVoice)
+    constexpr int slideRelY     = 152;
 
     // Sub-strip band removed (controls now live in the seq lane's RHS) — keep a
     // thin gap between lanes.
@@ -2930,7 +2930,7 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         // RHS control-block group labels (match layoutVoice's rX / rows)
         {
             const int perfX = seqX + 16 * stepStride + 96;
-            const int midX  = perfX + 295;
+            const int midX  = perfX + 200;
             g.setColour (dimColour);
             g.setFont (juce::Font (8.0f, juce::Font::bold));
             // Performance sliders
@@ -3213,13 +3213,14 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     for (int i = 0; i < 16; ++i)
     {
         const int bx = seqX + i * stepStride;
-        // Packed box columns — slim with a hair of gap (PDF Example 2 style).
-        const int boxW = stepStride - 4;
-        const int boxX = bx + 2;
+        // Wider columns with a slightly larger gap; gate row is beefier (it holds
+        // a lot of functionality, so it gets more presence).
+        const int boxW = stepStride - 6;
+        const int boxX = bx + 3;
         stepKnob[v][i].setBounds (boxX, seqTopY + stepSliderTop, boxW, stepSliderH);
         veloKnob[v][i].setBounds (boxX, seqTopY + stepSliderTop, boxW, stepSliderH);
-        gateBtn [v][i].setBounds (bx + 2,  seqTopY + gateRelY,      stepStride - 4, 13);
-        slideBtn[v][i].setBounds (bx + 2,  seqTopY + slideRelY,     stepStride - 4, 12);
+        gateBtn [v][i].setBounds (boxX, seqTopY + gateRelY,  boxW, 15);
+        slideBtn[v][i].setBounds (boxX, seqTopY + slideRelY, boxW, 11);
     }
 
     // ── Pulse counter / mode controls (right of sequencer steps) ─────────────
@@ -3245,7 +3246,7 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     veloModeBtn    [v].setBounds (pCtrlX, seqTopY + 110, pCtrlW, bh);
 
     // ── Zone 2 — MIDDLE slot: QUANT / ORDER / TOOLS 3-way radio (shared slot) ──
-    const int midX = perfX + 295;   // ~1095
+    const int midX = perfX + 200;   // QUANT/ORDER/TOOLS slot, pulled left into the gap
     quantViewBtn[v].setBounds (midX,       seqTopY + 6, 58, bh);
     orderViewBtn[v].setBounds (midX + 60,  seqTopY + 6, 58, bh);
     toolsBtn    [v].setBounds (midX + 120, seqTopY + 6, 58, bh);
