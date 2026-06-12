@@ -1319,6 +1319,21 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
         voiceViewBtn[v].onClick = [this, v]() { cfgView[v] = 1; applyCfgView (v); };
         addAndMakeVisible (midiViewBtn[v]);  synthPageComponents.push_back (&midiViewBtn[v]);
         addAndMakeVisible (voiceViewBtn[v]); synthPageComponents.push_back (&voiceViewBtn[v]);
+
+        // TOOLS reveal toggle — collapses the secondary utility cluster
+        // (RST/UNI · randomise · nudge · MIDI/VOICE config) behind one switch.
+        toolsBtn[v].setButtonText (juce::String::fromUTF8 ("TOOLS"));
+        toolsBtn[v].setClickingTogglesState (true);
+        toolsBtn[v].setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff161630));
+        toolsBtn[v].setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff5a3aa0));
+        toolsBtn[v].setColour (juce::TextButton::textColourOffId,  juce::Colour (0xffa0a0b4));
+        toolsBtn[v].setColour (juce::TextButton::textColourOnId,   juce::Colour (0xffffffff));
+        toolsBtn[v].onClick = [this, v]()
+        {
+            toolsView[v] = toolsBtn[v].getToggleState() ? 1 : 0;
+            applyToolsView (v);
+        };
+        addAndMakeVisible (toolsBtn[v]); synthPageComponents.push_back (&toolsBtn[v]);
     }
 
     for (int ch = 1; ch <= 16; ++ch)
@@ -2217,7 +2232,7 @@ void VoltageSeq2AudioProcessorEditor::showPage (int page)
             // their floating panels. The bulk-show above would have forced them
             // visible, so re-apply the collapsed state here.
             applySectionVisibility (v);
-            applyCfgView (v);   // re-enforce MIDI vs VOICE config group visibility
+            applyToolsView (v); // TOOLS reveal + (when on) MIDI/VOICE config group
             refreshOscView (v); // inline OSC1/OSC2/Plaits visibility (after section hide)
 
             // The bulk-show also forces the panel overlays themselves visible.
@@ -2880,11 +2895,16 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
             const int rX = seqX + 16 * stepStride + 96;
             g.setColour (dimColour);
             g.setFont (juce::Font (8.0f, juce::Font::bold));
-            g.drawText ("LENGTH",     rX + 128, sY + 16, 160, 10, juce::Justification::centredLeft);
-            g.drawText ("PLAY ORDER", rX,       sY + 50, 250, 10, juce::Justification::centredLeft);
-            g.drawText ("SWING",      rX + 300, sY + 50, 208, 10, juce::Justification::centredLeft);
-            g.drawText ("RANDOMISE",  rX,       sY + 84, 200, 10, juce::Justification::centredLeft);
-            g.drawText ("NUDGE",      rX + 300, sY + 84, 100, 10, juce::Justification::centredLeft);
+            // Primary labels (always)
+            g.drawText ("PLAY ORDER", rX,       sY + 13, 200, 10, juce::Justification::centredLeft);
+            g.drawText ("LENGTH",     rX,       sY + 47, 180, 10, juce::Justification::centredLeft);
+            g.drawText ("SWING",      rX + 200, sY + 47, 180, 10, juce::Justification::centredLeft);
+            // Secondary labels (only when TOOLS revealed)
+            if (toolsView[v] != 0)
+            {
+                g.drawText ("RANDOMISE", rX + 110, sY + 81, 180, 10, juce::Justification::centredLeft);
+                g.drawText ("NUDGE",     rX + 300, sY + 81, 100, 10, juce::Justification::centredLeft);
+            }
         }
 
         // ── Pulse counter (top-right of sequencer strip) ───────────────────
@@ -3152,46 +3172,47 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     // (the old full-width sub-strip is gone). Origin just past the TOTAL/STAGES
     // cluster; four compact rows.
     const int rX   = seqX + 16 * stepStride + 96;   // ~805
-    const int rowA = seqTopY + 27;   // label "LENGTH" above (over LEN)
-    const int rowB = seqTopY + 61;   // label "PLAY ORDER" / "SWING" above
-    const int rowC = seqTopY + 95;   // label "RANDOMISE" / "NUDGE" above
-    const int rowD = seqTopY + 116;
-    const int bh   = 20;
+    const int rowA = seqTopY + 24;   // PRIMARY 1 — play order · transport · TOOLS
+    const int rowB = seqTopY + 58;   // PRIMARY 2 — length · swing (sliders)
+    const int rowC = seqTopY + 92;   // TOOLS 1   — rst/uni · randomise · nudge
+    const int rowD = seqTopY + 114;  // TOOLS 2   — MIDI/VOICE config
+    const int bh   = 16;             // shrunk: utility strip, quieter than step lanes
 
-    // Row A — reset/uni (left) · length · stop (right, smaller)
-    resetBtn       [v].setBounds (rX +   0, rowA,  58, bh);
-    bipolarBtn     [v].setBounds (rX +  62, rowA,  58, bh);
-    seqLengthSlider[v].setBounds (rX + 128, rowA, 160, bh);
-    runStopBtn     [v].setBounds (rX + 300, rowA,  64, bh);
+    // Row A (always) — play order (primary) · transport · TOOLS reveal
+    playFwdBtn [v].setBounds (rX +   0, rowA, 46, bh);
+    playRevBtn [v].setBounds (rX +  48, rowA, 46, bh);
+    playConvBtn[v].setBounds (rX +  96, rowA, 50, bh);
+    playRndBtn [v].setBounds (rX + 148, rowA, 46, bh);
+    runStopBtn [v].setBounds (rX + 240, rowA, 60, bh);
+    toolsBtn   [v].setBounds (rX + 308, rowA, 56, bh);
 
-    // Row B — play order · swing
-    playFwdBtn [v].setBounds (rX +   0, rowB, 58, bh);
-    playRevBtn [v].setBounds (rX +  62, rowB, 58, bh);
-    playConvBtn[v].setBounds (rX + 124, rowB, 64, bh);
-    playRndBtn [v].setBounds (rX + 192, rowB, 58, bh);
-    swingSlider[v].setBounds (rX + 300, rowB, 208, bh);
+    // Row B (always) — length · swing (sliders side by side)
+    seqLengthSlider[v].setBounds (rX +   0, rowB, 180, bh);
+    swingSlider    [v].setBounds (rX + 200, rowB, 180, bh);
 
-    // Row C — random · velocity · nudge (below swing)
-    randModeBtn  [v].setBounds (rX +   0, rowC, 70, bh);
-    randomBtn    [v].setBounds (rX +  76, rowC, 64, bh);
-    veloModeBtn  [v].setBounds (rX + 150, rowC, 60, bh);
-    nudgeLeftBtn [v].setBounds (rX + 300, rowC, 34, bh);
-    nudgeRightBtn[v].setBounds (rX + 338, rowC, 34, bh);
+    // Row C (TOOLS) — reset/uni · randomise · nudge
+    resetBtn     [v].setBounds (rX +   0, rowC, 46, bh);
+    bipolarBtn   [v].setBounds (rX +  48, rowC, 46, bh);
+    randModeBtn  [v].setBounds (rX + 110, rowC, 56, bh);
+    randomBtn    [v].setBounds (rX + 168, rowC, 52, bh);
+    veloModeBtn  [v].setBounds (rX + 222, rowC, 52, bh);
+    nudgeLeftBtn [v].setBounds (rX + 300, rowC, 28, bh);
+    nudgeRightBtn[v].setBounds (rX + 330, rowC, 28, bh);
 
-    // Row D — MIDI/VOICE config radio + the toggled config group
-    midiViewBtn [v].setBounds (rX +   0, rowD, 56, bh);
-    voiceViewBtn[v].setBounds (rX +  60, rowD, 56, bh);
+    // Row D (TOOLS) — MIDI/VOICE config radio + the toggled config group
+    midiViewBtn [v].setBounds (rX +   0, rowD, 50, bh);
+    voiceViewBtn[v].setBounds (rX +  52, rowD, 50, bh);
     // MIDI group (cfgView==0)
-    midiOutBtn  [v].setBounds (rX + 140, rowD, 90, bh);
-    midiOutChBox[v].setBounds (rX + 236, rowD, 70, bh);
+    midiOutBtn  [v].setBounds (rX + 120, rowD, 84, bh);
+    midiOutChBox[v].setBounds (rX + 210, rowD, 66, bh);
     // VOICE group (cfgView==1) — shares the same slot
-    voiceModeBox   [v].setBounds (rX + 140, rowD, 80, bh);
-    uniCountBtn    [v].setBounds (rX + 226, rowD, 36, bh);
-    chordModeBtn   [v].setBounds (rX + 268, rowD, 44, bh);
-    uniSpreadSlider[v].setBounds (rX + 320, rowD, 90, bh);
-    uniWidthSlider [v].setBounds (rX + 416, rowD, 90, bh);
+    voiceModeBox   [v].setBounds (rX + 120, rowD, 78, bh);
+    uniCountBtn    [v].setBounds (rX + 204, rowD, 34, bh);
+    chordModeBtn   [v].setBounds (rX + 244, rowD, 42, bh);
+    uniSpreadSlider[v].setBounds (rX + 292, rowD, 84, bh);
+    uniWidthSlider [v].setBounds (rX + 382, rowD, 84, bh);
 
-    applyCfgView (v);   // enforce which config group is visible
+    applyToolsView (v);   // enforce TOOLS reveal + config-group visibility
 
     // ── SEQ panel ─────────────────────────────────────────────────────────────
     rangeSlider[v]  .setBounds (pSeqX + 5,                     cy1 - 2, pSeqW - 10, 22);
@@ -4576,6 +4597,41 @@ void VoltageSeq2AudioProcessorEditor::applyCfgView (int v)
     chordModeBtn   [v].setVisible (!midi);
     uniSpreadSlider[v].setVisible (!midi);
     uniWidthSlider [v].setVisible (!midi);
+}
+
+void VoltageSeq2AudioProcessorEditor::applyToolsView (int v)
+{
+    const bool on = (toolsView[v] != 0);
+    toolsBtn[v].setToggleState (on, juce::dontSendNotification);
+
+    // Row C — reset/uni · randomise · nudge
+    resetBtn     [v].setVisible (on);
+    bipolarBtn   [v].setVisible (on);
+    randModeBtn  [v].setVisible (on);
+    randomBtn    [v].setVisible (on);
+    veloModeBtn  [v].setVisible (on);
+    nudgeLeftBtn [v].setVisible (on);
+    nudgeRightBtn[v].setVisible (on);
+
+    // Row D — MIDI/VOICE config radio + the active sub-group
+    midiViewBtn [v].setVisible (on);
+    voiceViewBtn[v].setVisible (on);
+    if (on)
+    {
+        applyCfgView (v);   // shows the active sub-group, hides the other
+    }
+    else
+    {
+        midiOutBtn  [v].setVisible (false);
+        midiOutChBox[v].setVisible (false);
+        voiceModeBox   [v].setVisible (false);
+        uniCountBtn    [v].setVisible (false);
+        chordModeBtn   [v].setVisible (false);
+        uniSpreadSlider[v].setVisible (false);
+        uniWidthSlider [v].setVisible (false);
+    }
+
+    repaint();
 }
 
 void VoltageSeq2AudioProcessorEditor::refreshOscView (int v)

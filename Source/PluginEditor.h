@@ -438,6 +438,11 @@ private:
     int              cfgView       [2] = { 1, 1 };   // 0 = MIDI, 1 = VOICE (default)
     void applyCfgView (int v);
 
+    // ── TOOLS toggle (hides the secondary/utility cluster by default) ───────
+    juce::TextButton toolsBtn      [2];   // "TOOLS" reveal toggle
+    int              toolsView     [2] = { 0, 0 };   // 0 = hidden, 1 = shown
+    void applyToolsView (int v);
+
     // ── Unison / Poly mode (per voice, on Synth page) ──────────────────────
     juce::ComboBox   voiceModeBox   [2];   // MONO / UNISON / POLY
     juce::TextButton uniCountBtn    [2];   // "2V" / "4V" toggle
