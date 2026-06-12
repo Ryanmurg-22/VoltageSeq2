@@ -2811,7 +2811,7 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
                     p.swingAmount    = (float)slotEl->getDoubleAttribute ("swing", 0.5);
                     p.portamentoTime = (float)slotEl->getDoubleAttribute ("porta", 0.0);
                     p.playOrder      = slotEl->getIntAttribute    ("order",  0);
-                    p.unipolar       = slotEl->getIntAttribute    ("uni",    0) != 0;
+                    p.unipolar       = slotEl->getIntAttribute    ("uni",    1) != 0;
                     p.rangeVCA       = (float)slotEl->getDoubleAttribute ("range", 1.0);
                     // Parse step arrays
                     auto parseFloats = [](const juce::String& s, float* arr, int n) {
