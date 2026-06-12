@@ -642,6 +642,12 @@ private:
 
     juce::TextButton oscPanelBtn[2], envPanelBtn[2], lfoPanelBtn[2];
 
+    // ── Inline OSC section (replaces the OSC popup) ──────────────────────────
+    juce::TextButton oscView1Btn[2];   // "OSC 1" radio
+    juce::TextButton oscView2Btn[2];   // "OSC 2" radio
+    int              oscView[2] = { 0, 0 };   // 0 = OSC1, 1 = OSC2 (native); Plaits overrides
+    void refreshOscView (int v);       // show OSC1 / OSC2 / Plaits group inline
+
     void openOscPanel  (int v);
     void closeOscPanel (int v);
     void openEnvPanel  (int v);
