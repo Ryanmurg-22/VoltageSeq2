@@ -356,15 +356,23 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
         addChildComponent (lfoPanel[v]);
         synthPageComponents.push_back (&lfoPanel[v]);
 
-        // Toggle buttons (will be positioned in layoutVoice)
-        oscPanelBtn[v].setButtonText (juce::String::fromUTF8 ("OSC \xe2\x96\xbc"));
-        oscPanelBtn[v].setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff161630));
-        oscPanelBtn[v].setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe0e0e0));
-        oscPanelBtn[v].onClick = [this, v]() {
-            oscPanelOpen[v] ? closeOscPanel(v) : openOscPanel(v);
-        };
-        addAndMakeVisible (oscPanelBtn[v]);
-        synthPageComponents.push_back (&oscPanelBtn[v]);
+        // OSC 1 / OSC 2 view radio (replaces the OSC popup toggle)
+        {
+            auto styleOscRadio = [](juce::TextButton& b, const juce::String& t)
+            {
+                b.setButtonText (t);
+                b.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff161630));
+                b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff2255aa));
+                b.setColour (juce::TextButton::textColourOffId,  juce::Colour (0xffa0a0b4));
+                b.setColour (juce::TextButton::textColourOnId,   juce::Colour (0xffffffff));
+            };
+            styleOscRadio (oscView1Btn[v], "OSC 1");
+            styleOscRadio (oscView2Btn[v], "OSC 2");
+            oscView1Btn[v].onClick = [this, v]() { oscView[v] = 0; refreshOscView (v); };
+            oscView2Btn[v].onClick = [this, v]() { oscView[v] = 1; refreshOscView (v); };
+            addAndMakeVisible (oscView1Btn[v]);  synthPageComponents.push_back (&oscView1Btn[v]);
+            addAndMakeVisible (oscView2Btn[v]);  synthPageComponents.push_back (&oscView2Btn[v]);
+        }
 
         envPanelBtn[v].setButtonText (juce::String::fromUTF8 ("MOD \xe2\x96\xbc"));
         envPanelBtn[v].setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff161630));
@@ -1496,46 +1504,14 @@ void VoltageSeq2AudioProcessorEditor::refreshPlaitsMode (int v)
     plaitsBtn[v].setColour (juce::TextButton::textColourOffId,
         on ? juce::Colour (0xffcc88ff) : juce::Colour (0xffe0e0e0));
 
-    // ── Front-page OSC1 basic controls (always managed, independent of panel) ─
-    // These live permanently in the ctrl strip — hide when Plaits replaces them.
-    if (currentPage == 0)
-    {
-        osc1WaveBox    [v].setVisible (!on);
-        osc1LevelSlider[v].setVisible (!on);
-        osc1OctaveBox  [v].setVisible (!on);
-        // oscScope stays visible regardless of Plaits mode
-        repaint();
-    }
-
-    // ── Panel controls — only update when OSC panel is open ───────────────────
-    if (currentPage != 0 || !oscPanelOpen[v]) return;
-
-    // Show Plaits engine selector + parameter knobs only when active
-    plaitsEngBox       [v].setVisible (on);
-    plaitsHarmSlider   [v].setVisible (on);
-    plaitsTimSlider    [v].setVisible (on);
-    plaitsMorphSlider  [v].setVisible (on);
-    plaitsAuxSlider    [v].setVisible (on);
-
-    // Octave transpose box + TRIG button — visible only when Plaits is on
-    plaitsOctBox  [v].setVisible (on);
-    plaitsTrigBtn [v].setVisible (on);
+    // TRIG button colour
     plaitsTrigBtn[v].setColour (juce::TextButton::buttonColourId,
         trig ? juce::Colour (0xff442200) : juce::Colour (0xff161630));
     plaitsTrigBtn[v].setColour (juce::TextButton::textColourOffId,
         trig ? juce::Colour (0xffff8844) : juce::Colour (0xffe0e0e0));
 
-    // Hide panel-only OSC/FM controls when Plaits is active (they overlap in panel)
-    osc1PWMSlider      [v].setVisible (!on);
-    osc1FeedbackSlider [v].setVisible (!on);
-    driftSlider        [v].setVisible (!on);
-    osc2PosSlider      [v].setVisible (!on);
-    osc2LevelSlider    [v].setVisible (!on);
-    osc2OctaveBox      [v].setVisible (!on);
-    wavetableDisplay   [v]->setVisible (!on);
-    fmDepthSlider      [v].setVisible (!on);
-    fmRatioSlider      [v].setVisible (!on);
-    crossModSlider     [v].setVisible (!on);
+    // All OSC / Plaits control visibility now flows through the inline view toggle.
+    refreshOscView (v);
 
     macroOverlay.toFront (false);   // visible-knob set changed — refresh rings
     macroOverlay.repaint();
@@ -2242,6 +2218,7 @@ void VoltageSeq2AudioProcessorEditor::showPage (int page)
             // visible, so re-apply the collapsed state here.
             applySectionVisibility (v);
             applyCfgView (v);   // re-enforce MIDI vs VOICE config group visibility
+            refreshOscView (v); // inline OSC1/OSC2/Plaits visibility (after section hide)
 
             // The bulk-show also forces the panel overlays themselves visible.
             // Restore each panel to its actual open/closed state.
@@ -2979,8 +2956,7 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         };
         drawPanel (pSeqX,  pSeqW,  "SEQ");
         drawPanel (pQntX,  pQntW,  "QUANTIZER");
-        drawPanel (pO1X,   pO1W,   audioProcessor.voice[v].plaitsEnabled ? "PLAITS" : "OSC 1");
-        drawPanel (pO2X,   pO2W,   "");   // OSC 2 controls live in OSC panel — area kept as visual spacer
+        drawPanel (pO1X,   pO1W + pO2W, "");   // OSC section (radio shows active view)
         drawPanel (pFltX,  pFltW,  "FILTER");
         drawPanel (pAEX,   pAEW,   "AMP ENV");
         // LFO 1-4 panels removed — extend ctrl strip background to right edge
@@ -2999,19 +2975,43 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         // QUANT
         g.drawText ("ROOT",     pQntX,  lY1, pQntW, 12, juce::Justification::centred);
         g.drawText ("SCALE",    pQntX,  lY2, pQntW, 12, juce::Justification::centred);
-        if (audioProcessor.voice[v].plaitsEnabled)
+        // ── OSC section labels (per active view) ──────────────────────────────
         {
-            // Plaits mode: basic OSC1 controls hidden; ENGINE/params are in OSC panel.
-            // No front-page labels for Plaits since all controls live in the panel.
-        }
-        else
-        {
-            // ── OSC 1 front-page labels (wave/level/oct/scope always visible) ─────
-            g.drawText ("WAVE",  pO1X,    cY+14,  pO1W, 12, juce::Justification::centred);
-            g.drawText ("LEVEL", pO1X,    cY+54,  46,   12, juce::Justification::centred);
-            g.drawText ("OCT",   pO1X+46, cY+54,  78,   12, juce::Justification::centred);
-            g.drawText ("SCOPE", pO1X+88, cY+108, pO1W-93, 11, juce::Justification::centred);
-            // OSC 1 advanced (FEEDBK/PWM/DRIFT) and full OSC 2 live in the OSC panel — no front-page labels
+            const int oscX = pO1X, oscW = pO1W + pO2W;
+            const bool plaits = audioProcessor.voice[v].plaitsEnabled;
+            auto kl = [&](const char* t, int x, int y, int w = 38)
+            { g.drawText (t, x, y, w, 10, juce::Justification::centred); };
+            if (plaits)
+            {
+                g.setColour (dimColour); g.setFont (juce::Font (7.5f, juce::Font::bold));
+                const int sp = oscW / 5;
+                kl ("HARM",  oscX + sp*0 + 6, cY + 110, 44);
+                kl ("TIMBRE",oscX + sp*1 + 6, cY + 110, 44);
+                kl ("MORPH", oscX + sp*2 + 6, cY + 110, 44);
+                kl ("AUX",   oscX + sp*3 + 6, cY + 110, 44);
+            }
+            else if (oscView[v] == 0)
+            {
+                g.setColour (textColour); g.setFont (juce::Font (8.0f));
+                g.drawText ("WAVE", oscX + 4, cY + 18, 170, 10, juce::Justification::centredLeft);
+                kl ("LEVEL", oscX + 6,   cY + 108);
+                kl ("PWM",   oscX + 130, cY + 108);
+                kl ("FB",    oscX + 174, cY + 108);
+                kl ("DRIFT", oscX + 218, cY + 108);
+                g.setColour (dimColour); g.setFont (juce::Font (7.5f, juce::Font::bold));
+                g.drawText ("SCOPE", oscX + 268, cY + 18, 88, 10, juce::Justification::centred);
+            }
+            else
+            {
+                g.setColour (textColour); g.setFont (juce::Font (8.0f));
+                kl ("POS",  oscX + 6,   cY + 72);
+                kl ("LVL",  oscX + 50,  cY + 72);
+                kl ("FM",   oscX + 94,  cY + 72);
+                kl ("XMOD", oscX + 138, cY + 72);
+                g.setColour (dimColour); g.setFont (juce::Font (7.5f, juce::Font::bold));
+                g.drawText ("OCT",   oscX + 6,  cY + 112, 70,  10, juce::Justification::centredLeft);
+                g.drawText ("RATIO", oscX + 86, cY + 112, 200, 10, juce::Justification::centredLeft);
+            }
         }
         // Filter
         g.drawText ("CUTOFF",  pFltX+5,  lY1, kSz, 12, juce::Justification::centred);
@@ -3202,51 +3202,50 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     rootBox [v].setBounds (pQntX + 8, cy1, pQntW - 16, 22);
     scaleBox[v].setBounds (pQntX + 8, cy2, pQntW - 16, 22);
 
-    // Panel toggle buttons (placed in section header strip)
+    // Panel toggle buttons (MOD/LFO still use popups for now; OSC is inline)
     {
         constexpr int btnH = 16, btnW = 52;
-        oscPanelBtn[v].setBounds (pO1X + pO1W + pO2W - btnW - 4, ctrlTopY + 4, btnW, btnH);
         envPanelBtn[v].setBounds (pAEX + pAEW - btnW - 4,         ctrlTopY + 4, btnW, btnH);
         lfoPanelBtn[v].setBounds (pLfo4X + pLfoW - btnW - 4,      ctrlTopY + 4, btnW, btnH);
     }
 
-    // ── OSC 1 ─────────────────────────────────────────────────────────────────
-    osc1WaveBox        [v].setBounds (pO1X + 8,   ctrlTopY + 26, pO1W - 16, 20);
-    osc1LevelSlider    [v].setBounds (pO1X + 6,   ctrlTopY + 66, kSz, kSz);
-    osc1OctaveBox      [v].setBounds (pO1X + 48,  ctrlTopY + 72, 90,  22);
-    osc1FeedbackSlider [v].setBounds (pO1X + 142, ctrlTopY + 66, kSz, kSz);
-    osc1PWMSlider      [v].setBounds (pO1X + 4,   ctrlTopY + 122, kSz, kSz);
-    driftSlider        [v].setBounds (pO1X + 46,  ctrlTopY + 122, kSz, kSz);
-    oscScope           [v]->setBounds(pO1X + 88,  ctrlTopY + 122, pO1W - 93, 52);
+    // ── OSC section (inline; OSC1 / OSC2 / PLAITS overlap, toggled by view) ────
+    const int oscX = pO1X;
+    const int oscW = pO1W + pO2W;            // ~360 px full footprint
+    // Header — view radio + Plaits toggle
+    oscView1Btn[v].setBounds (oscX + 0,  ctrlTopY + 4, 52, 18);
+    oscView2Btn[v].setBounds (oscX + 56, ctrlTopY + 4, 52, 18);
+    plaitsBtn  [v].setBounds (oscX + oscW - 62, ctrlTopY + 2, 58, 20);
 
-    // ── PLAITS mode controls (overlay the OSC1/O2 area) ──────────────────────
-    // PLAITS toggle: top of OSC1 panel header row
-    plaitsBtn[v].setBounds (pO1X + pO1W - 62, ctrlTopY + 2, 58, 20);
+    // OSC 1 group
+    osc1WaveBox       [v].setBounds (oscX + 4,   ctrlTopY + 32, 170, 22);
+    osc1LevelSlider   [v].setBounds (oscX + 6,   ctrlTopY + 68, kSz, kSz);
+    osc1OctaveBox     [v].setBounds (oscX + 50,  ctrlTopY + 72, 70,  22);
+    osc1PWMSlider     [v].setBounds (oscX + 130, ctrlTopY + 68, kSz, kSz);
+    osc1FeedbackSlider[v].setBounds (oscX + 174, ctrlTopY + 68, kSz, kSz);
+    driftSlider       [v].setBounds (oscX + 218, ctrlTopY + 68, kSz, kSz);
+    oscScope          [v]->setBounds(oscX + 268, ctrlTopY + 32, 88, 82);
 
-    // Engine combobox spanning OSC1+OSC2 width
-    plaitsEngBox[v].setBounds (pO1X, ctrlTopY + 28, pO1W + pO2W - 5, 24);
+    // OSC 2 group (overlaps OSC 1)
+    osc2PosSlider   [v].setBounds (oscX + 6,   ctrlTopY + 32, kSz, kSz);
+    osc2LevelSlider [v].setBounds (oscX + 50,  ctrlTopY + 32, kSz, kSz);
+    fmDepthSlider   [v].setBounds (oscX + 94,  ctrlTopY + 32, kSz, kSz);
+    crossModSlider  [v].setBounds (oscX + 138, ctrlTopY + 32, kSz, kSz);
+    osc2OctaveBox   [v].setBounds (oscX + 6,   ctrlTopY + 86, 70,  22);
+    fmRatioSlider   [v].setBounds (oscX + 86,  ctrlTopY + 86, 200, 22);
+    wavetableDisplay[v]->setBounds(oscX + 6,   ctrlTopY + 116, 300, 18);
 
-    // 4 knobs in a row below the combobox: HARM, TIMBRE, MORPH, AUX
-    const int pkY  = ctrlTopY + 60;
-    const int pkSz = 44;
-    const int pkSp = (pO1W + pO2W) / 4;
-    plaitsHarmSlider [v].setBounds (pO1X + pkSp * 0 + 4,  pkY, pkSz, pkSz);
-    plaitsTimSlider  [v].setBounds (pO1X + pkSp * 1 + 4,  pkY, pkSz, pkSz);
-    plaitsMorphSlider[v].setBounds (pO1X + pkSp * 2 + 4,  pkY, pkSz, pkSz);
-    plaitsAuxSlider  [v].setBounds (pO1X + pkSp * 3 + 4,  pkY, pkSz, pkSz);
-
-    // TRIG mode button + octave transpose — below the 4 Plaits knobs
-    plaitsTrigBtn [v].setBounds (pO1X + 4,  ctrlTopY + 112, 84, 22);
-    plaitsOctBox  [v].setBounds (pO1X + 96, ctrlTopY + 112, 90, 22);
-
-    // ── OSC 2 ─────────────────────────────────────────────────────────────────
-    osc2PosSlider   [v].setBounds (pO2X + 5,   ctrlTopY + 26,  kSz, kSz);
-    osc2LevelSlider [v].setBounds (pO2X + 60,  ctrlTopY + 26,  kSz, kSz);
-    fmDepthSlider   [v].setBounds (pO2X + 115, ctrlTopY + 26,  kSz, kSz);
-    fmRatioSlider   [v].setBounds (pO2X + 5,   ctrlTopY + 80,  pO2W - 10, 22);
-    osc2OctaveBox   [v].setBounds (pO2X + 5,   ctrlTopY + 118, 70,  22);
-    crossModSlider  [v].setBounds (pO2X + 95,  ctrlTopY + 114, kSz, kSz);
-    wavetableDisplay[v]->setBounds(pO2X + 5,   ctrlTopY + 152, pO2W - 10, 16);
+    // PLAITS group (overlaps OSC 1/2)
+    plaitsEngBox[v].setBounds (oscX + 4, ctrlTopY + 32, oscW - 72, 24);
+    {
+        const int pkY = ctrlTopY + 64, pkSz = 44, pkSp = oscW / 5;
+        plaitsHarmSlider [v].setBounds (oscX + pkSp * 0 + 6, pkY, pkSz, pkSz);
+        plaitsTimSlider  [v].setBounds (oscX + pkSp * 1 + 6, pkY, pkSz, pkSz);
+        plaitsMorphSlider[v].setBounds (oscX + pkSp * 2 + 6, pkY, pkSz, pkSz);
+        plaitsAuxSlider  [v].setBounds (oscX + pkSp * 3 + 6, pkY, pkSz, pkSz);
+    }
+    plaitsTrigBtn[v].setBounds (oscX + 6,  ctrlTopY + 114, 84, 22);
+    plaitsOctBox [v].setBounds (oscX + 96, ctrlTopY + 114, 90, 22);
 
     // ── Filter ────────────────────────────────────────────────────────────────
     cutoffSlider      [v].setBounds (pFltX + 5,  cy1, kSz, kSz);
@@ -4577,6 +4576,36 @@ void VoltageSeq2AudioProcessorEditor::applyCfgView (int v)
     chordModeBtn   [v].setVisible (!midi);
     uniSpreadSlider[v].setVisible (!midi);
     uniWidthSlider [v].setVisible (!midi);
+}
+
+void VoltageSeq2AudioProcessorEditor::refreshOscView (int v)
+{
+    const bool plaits = audioProcessor.voice[v].plaitsEnabled;
+    const bool o1 = (!plaits && oscView[v] == 0);
+    const bool o2 = (!plaits && oscView[v] == 1);
+
+    oscView1Btn[v].setToggleState (oscView[v] == 0, juce::dontSendNotification);
+    oscView2Btn[v].setToggleState (oscView[v] == 1, juce::dontSendNotification);
+    oscView1Btn[v].setEnabled (!plaits);   // greyed when Plaits active
+    oscView2Btn[v].setEnabled (!plaits);
+
+    // OSC 1 native
+    osc1WaveBox[v].setVisible (o1);  osc1LevelSlider[v].setVisible (o1);
+    osc1OctaveBox[v].setVisible (o1); osc1PWMSlider[v].setVisible (o1);
+    osc1FeedbackSlider[v].setVisible (o1); driftSlider[v].setVisible (o1);
+    oscScope[v]->setVisible (o1);
+    // OSC 2 native
+    osc2PosSlider[v].setVisible (o2); osc2LevelSlider[v].setVisible (o2);
+    fmDepthSlider[v].setVisible (o2); crossModSlider[v].setVisible (o2);
+    osc2OctaveBox[v].setVisible (o2); fmRatioSlider[v].setVisible (o2);
+    wavetableDisplay[v]->setVisible (o2);
+    // PLAITS engine
+    plaitsEngBox[v].setVisible (plaits); plaitsHarmSlider[v].setVisible (plaits);
+    plaitsTimSlider[v].setVisible (plaits); plaitsMorphSlider[v].setVisible (plaits);
+    plaitsAuxSlider[v].setVisible (plaits); plaitsTrigBtn[v].setVisible (plaits);
+    plaitsOctBox[v].setVisible (plaits);
+
+    repaint();
 }
 
 void VoltageSeq2AudioProcessorEditor::applySectionVisibility (int v)
