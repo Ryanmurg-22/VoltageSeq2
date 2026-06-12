@@ -3611,6 +3611,13 @@ void VoltageSeq2AudioProcessorEditor::timerCallback()
             const bool tied     = vp.stepTied   [i];
             const int  r        = vp.stepRepeats[i];
 
+            // Drive the neon "playing" bloom on the step box — repaint only on change
+            if ((bool) stepKnob[v][i].getProperties().getWithDefault ("playing", false) != isActive)
+            {
+                stepKnob[v][i].getProperties().set ("playing", isActive);
+                stepKnob[v][i].repaint();
+            }
+
             if (isActive)
             {
                 // Flash the active step with a bright highlight colour

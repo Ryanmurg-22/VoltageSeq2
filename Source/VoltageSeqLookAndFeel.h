@@ -179,29 +179,47 @@ public:
     {
         const juce::Colour trackCol = slider.findColour (juce::Slider::trackColourId);
         const juce::Colour bgCol    = slider.findColour (juce::Slider::backgroundColourId);
+        const bool playing = (bool) slider.getProperties().getWithDefault ("playing", false);
         auto box = juce::Rectangle<float> ((float) x, (float) y, (float) width, (float) height)
                        .reduced (1.5f);
         const float corner = 3.0f;
 
-        // Body
-        g.setColour (bgCol);
-        g.fillRoundedRectangle (box, corner);
+        // Glassy body — subtle top-lit vertical gradient
+        {
+            juce::ColourGradient body (bgCol.brighter (0.10f), box.getX(), box.getY(),
+                                       bgCol.darker   (0.30f), box.getX(), box.getBottom(), false);
+            g.setGradientFill (body);
+            g.fillRoundedRectangle (box, corner);
+        }
 
         const bool  bipolar = slider.getMinimum() < -0.001;
         const float baseY   = bipolar ? box.getCentreY() : box.getBottom();
         const float valY    = juce::jlimit (box.getY(), box.getBottom(), sliderPos);
         const float top     = juce::jmin (baseY, valY);
-        const float bot      = juce::jmax (baseY, valY);
+        const float bot     = juce::jmax (baseY, valY);
+        const float fillH   = bot - top;
+        // Brighter when this step is the one currently playing
+        const juce::Colour neon = playing ? trackCol.brighter (0.45f) : trackCol;
 
-        // Fill (clipped to the rounded body)
+        if (fillH > 0.5f)
         {
             juce::Graphics::ScopedSaveState ss (g);
             juce::Path clip; clip.addRoundedRectangle (box, corner);
             g.reduceClipRegion (clip);
-            g.setColour (trackCol.withAlpha (0.20f));
-            g.fillRect (box.getX(), top, box.getWidth(), bot - top);            // glow
-            g.setColour (trackCol.withAlpha (0.60f));
-            g.fillRect (box.getX() + 1.0f, top, box.getWidth() - 2.0f, bot - top);
+
+            // Soft glow behind the fill
+            g.setColour (neon.withAlpha (playing ? 0.30f : 0.18f));
+            g.fillRect (box.getX(), top - 3.0f, box.getWidth(), fillH + 6.0f);
+
+            // Neon gradient fill — dim at the base, bright toward the cap
+            juce::ColourGradient grad (neon.withAlpha (0.28f), box.getCentreX(), bot,
+                                       neon.brighter (0.65f).withAlpha (0.95f), box.getCentreX(), top, false);
+            g.setGradientFill (grad);
+            g.fillRect (box.getX() + 1.0f, top, box.getWidth() - 2.0f, fillH);
+
+            // Glassy highlight down the left third
+            g.setColour (juce::Colours::white.withAlpha (0.06f));
+            g.fillRect (box.getX() + 1.0f, top, (box.getWidth() - 2.0f) * 0.34f, fillH);
         }
 
         // Centre reference line (bipolar)
@@ -211,16 +229,30 @@ public:
             g.fillRect (box.getX() + 1.0f, box.getCentreY() - 0.5f, box.getWidth() - 2.0f, 1.0f);
         }
 
-        // Value cap
-        g.setColour (trackCol.brighter (0.3f));
-        g.fillRect (box.getX() + 1.0f, valY - 1.0f, box.getWidth() - 2.0f, 2.0f);
+        // Glowing value cap — soft bloom + white-hot core
+        {
+            const float capX = box.getX() + 1.0f, capW = box.getWidth() - 2.0f;
+            g.setColour (neon.withAlpha (0.50f));
+            g.fillRect (capX, valY - 3.0f, capW, 6.0f);                                  // bloom
+            g.setColour (juce::Colours::white.withAlpha (playing ? 0.95f : 0.8f)
+                                          .interpolatedWith (neon, 0.35f));
+            g.fillRect (capX, valY - 1.0f, capW, 2.0f);                                  // core
+        }
 
-        // Border
-        g.setColour (bgCol.brighter (0.35f));
-        g.drawRoundedRectangle (box, corner, 1.0f);
+        // Border (brighter halo when playing)
+        if (playing)
+        {
+            g.setColour (neon.withAlpha (0.85f));
+            g.drawRoundedRectangle (box, corner, 1.5f);
+        }
+        else
+        {
+            g.setColour (bgCol.brighter (0.40f));
+            g.drawRoundedRectangle (box, corner, 1.0f);
+        }
 
         // Value readout
-        g.setColour (juce::Colours::white.withAlpha (0.8f));
+        g.setColour (juce::Colours::white.withAlpha (0.82f));
         g.setFont (getUIFont (juce::jmin (11.0f, box.getWidth() * 0.46f), false));
         g.drawText (slider.getTextFromValue (slider.getValue()),
                     box.reduced (1.0f).withTrimmedBottom (1.0f).toNearestInt(),
