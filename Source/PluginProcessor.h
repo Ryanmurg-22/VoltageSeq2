@@ -419,7 +419,8 @@ public:
     void applyEuclidean (int vi, int steps, int hits, int maxRatchets);
 
     // Shared between both voices
-    double            internalBPM = 120.0;
+    double            internalBPM = 120.0;   // persisted standalone tempo
+    double            liveBPM     = 120.0;   // live effective tempo (host or internal) for tempo-synced FX
     std::atomic<bool> autoRun     { true };
 
     // Clock divisions for mod envelope (bars; 1 bar = 4 beats)

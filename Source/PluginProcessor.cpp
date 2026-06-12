@@ -468,7 +468,7 @@ void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamp
             {
                 static constexpr double divTable[7] = {
                     1.0, 0.5, 0.25, 1.0/3.0, 1.0/6.0, 0.75, 0.375 };
-                delayMs = (float)(divTable[p.delaySyncDiv] * 4.0 * 60000.0 / internalBPM);
+                delayMs = (float)(divTable[p.delaySyncDiv] * 4.0 * 60000.0 / liveBPM);
             }
             else
                 delayMs = p.delayTimeMs;
@@ -808,6 +808,8 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 { startPPQ = *ppq; useHostSync = (startPPQ >= 0.0); }
         }
     }
+
+    liveBPM = effectiveBPM;   // expose the live tempo to tempo-synced FX (delay)
 
     const double ppqPerSample = effectiveBPM / 60.0 / currentSampleRate;
 
