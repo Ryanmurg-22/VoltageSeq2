@@ -2365,25 +2365,25 @@ void VoltageSeq2AudioProcessorEditor::buildBackplateMetal (int w, int h)
     juce::Graphics ig (backplateMetal);
 
     // Base — gunmetal, lit toward the top
-    juce::ColourGradient base (juce::Colour (0xff33333b), 0.0f, 0.0f,
-                               juce::Colour (0xff17171f), 0.0f, (float) h, false);
-    base.addColour (0.5, juce::Colour (0xff26262e));
+    juce::ColourGradient base (juce::Colour (0xff3c3c46), 0.0f, 0.0f,
+                               juce::Colour (0xff1c1c24), 0.0f, (float) h, false);
+    base.addColour (0.5, juce::Colour (0xff2c2c36));
     ig.setGradientFill (base);
     ig.fillRect (0, 0, w, h);
 
-    // Horizontal brushed striations — fine per-row brightness variation
+    // Horizontal brushed striations — fine per-row brightness variation (stronger)
     juce::Random rng (24601);
     for (int y = 0; y < h; ++y)
     {
         const float a = rng.nextFloat() - 0.5f;
-        ig.setColour (a >= 0.0f ? juce::Colours::white.withAlpha (a * 0.045f)
-                                : juce::Colours::black.withAlpha (-a * 0.055f));
+        ig.setColour (a >= 0.0f ? juce::Colours::white.withAlpha (a * 0.085f)
+                                : juce::Colours::black.withAlpha (-a * 0.090f));
         ig.fillRect (0, y, w, 1);
     }
     // A few brighter long brush highlights
-    for (int s = 0; s < juce::jmax (4, h / 26); ++s)
+    for (int s = 0; s < juce::jmax (4, h / 22); ++s)
     {
-        ig.setColour (juce::Colours::white.withAlpha (0.05f));
+        ig.setColour (juce::Colours::white.withAlpha (0.07f));
         ig.fillRect (0, rng.nextInt (h), w, 1);
     }
 
@@ -3082,11 +3082,18 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         // control-row relayout in the next checkpoint.
         juce::ignoreUnused (sbY);
 
-        // ── Control panels row ────────────────────────────────────────────────
+        // ── Control panels row — translucent insets on the brushed faceplate ──
         auto drawPanel = [&](int px, int pw, const juce::String& title)
         {
-            g.setColour (sectionColour.withAlpha (0.85f));
-            g.fillRoundedRectangle ((float)px, (float)cY, (float)pw, (float)ctrlH, 4.0f);
+            auto r = juce::Rectangle<float> ((float) px, (float) cY, (float) pw, (float) ctrlH);
+            // Faint tint so the brushed metal reads through as the surface
+            g.setColour (sectionColour.withAlpha (0.22f));
+            g.fillRoundedRectangle (r, 4.0f);
+            // Engraved frame — dark groove + a light top bevel (inset-on-metal look)
+            g.setColour (juce::Colours::black.withAlpha (0.40f));
+            g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.2f);
+            g.setColour (juce::Colours::white.withAlpha (0.07f));
+            g.drawRoundedRectangle (r.reduced (1.6f), 3.4f, 1.0f);
             g.setColour (dimColour);
             g.setFont (juce::Font (8.5f, juce::Font::bold));
             g.drawText (title, px, cY + 3, pw, 12, juce::Justification::centred);
