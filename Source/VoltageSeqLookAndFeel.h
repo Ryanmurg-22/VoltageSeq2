@@ -177,8 +177,7 @@ public:
                         int x, int y, int width, int height,
                         float sliderPos, juce::Slider& slider)
     {
-        const juce::Colour trackCol = slider.findColour (juce::Slider::trackColourId);
-        const juce::Colour bgCol    = slider.findColour (juce::Slider::backgroundColourId);
+        const juce::Colour bgCol = slider.findColour (juce::Slider::backgroundColourId);
         const bool playing = (bool) slider.getProperties().getWithDefault ("playing", false);
         auto box = juce::Rectangle<float> ((float) x, (float) y, (float) width, (float) height)
                        .reduced (1.5f);
@@ -214,33 +213,38 @@ public:
                 }
         }
 
-        // Thermal LED-segment meter: colour maps to absolute height
-        // (cyan low → green → yellow → red high); lit segments fill base→value.
+        // Teal that darkens as it rises: bright teal at the bottom, deep teal up top.
+        auto tealAtHeight = [playing] (float h)   // h: 0 = box bottom, 1 = box top
+        {
+            const float bright = juce::jmap (juce::jlimit (0.0f, 1.0f, h), 0.0f, 1.0f, 0.98f, 0.30f);
+            const float sat    = juce::jmap (juce::jlimit (0.0f, 1.0f, h), 0.0f, 1.0f, 0.70f, 0.95f);
+            auto c = juce::Colour::fromHSV (0.475f, sat, bright, 1.0f);
+            return playing ? c.brighter (0.30f) : c;
+        };
+
+        // Glassy teal fill (clipped to the rounded body)
         if (fillH > 0.5f)
         {
             juce::Graphics::ScopedSaveState ss (g);
             juce::Path clip; clip.addRoundedRectangle (box, corner);
             g.reduceClipRegion (clip);
 
-            auto thermal = [] (float h) {
-                return juce::Colour::fromHSV (juce::jmap (juce::jlimit (0.0f, 1.0f, h), 0.5f, 0.0f),
-                                              0.82f, 1.0f, 1.0f);
-            };
-            const int   nSeg = juce::jmax (6, (int) (bH / 7.0f));
-            const float segH = bH / (float) nSeg;
-            for (int s = 0; s < nSeg; ++s)
-            {
-                const float segBot = box.getBottom() - (float) s * segH;
-                const float segTop = segBot - (segH - 1.3f);
-                const float midY   = (segTop + segBot) * 0.5f;
-                if (midY > bot || midY < top) continue;            // outside the fill
-                const float h = (box.getBottom() - midY) / bH;     // 0 bottom .. 1 top
-                const juce::Colour c = thermal (h);
-                g.setColour (c.withAlpha (0.22f));                                       // glow
-                g.fillRect (box.getX(), segTop - 0.6f, box.getWidth(), segH + 0.6f);
-                g.setColour (playing ? c.brighter (0.25f) : c.withAlpha (0.92f));        // LED bar
-                g.fillRect (box.getX() + 1.6f, segTop, box.getWidth() - 3.2f, segH - 1.3f);
-            }
+            const juce::Colour tealLo = tealAtHeight (0.0f);   // bottom (bright)
+            const juce::Colour tealHi = tealAtHeight (1.0f);   // top (dark)
+
+            // Soft glow behind the fill (sampled at the value height)
+            g.setColour (tealAtHeight ((box.getBottom() - valY) / bH).withAlpha (playing ? 0.28f : 0.18f));
+            g.fillRect (box.getX(), top - 3.0f, box.getWidth(), fillH + 6.0f);
+
+            // Main fill — vertical gradient that darkens toward the top
+            juce::ColourGradient grad (tealLo.withAlpha (0.95f), box.getCentreX(), box.getBottom(),
+                                       tealHi.withAlpha (0.95f), box.getCentreX(), box.getY(), false);
+            g.setGradientFill (grad);
+            g.fillRect (box.getX() + 1.0f, top, box.getWidth() - 2.0f, fillH);
+
+            // Glassy highlight down the left third
+            g.setColour (juce::Colours::white.withAlpha (0.07f));
+            g.fillRect (box.getX() + 1.0f, top, (box.getWidth() - 2.0f) * 0.34f, fillH);
         }
 
         // Centre reference line (bipolar)
@@ -250,23 +254,22 @@ public:
             g.fillRect (box.getX() + 1.0f, box.getCentreY() - 0.5f, box.getWidth() - 2.0f, 1.0f);
         }
 
-        // Glowing value cap — white-hot peak indicator
+        // Value cap — soft bloom + bright core (teal-white)
         if (fillH > 0.5f)
         {
             const float capX = box.getX() + 1.0f, capW = box.getWidth() - 2.0f;
-            const juce::Colour capCol = juce::Colour::fromHSV (
-                juce::jmap (juce::jlimit (0.0f, 1.0f, (box.getBottom() - valY) / bH), 0.5f, 0.0f),
-                0.6f, 1.0f, 1.0f);
-            g.setColour (capCol.withAlpha (0.55f));
+            const juce::Colour capCol = tealAtHeight ((box.getBottom() - valY) / bH);
+            g.setColour (capCol.brighter (0.4f).withAlpha (0.55f));
             g.fillRect (capX, valY - 3.0f, capW, 6.0f);                                  // bloom
-            g.setColour (juce::Colours::white.withAlpha (playing ? 0.98f : 0.85f));
+            g.setColour (juce::Colours::white.withAlpha (playing ? 0.95f : 0.8f)
+                                          .interpolatedWith (capCol.brighter (0.6f), 0.35f));
             g.fillRect (capX, valY - 1.0f, capW, 2.0f);                                  // core
         }
 
-        // Border (brighter voice-coloured halo when this step is playing)
+        // Border (bright teal halo when this step is playing)
         if (playing)
         {
-            g.setColour (trackCol.brighter (0.5f).withAlpha (0.9f));
+            g.setColour (juce::Colour::fromHSV (0.475f, 0.55f, 1.0f, 1.0f).withAlpha (0.9f));
             g.drawRoundedRectangle (box, corner, 1.5f);
         }
         else
