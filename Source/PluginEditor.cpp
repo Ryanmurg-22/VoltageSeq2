@@ -3663,6 +3663,12 @@ void VoltageSeq2AudioProcessorEditor::timerCallback()
         const bool isRunning = vp.sequencerRunning.load();
         runStopBtn[v].setColour (juce::TextButton::buttonColourId, isRunning ? stopColour : runColour);
         runStopBtn[v].setButtonText (isRunning ? "STOP" : "RUN");
+
+        // Repaint the TOTAL readout when the pulse sum changes (manual pulse/length
+        // edits previously only refreshed it on randomize).
+        int total = 0;
+        for (int i = 0; i < seqLen; ++i) total += vp.stepPulses[i];
+        if (total != lastTotalPulses[v]) { lastTotalPulses[v] = total; repaint(); }
     }
 
     for (int vi = 0; vi < 2; ++vi)

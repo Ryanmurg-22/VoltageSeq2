@@ -449,6 +449,9 @@ private:
     int              midView       [2] = { 0, 0 };   // 0 = QUANT, 1 = ORDER
     void applyMidView (int v);
 
+    // Cached TOTAL-pulses per voice; timer repaints the readout when it changes.
+    int              lastTotalPulses[2] = { -1, -1 };
+
     // ── Modulation slot: inline [ LFO | MOD ENV ] (replaces both popups) ────
     int              modSlotView   [2] = { 0, 0 };   // 0 = LFO, 1 = MOD ENV
     int              lfoSel        [2] = { 0, 0 };   // which LFO (0..3) is shown
