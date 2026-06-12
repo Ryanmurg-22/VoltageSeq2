@@ -3247,27 +3247,30 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     // Everything saved-per-pattern lives up here with the lanes.
     const int bh = 16;
 
-    // ── Zone 1 — PERFORMANCE (Range / Length / Swing + transport / Velo) ───────
+    // ── Zone 1 — PERFORMANCE (Range / Length / Swing, aligned & shrunk ~75%) ───
     const int perfX = seqX + 16 * stepStride + 96;   // ~800
-    rangeSlider    [v].setBounds (perfX,       seqTopY + 20, 215, 22);   // hero slider
-    seqLengthSlider[v].setBounds (perfX,       seqTopY + 62, 180, bh);
-    swingSlider    [v].setBounds (perfX,       seqTopY + 104, 180, bh);
-    runStopBtn     [v].setBounds (perfX + 225, seqTopY + 62, 60, bh);
-    veloModeBtn    [v].setBounds (perfX + 225, seqTopY + 104, 60, bh);
+    const int perfW = 150;                            // all three same width, aligned
+    rangeSlider    [v].setBounds (perfX, seqTopY + 20,  perfW, 22);
+    seqLengthSlider[v].setBounds (perfX, seqTopY + 62,  perfW, bh);
+    swingSlider    [v].setBounds (perfX, seqTopY + 104, perfW, bh);
+    // STOP + VELO live under the TOTAL/STAGES/pulse column (frees the perf zone)
+    runStopBtn     [v].setBounds (pCtrlX, seqTopY + 88,  pCtrlW, bh);
+    veloModeBtn    [v].setBounds (pCtrlX, seqTopY + 110, pCtrlW, bh);
 
     // ── Zone 2 — MIDDLE radio slot: QUANT (Root/Scale/Clock) ↔ ORDER ───────────
     const int midX = perfX + 295;   // ~1095
     quantViewBtn[v].setBounds (midX,      seqTopY + 6, 58, bh);
     orderViewBtn[v].setBounds (midX + 62, seqTopY + 6, 58, bh);
-    // QUANT view — Root / Scale / Clock stacked (labels painted to the left)
-    rootBox    [v].setBounds (midX + 40, seqTopY + 30, 145, 20);
-    scaleBox   [v].setBounds (midX + 40, seqTopY + 58, 145, 20);
-    clockDivBox[v].setBounds (midX + 40, seqTopY + 86, 145, 20);
-    // ORDER view — play order 2×2 grid (shares the slot)
-    playFwdBtn [v].setBounds (midX,      seqTopY + 32, 88, 20);
-    playRevBtn [v].setBounds (midX + 92, seqTopY + 32, 88, 20);
-    playConvBtn[v].setBounds (midX,      seqTopY + 56, 88, 20);
-    playRndBtn [v].setBounds (midX + 92, seqTopY + 56, 88, 20);
+    // QUANT view — Root / Scale / Clock stacked (halved width: only as wide as
+    // their content needs; labels painted to the left)
+    rootBox    [v].setBounds (midX + 40, seqTopY + 30, 82, 20);
+    scaleBox   [v].setBounds (midX + 40, seqTopY + 58, 82, 20);
+    clockDivBox[v].setBounds (midX + 40, seqTopY + 86, 82, 20);
+    // ORDER view — play order as 4 stacked options (shrunk, shares the slot)
+    playFwdBtn [v].setBounds (midX, seqTopY + 30, 78, 18);
+    playRevBtn [v].setBounds (midX, seqTopY + 50, 78, 18);
+    playConvBtn[v].setBounds (midX, seqTopY + 70, 78, 18);
+    playRndBtn [v].setBounds (midX, seqTopY + 90, 78, 18);
 
     // ── Zone 3 — TOOLS toggle + revealed utility cluster (set-and-forget) ──────
     const int toolX = midX + 200;   // ~1295
