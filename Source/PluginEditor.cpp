@@ -2271,6 +2271,7 @@ void VoltageSeq2AudioProcessorEditor::showPage (int page)
             applyMidView (v);    // QUANT / ORDER / TOOLS slot (+ MIDI/VOICE config)
             refreshOscView (v);  // inline OSC1/OSC2/Plaits visibility (after section hide)
             refreshModSlot (v);  // inline LFO/MOD ENV slot (after section hide)
+            if (v == 0) applyMacrosVisible();   // macros hidden by default (bare metal)
 
             // The bulk-show also forces the panel overlays themselves visible.
             // Restore each panel to its actual open/closed state.
@@ -2961,15 +2962,7 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     // Backplate drawn once for the full content area.
     // stretchToFit fills the rect exactly (2600x1300 SVG → 1500x710 screen, ratio ~2:1 vs 2.11:1,
     // so distortion is minimal and the design was built for this mapping).
-    if (backplate != nullptr)
-    {
-        const juce::Rectangle<float> fullArea (0.0f, 0.0f,
-                                               (float)getWidth(), (float)winH);
-        // Base pass — covers whole plugin background (seq strips, header, etc.)
-        backplate->drawWithin (g, fullArea, juce::RectanglePlacement::stretchToFit, 0.82f);
-        // NOTE: the branding logo boost pass runs AFTER the ctrl strip fills
-        // (see end of paint) so the logo renders on top of the background panels.
-    }
+    // Backplate SVG logo removed — the brushed-metal faceplate is the whole surface.
 
     for (int v = 0; v < 2; ++v)
     {
@@ -3208,35 +3201,17 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     g.setColour (voiceBColour.withAlpha (0.2f));
     g.fillRect (0, ctrlBY + 1, getWidth(), 1);
 
-    // ── Branding logo boost pass ─────────────────────────────────────────────
-    // Drawn AFTER all ctrl strip background fills so the logo renders on top,
-    // not dimmed underneath the sectionColour panels. Restricted to the TOP
-    // (Voice A) row only — the bottom row is now the MACROS panel.
-    if (backplate != nullptr)
-    {
-        const juce::Rectangle<float> fullArea (0.0f, 0.0f,
-                                               (float)getWidth(), (float)winH);
-        g.saveState();
-        g.reduceClipRegion (1090, ctrlAY, getWidth() - 1090, ctrlH);
-        backplate->drawWithin (g, fullArea, juce::RectanglePlacement::stretchToFit, 0.88f);
-        g.restoreState();
-    }
-
-    // ── MACROS panel (bottom-right, replaces the lower branding block) ────────
-    if (currentPage == 0)
+    // ── MACROS panel (bottom-right) — only when revealed; otherwise bare metal ─
+    if (currentPage == 0 && macrosShown)
     {
         const int mzX = 1090, mzW = getWidth() - 1090;
         const juce::Colour macTeal (0xff00d4aa);
-        g.setColour (juce::Colour (0xff0c0c18));               // opaque — hide branding text
+        g.setColour (juce::Colour (0xff0c0c18).withAlpha (0.55f));   // translucent inset
         g.fillRect (mzX, ctrlBY, mzW, ctrlH);
         g.setColour (macTeal.withAlpha (0.35f));
         g.fillRect (mzX, ctrlBY, 2, ctrlH);                    // accent stripe
-        g.setColour (macTeal);
-        g.setFont (juce::Font (9.0f, juce::Font::bold));
-        g.drawText ("MACROS", mzX + 8, ctrlBY + 4, mzW - 16, 12,
-                    juce::Justification::centredLeft);
         g.setColour (macTeal.withAlpha (0.25f));
-        g.fillRect (mzX + 8, ctrlBY + 18, mzW - 16, 1);
+        g.fillRect (mzX + 8, ctrlBY + 20, mzW - 16, 1);
     }
 }
 
@@ -3275,6 +3250,8 @@ void VoltageSeq2AudioProcessorEditor::resized()
             macroAssignBtn  [m].setBounds (cx + (colW - 76) / 2 - 4, topY + 74, 76, 15);
             macroAssignLabel[m].setBounds (cx + 4, topY + 94,             colW - 12, 58);
         }
+        // Reveal toggle — top-left of the (otherwise bare-metal) macros zone
+        macrosBtn.setBounds (1098, ctrlBY + 4, 64, 16);
     }
 
     macroOverlay.setBounds (getLocalBounds());
@@ -3834,6 +3811,17 @@ void VoltageSeq2AudioProcessorEditor::setupMacros()
         k.toBack();
     }
 
+    // MACROS reveal toggle — macros are hidden by default (their zone is bare metal)
+    macrosBtn.setButtonText (juce::String::fromUTF8 ("MACROS"));
+    macrosBtn.setClickingTogglesState (true);
+    macrosBtn.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff14242a));
+    macrosBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff00786a));
+    macrosBtn.setColour (juce::TextButton::textColourOffId,  juce::Colour (0xff00d4aa));
+    macrosBtn.setColour (juce::TextButton::textColourOnId,   juce::Colour (0xffffffff));
+    macrosBtn.onClick = [this]() { macrosShown = macrosBtn.getToggleState(); applyMacrosVisible(); };
+    addAndMakeVisible (macrosBtn);
+    synthPageComponents.push_back (&macrosBtn);
+
     // Full-window transparent overlay for learn-mode highlights + click capture.
     macroOverlay.ed = this;
     addAndMakeVisible (macroOverlay);
@@ -3841,6 +3829,20 @@ void VoltageSeq2AudioProcessorEditor::setupMacros()
     macroOverlay.toFront (false);
 
     refreshMacroLabels();
+}
+
+void VoltageSeq2AudioProcessorEditor::applyMacrosVisible()
+{
+    macrosBtn.setToggleState (macrosShown, juce::dontSendNotification);
+    for (int m = 0; m < kNumMacros; ++m)
+    {
+        macroKnob       [m].setVisible (macrosShown);
+        macroNameLabel  [m].setVisible (macrosShown);
+        macroAssignLabel[m].setVisible (macrosShown);
+        macroAssignBtn  [m].setVisible (macrosShown);
+    }
+    if (! macrosShown && macroLearnActive >= 0) exitMacroLearn();
+    repaint();
 }
 
 //------------------------------------------------------------------------------
@@ -3966,6 +3968,7 @@ bool VoltageSeq2AudioProcessorEditor::MacroOverlay::hitTest (int x, int y)
     if (ed == nullptr) return false;
     if (ed->macroLearnActive >= 0) return true;        // learning: capture all
     if (ed->currentPage != 0)      return false;       // rings live on synth page only
+    if (! ed->macrosShown)         return false;       // macros hidden → no ring interaction
     const juce::Point<float> p ((float) x, (float) y);
     for (const auto& ri : ed->buildRings())            // solid only on ring bands
         if (std::abs (ri.centre.getDistanceFrom (p) - ri.radius) <= 5.0f)
@@ -3976,6 +3979,7 @@ bool VoltageSeq2AudioProcessorEditor::MacroOverlay::hitTest (int x, int y)
 void VoltageSeq2AudioProcessorEditor::MacroOverlay::paint (juce::Graphics& g)
 {
     if (ed == nullptr || ed->currentPage != 0) return;
+    if (! ed->macrosShown && ed->macroLearnActive < 0) return;   // macros hidden → no rings
 
     // Learn mode: dim + highlight every visible assignable knob.
     if (ed->macroLearnActive >= 0)

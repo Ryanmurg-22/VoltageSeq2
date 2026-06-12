@@ -534,6 +534,9 @@ private:
     juce::Label macroAssignLabel[kNumMacros];   // multiline assignment list
     std::unique_ptr<SliderAtt> macroAttach[kNumMacros];
     juce::TextButton macroAssignBtn[kNumMacros];   // "ASSIGN" — enters learn mode
+    juce::TextButton macrosBtn;                     // reveal toggle (hidden by default)
+    bool             macrosShown = false;
+    void applyMacrosVisible();
     void setupMacros();
     void showMacroMenu (int m);
     void refreshMacroLabels();
