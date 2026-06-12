@@ -466,6 +466,11 @@ private:
     // ── Backplate SVG ─────────────────────────────────────────────────────────
     std::unique_ptr<juce::Drawable> backplate;
 
+    // ── Brushed-metal Eurorack faceplate (generated once, blitted in paint) ───
+    juce::Image backplateMetal;
+    void buildBackplateMetal (int w, int h);
+    void drawPanelScrew (juce::Graphics& g, float cx, float cy, float r);
+
     // ── Gate button right-click listener (ratchet selection) ──────────────────
     struct GateBtnListener : public juce::MouseListener
     {

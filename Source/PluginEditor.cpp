@@ -2355,9 +2355,87 @@ void VoltageSeq2AudioProcessorEditor::layoutPatternPage()
 //==============================================================================
 // PAINT
 //==============================================================================
+// ─────────────────────────────────────────────────────────────────────────────
+// Brushed-metal Eurorack faceplate — generated once, blitted each paint.
+// ─────────────────────────────────────────────────────────────────────────────
+void VoltageSeq2AudioProcessorEditor::buildBackplateMetal (int w, int h)
+{
+    if (w <= 0 || h <= 0) return;
+    backplateMetal = juce::Image (juce::Image::RGB, w, h, false);
+    juce::Graphics ig (backplateMetal);
+
+    // Base — gunmetal, lit toward the top
+    juce::ColourGradient base (juce::Colour (0xff33333b), 0.0f, 0.0f,
+                               juce::Colour (0xff17171f), 0.0f, (float) h, false);
+    base.addColour (0.5, juce::Colour (0xff26262e));
+    ig.setGradientFill (base);
+    ig.fillRect (0, 0, w, h);
+
+    // Horizontal brushed striations — fine per-row brightness variation
+    juce::Random rng (24601);
+    for (int y = 0; y < h; ++y)
+    {
+        const float a = rng.nextFloat() - 0.5f;
+        ig.setColour (a >= 0.0f ? juce::Colours::white.withAlpha (a * 0.045f)
+                                : juce::Colours::black.withAlpha (-a * 0.055f));
+        ig.fillRect (0, y, w, 1);
+    }
+    // A few brighter long brush highlights
+    for (int s = 0; s < juce::jmax (4, h / 26); ++s)
+    {
+        ig.setColour (juce::Colours::white.withAlpha (0.05f));
+        ig.fillRect (0, rng.nextInt (h), w, 1);
+    }
+
+    // Soft top-light sheen
+    juce::ColourGradient sheen (juce::Colours::white.withAlpha (0.07f),
+                                (float) w * 0.5f, -(float) h * 0.15f,
+                                juce::Colours::transparentWhite,
+                                (float) w * 0.5f, (float) h * 0.75f, true);
+    ig.setGradientFill (sheen);
+    ig.fillRect (0, 0, w, h);
+
+    // Edge vignette
+    juce::ColourGradient vig (juce::Colours::transparentBlack, (float) w * 0.5f, (float) h * 0.5f,
+                              juce::Colours::black.withAlpha (0.40f), 0.0f, 0.0f, true);
+    ig.setGradientFill (vig);
+    ig.fillRect (0, 0, w, h);
+}
+
+void VoltageSeq2AudioProcessorEditor::drawPanelScrew (juce::Graphics& g, float cx, float cy, float r)
+{
+    // Recessed hole
+    juce::ColourGradient hole (juce::Colour (0xff0b0b0f), cx, cy - r * 0.4f,
+                               juce::Colour (0xff2c2c34), cx, cy + r, false);
+    g.setGradientFill (hole);
+    g.fillEllipse (cx - r, cy - r, r * 2.0f, r * 2.0f);
+    // Screw head
+    const float hr = r * 0.72f;
+    juce::ColourGradient head (juce::Colour (0xff60606a), cx - hr, cy - hr,
+                               juce::Colour (0xff2d2d35), cx + hr, cy + hr, false);
+    g.setGradientFill (head);
+    g.fillEllipse (cx - hr, cy - hr, hr * 2.0f, hr * 2.0f);
+    g.setColour (juce::Colours::black.withAlpha (0.45f));
+    g.drawEllipse (cx - hr, cy - hr, hr * 2.0f, hr * 2.0f, 1.0f);
+    // Flathead slot (angled)
+    {
+        juce::Graphics::ScopedSaveState ss (g);
+        g.addTransform (juce::AffineTransform::rotation (0.7f, cx, cy));
+        g.setColour (juce::Colour (0xff121218));
+        g.fillRect (cx - hr * 0.85f, cy - 1.3f, hr * 1.7f, 2.6f);
+    }
+    // Spec highlight
+    g.setColour (juce::Colours::white.withAlpha (0.18f));
+    g.fillEllipse (cx - hr * 0.55f, cy - hr * 0.62f, hr * 0.55f, hr * 0.42f);
+}
+
 void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (bgColour);
+    // Brushed-metal faceplate background (lazily (re)built on size change)
+    if (backplateMetal.isNull() || backplateMetal.getWidth() != getWidth()
+                                || backplateMetal.getHeight() != getHeight())
+        buildBackplateMetal (getWidth(), getHeight());
+    g.drawImageAt (backplateMetal, 0, 0);
 
     // ── Global header ─────────────────────────────────────────────────────────
     g.setColour (juce::Colour (0xff0a0a1a));
@@ -3017,10 +3095,8 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         drawPanel (pO1X,   pO1W + pO2W, "");   // OSC section (radio shows active view)
         drawPanel (pFltX,  pFltW,  "FILTER");
         drawPanel (pAEX,   pAEW,   "");   // ENVELOPES — Amp/Filter tags drawn below
-        // Extend ctrl strip background to right edge so the freed/branding zone
-        // matches the section colour (not base black).
-        g.setColour (sectionColour.withAlpha (0.85f));
-        g.fillRect (pAEX + pAEW, cY, getWidth() - (pAEX + pAEW), ctrlH);
+        // (The branding/right zone is intentionally left as bare brushed metal —
+        //  the VOLTAGESEQ logo + macros sit directly on the faceplate.)
         // Modulation slot panel (inline LFO / MOD ENV)
         {
             const int mX = pAEX + pAEW + 6, mW = 1090 - mX - 4;
