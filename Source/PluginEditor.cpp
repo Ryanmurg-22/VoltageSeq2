@@ -66,12 +66,15 @@ namespace {
 
     // Control panel X positions — set-and-forget (SEQ/QUANTIZER) shrunk, the rest
     // shifted left ~100px to reclaim a band on the right for the modulation slot.
-    constexpr int pSeqX  =    5, pSeqW  =  90;   // RANGE hero + PORTA
-    constexpr int pQntX  =  100, pQntW  = 140;   // ROOT/SCALE/CLOCK vertical stack
-    constexpr int pO1X   =  246, pO1W   = 185;
-    constexpr int pO2X   =  436, pO2W   = 175;
-    constexpr int pFltX  =  612, pFltW  = 188;
-    constexpr int pAEX   =  806, pAEW   = 200;
+    // Bottom = the SYNTH. RANGE/ROOT/SCALE/CLOCK have moved UP to the pattern
+    // (top) section, so the bottom-left holds only GLIDE (porta); the synth
+    // panels shift left, opening a wide right band for envelopes + modulation.
+    constexpr int pSeqX  =    5, pSeqW  =  78;   // GLIDE (PORTA only)
+    constexpr int pQntX  =  100, pQntW  = 140;   // (unused: QUANT moved to top)
+    constexpr int pO1X   =   86, pO1W   = 185;
+    constexpr int pO2X   =  276, pO2W   = 175;
+    constexpr int pFltX  =  452, pFltW  = 188;
+    constexpr int pAEX   =  646, pAEW   = 200;
     constexpr int pLfo1X = 1095, pLfoW  =  95;  // all 4 LFO panels same width
     constexpr int pLfo2X = 1195;
     constexpr int pLfo3X = 1295;
@@ -873,10 +876,10 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     }
 
     // RANGE — full-width linear slider (most important sequencer parameter)
-    rangeSlider[v].setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    rangeSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
     rangeSlider[v].setRange (0.0, 1.0, 0.01);
     rangeSlider[v].setValue (vp.rangeVCA, juce::dontSendNotification);
-    rangeSlider[v].setTextBoxStyle (juce::Slider::TextBoxBelow, false, 54, 16);
+    rangeSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 20);
     rangeSlider[v].setColour (juce::Slider::trackColourId,            knobColour);
     rangeSlider[v].setColour (juce::Slider::backgroundColourId,       juce::Colour (0xff252540));
     rangeSlider[v].setColour (juce::Slider::textBoxTextColourId,      textColour);
@@ -1335,6 +1338,22 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
             applyToolsView (v);
         };
         addAndMakeVisible (toolsBtn[v]); synthPageComponents.push_back (&toolsBtn[v]);
+
+        // QUANT ↔ ORDER radio (shares one middle slot in the pattern section)
+        auto styleMid = [](juce::TextButton& b, const juce::String& t)
+        {
+            b.setButtonText (t);
+            b.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff161630));
+            b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff2255aa));
+            b.setColour (juce::TextButton::textColourOffId,  juce::Colour (0xffa0a0b4));
+            b.setColour (juce::TextButton::textColourOnId,   juce::Colour (0xffffffff));
+        };
+        styleMid (quantViewBtn[v], "QUANT");
+        styleMid (orderViewBtn[v], "ORDER");
+        quantViewBtn[v].onClick = [this, v]() { midView[v] = 0; applyMidView (v); };
+        orderViewBtn[v].onClick = [this, v]() { midView[v] = 1; applyMidView (v); };
+        addAndMakeVisible (quantViewBtn[v]); synthPageComponents.push_back (&quantViewBtn[v]);
+        addAndMakeVisible (orderViewBtn[v]); synthPageComponents.push_back (&orderViewBtn[v]);
     }
 
     for (int ch = 1; ch <= 16; ++ch)
@@ -2233,6 +2252,7 @@ void VoltageSeq2AudioProcessorEditor::showPage (int page)
             // their floating panels. The bulk-show above would have forced them
             // visible, so re-apply the collapsed state here.
             applySectionVisibility (v);
+            applyMidView (v);   // QUANT (root/scale/clock) vs ORDER (play order)
             applyToolsView (v); // TOOLS reveal + (when on) MIDI/VOICE config group
             refreshOscView (v); // inline OSC1/OSC2/Plaits visibility (after section hide)
 
@@ -2893,19 +2913,25 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
 
         // RHS control-block group labels (match layoutVoice's rX / rows)
         {
-            const int rX = seqX + 16 * stepStride + 96;
+            const int perfX = seqX + 16 * stepStride + 96;
+            const int midX  = perfX + 295;
+            const int toolX = midX + 200;
             g.setColour (dimColour);
             g.setFont (juce::Font (8.0f, juce::Font::bold));
-            // Primary labels (always)
-            g.drawText ("PLAY ORDER", rX,       sY + 13, 200, 10, juce::Justification::centredLeft);
-            g.drawText ("LENGTH",     rX,       sY + 47, 180, 10, juce::Justification::centredLeft);
-            g.drawText ("SWING",      rX + 200, sY + 47, 180, 10, juce::Justification::centredLeft);
-            // Secondary labels (only when TOOLS revealed)
-            if (toolsView[v] != 0)
+            // Performance sliders
+            g.drawText ("RANGE",  perfX, sY + 5,  120, 10, juce::Justification::centredLeft);
+            g.drawText ("LENGTH", perfX, sY + 50, 180, 10, juce::Justification::centredLeft);
+            g.drawText ("SWING",  perfX, sY + 92, 180, 10, juce::Justification::centredLeft);
+            // Middle slot — QUANT row labels (ORDER view buttons self-label)
+            if (midView[v] == 0)
             {
-                g.drawText ("RANDOMISE", rX + 110, sY + 81, 180, 10, juce::Justification::centredLeft);
-                g.drawText ("NUDGE",     rX + 300, sY + 81, 100, 10, juce::Justification::centredLeft);
+                g.drawText ("ROOT",  midX, sY + 31, 36, 12, juce::Justification::centredRight);
+                g.drawText ("SCALE", midX, sY + 59, 36, 12, juce::Justification::centredRight);
+                g.drawText ("CLOCK", midX, sY + 87, 36, 12, juce::Justification::centredRight);
             }
+            // TOOLS column — nudge hint (only when revealed)
+            if (toolsView[v] != 0)
+                g.drawText ("NUDGE", toolX + 104, sY + 16, 58, 10, juce::Justification::centredLeft);
         }
 
         // ── Pulse counter (top-right of sequencer strip) ───────────────────
@@ -2975,8 +3001,7 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
             g.setFont (juce::Font (8.5f, juce::Font::bold));
             g.drawText (title, px, cY + 3, pw, 12, juce::Justification::centred);
         };
-        drawPanel (pSeqX,  pSeqW,  "SEQ");
-        drawPanel (pQntX,  pQntW,  "QUANTIZER");
+        drawPanel (pSeqX,  pSeqW,  "GLIDE");   // PORTA only (pattern controls moved up)
         drawPanel (pO1X,   pO1W + pO2W, "");   // OSC section (radio shows active view)
         drawPanel (pFltX,  pFltW,  "FILTER");
         drawPanel (pAEX,   pAEW,   "AMP ENV");
@@ -2989,13 +3014,8 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         const int lY1 = cY + lOff1, lY2 = cY + lOff2, lY3 = cY + lOff3;
         g.setColour (textColour);
         g.setFont (juce::Font (9.0f));
-        // SEQ — RANGE hero (value drawn below by the knob) + PORTA
-        g.drawText ("RANGE",    pSeqX,  cY + 14, pSeqW, 12, juce::Justification::centred);
-        g.drawText ("PORTA",    pSeqX,  lY3,     pSeqW, 12, juce::Justification::centred);
-        // QUANT — ROOT / SCALE / CLOCK vertical stack
-        g.drawText ("ROOT",     pQntX,  cY + 16,  pQntW, 12, juce::Justification::centred);
-        g.drawText ("SCALE",    pQntX,  cY + 62,  pQntW, 12, juce::Justification::centred);
-        g.drawText ("CLOCK",    pQntX,  cY + 108, pQntW, 12, juce::Justification::centred);
+        // GLIDE — PORTA (the only set-once synth control on the bottom-left)
+        g.drawText ("PORTA",    pSeqX,  cY + 48, pSeqW, 12, juce::Justification::centred);
         // ── OSC section labels (per active view) ──────────────────────────────
         {
             const int oscX = pO1X, oscW = pO1W + pO2W;
@@ -3169,64 +3189,62 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     pulseModeBtn[v].setBounds (pCtrlX, seqTopY + stepSliderTop + 34, pCtrlW, 15);
     pulseLenBox [v].setBounds (pCtrlX, seqTopY + stepSliderTop + 53, pCtrlW, 16);
 
-    // ── Sequencer-control block — moved into the freed space RIGHT of the steps
-    // (the old full-width sub-strip is gone). Origin just past the TOTAL/STAGES
-    // cluster; four compact rows.
-    const int rX   = seqX + 16 * stepStride + 96;   // ~805
-    const int rowA = seqTopY + 24;   // PRIMARY 1 — play order · transport · TOOLS
-    const int rowB = seqTopY + 58;   // PRIMARY 2 — length · swing (sliders)
-    const int rowC = seqTopY + 92;   // TOOLS 1   — rst/uni · randomise · nudge
-    const int rowD = seqTopY + 114;  // TOOLS 2   — MIDI/VOICE config
-    const int bh   = 16;             // shrunk: utility strip, quieter than step lanes
+    // ══ PATTERN-SECTION control block (right of the step lanes) ════════════════
+    // Three zones: PERFORMANCE sliders · QUANT↔ORDER radio slot · TOOLS column.
+    // Everything saved-per-pattern lives up here with the lanes.
+    const int bh = 16;
 
-    // Row A (always) — play order (primary) · transport · TOOLS reveal
-    playFwdBtn [v].setBounds (rX +   0, rowA, 46, bh);
-    playRevBtn [v].setBounds (rX +  48, rowA, 46, bh);
-    playConvBtn[v].setBounds (rX +  96, rowA, 50, bh);
-    playRndBtn [v].setBounds (rX + 148, rowA, 46, bh);
-    runStopBtn [v].setBounds (rX + 240, rowA, 60, bh);
-    toolsBtn   [v].setBounds (rX + 308, rowA, 56, bh);
+    // ── Zone 1 — PERFORMANCE (Range / Length / Swing + transport / Velo) ───────
+    const int perfX = seqX + 16 * stepStride + 96;   // ~800
+    rangeSlider    [v].setBounds (perfX,       seqTopY + 20, 215, 22);   // hero slider
+    seqLengthSlider[v].setBounds (perfX,       seqTopY + 62, 180, bh);
+    swingSlider    [v].setBounds (perfX,       seqTopY + 104, 180, bh);
+    runStopBtn     [v].setBounds (perfX + 225, seqTopY + 62, 60, bh);
+    veloModeBtn    [v].setBounds (perfX + 225, seqTopY + 104, 60, bh);
 
-    // Row B (always) — length · swing (sliders side by side)
-    seqLengthSlider[v].setBounds (rX +   0, rowB, 180, bh);
-    swingSlider    [v].setBounds (rX + 200, rowB, 180, bh);
-    // VELO lives under SWING, visible by default (hidden when TOOLS expands)
-    veloModeBtn    [v].setBounds (rX + 200, rowB + 20, 52, bh);
+    // ── Zone 2 — MIDDLE radio slot: QUANT (Root/Scale/Clock) ↔ ORDER ───────────
+    const int midX = perfX + 295;   // ~1095
+    quantViewBtn[v].setBounds (midX,      seqTopY + 6, 58, bh);
+    orderViewBtn[v].setBounds (midX + 62, seqTopY + 6, 58, bh);
+    // QUANT view — Root / Scale / Clock stacked (labels painted to the left)
+    rootBox    [v].setBounds (midX + 40, seqTopY + 30, 145, 20);
+    scaleBox   [v].setBounds (midX + 40, seqTopY + 58, 145, 20);
+    clockDivBox[v].setBounds (midX + 40, seqTopY + 86, 145, 20);
+    // ORDER view — play order 2×2 grid (shares the slot)
+    playFwdBtn [v].setBounds (midX,      seqTopY + 32, 88, 20);
+    playRevBtn [v].setBounds (midX + 92, seqTopY + 32, 88, 20);
+    playConvBtn[v].setBounds (midX,      seqTopY + 56, 88, 20);
+    playRndBtn [v].setBounds (midX + 92, seqTopY + 56, 88, 20);
 
-    // Row C (TOOLS) — reset/uni · randomise · nudge
-    resetBtn     [v].setBounds (rX +   0, rowC, 46, bh);
-    bipolarBtn   [v].setBounds (rX +  48, rowC, 46, bh);
-    randModeBtn  [v].setBounds (rX + 110, rowC, 56, bh);
-    randomBtn    [v].setBounds (rX + 168, rowC, 56, bh);
-    nudgeLeftBtn [v].setBounds (rX + 300, rowC, 28, bh);
-    nudgeRightBtn[v].setBounds (rX + 330, rowC, 28, bh);
+    // ── Zone 3 — TOOLS toggle + revealed utility cluster (set-and-forget) ──────
+    const int toolX = midX + 200;   // ~1295
+    toolsBtn[v].setBounds (toolX, seqTopY + 6, 56, bh);
+    // Row 1 — reset / uni / nudge
+    resetBtn     [v].setBounds (toolX,       seqTopY + 30, 46, bh);
+    bipolarBtn   [v].setBounds (toolX + 50,  seqTopY + 30, 46, bh);
+    nudgeLeftBtn [v].setBounds (toolX + 104, seqTopY + 30, 28, bh);
+    nudgeRightBtn[v].setBounds (toolX + 134, seqTopY + 30, 28, bh);
+    // Row 2 — randomise targets
+    randModeBtn  [v].setBounds (toolX,       seqTopY + 52, 56, bh);
+    randomBtn    [v].setBounds (toolX + 60,  seqTopY + 52, 56, bh);
+    // Row 3 — MIDI / VOICE config radio
+    midiViewBtn [v].setBounds (toolX,       seqTopY + 74, 48, bh);
+    voiceViewBtn[v].setBounds (toolX + 50,  seqTopY + 74, 48, bh);
+    // Row 4 — config group (MIDI or VOICE shares the slot)
+    midiOutBtn  [v].setBounds (toolX,       seqTopY + 96, 80, bh);
+    midiOutChBox[v].setBounds (toolX + 84,  seqTopY + 96, 66, bh);
+    voiceModeBox [v].setBounds (toolX,      seqTopY + 96, 78, bh);
+    uniCountBtn  [v].setBounds (toolX + 80, seqTopY + 96, 34, bh);
+    chordModeBtn [v].setBounds (toolX + 116,seqTopY + 96, 42, bh);
+    // Row 5 — unison spread / width (VOICE view only)
+    uniSpreadSlider[v].setBounds (toolX,      seqTopY + 116, 90, bh);
+    uniWidthSlider [v].setBounds (toolX + 94, seqTopY + 116, 90, bh);
 
-    // Row D (TOOLS) — MIDI/VOICE config radio + the toggled config group
-    midiViewBtn [v].setBounds (rX +   0, rowD, 50, bh);
-    voiceViewBtn[v].setBounds (rX +  52, rowD, 50, bh);
-    // MIDI group (cfgView==0)
-    midiOutBtn  [v].setBounds (rX + 120, rowD, 84, bh);
-    midiOutChBox[v].setBounds (rX + 210, rowD, 66, bh);
-    // VOICE group (cfgView==1) — shares the same slot
-    voiceModeBox   [v].setBounds (rX + 120, rowD, 78, bh);
-    uniCountBtn    [v].setBounds (rX + 204, rowD, 34, bh);
-    chordModeBtn   [v].setBounds (rX + 244, rowD, 42, bh);
-    uniSpreadSlider[v].setBounds (rX + 292, rowD, 84, bh);
-    uniWidthSlider [v].setBounds (rX + 382, rowD, 84, bh);
-
+    applyMidView   (v);   // QUANT vs ORDER slot
     applyToolsView (v);   // enforce TOOLS reveal + config-group visibility
 
-    // ── SEQ panel — RANGE hero knob (performative) + PORTA ─────────────────────
-    {
-        const int rangeSz = 66;
-        rangeSlider[v].setBounds (pSeqX + (pSeqW - rangeSz) / 2, ctrlTopY + 24, rangeSz, rangeSz);
-        portaSlider[v].setBounds (pSeqX + (pSeqW - kSz) / 2,     cy3,           kSz, kSz);
-    }
-
-    // ── Quantizer / Clock — compact vertical stack (set-and-forget) ────────────
-    rootBox    [v].setBounds (pQntX + 8, ctrlTopY + 28,  pQntW - 16, 20);
-    scaleBox   [v].setBounds (pQntX + 8, ctrlTopY + 74,  pQntW - 16, 20);
-    clockDivBox[v].setBounds (pQntX + 8, ctrlTopY + 120, pQntW - 16, 20);
+    // ── GLIDE panel — PORTA only (Range/Root/Scale/Clock now live up top) ──────
+    portaSlider[v].setBounds (pSeqX + (pSeqW - kSz) / 2, ctrlTopY + 64, kSz, kSz);
 
     // Panel toggle buttons (MOD/LFO still use popups for now; OSC is inline)
     {
@@ -4610,9 +4628,6 @@ void VoltageSeq2AudioProcessorEditor::applyToolsView (int v)
     const bool on = (toolsView[v] != 0);
     toolsBtn[v].setToggleState (on, juce::dontSendNotification);
 
-    // VELO is visible by default; it hides when TOOLS expands (its slot is reused)
-    veloModeBtn  [v].setVisible (!on);
-
     // Row C — reset/uni · randomise · nudge
     resetBtn     [v].setVisible (on);
     bipolarBtn   [v].setVisible (on);
@@ -4639,6 +4654,23 @@ void VoltageSeq2AudioProcessorEditor::applyToolsView (int v)
         uniWidthSlider [v].setVisible (false);
     }
 
+    repaint();
+}
+
+void VoltageSeq2AudioProcessorEditor::applyMidView (int v)
+{
+    const bool quant = (midView[v] == 0);
+    quantViewBtn[v].setToggleState ( quant, juce::dontSendNotification);
+    orderViewBtn[v].setToggleState (!quant, juce::dontSendNotification);
+    // QUANT view — Root / Scale / Clock
+    rootBox    [v].setVisible (quant);
+    scaleBox   [v].setVisible (quant);
+    clockDivBox[v].setVisible (quant);
+    // ORDER view — play-order buttons
+    playFwdBtn [v].setVisible (!quant);
+    playRevBtn [v].setVisible (!quant);
+    playConvBtn[v].setVisible (!quant);
+    playRndBtn [v].setVisible (!quant);
     repaint();
 }
 

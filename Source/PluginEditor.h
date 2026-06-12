@@ -443,6 +443,12 @@ private:
     int              toolsView     [2] = { 0, 0 };   // 0 = hidden, 1 = shown
     void applyToolsView (int v);
 
+    // ── Middle radio slot: QUANT (Root/Scale/Clock) ↔ ORDER (play order) ────
+    juce::TextButton quantViewBtn  [2];   // "QUANT" radio
+    juce::TextButton orderViewBtn  [2];   // "ORDER" radio
+    int              midView       [2] = { 0, 0 };   // 0 = QUANT, 1 = ORDER
+    void applyMidView (int v);
+
     // ── Unison / Poly mode (per voice, on Synth page) ──────────────────────
     juce::ComboBox   voiceModeBox   [2];   // MONO / UNISON / POLY
     juce::TextButton uniCountBtn    [2];   // "2V" / "4V" toggle
