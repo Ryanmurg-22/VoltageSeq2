@@ -198,51 +198,75 @@ public:
         const float top     = juce::jmin (baseY, valY);
         const float bot     = juce::jmax (baseY, valY);
         const float fillH   = bot - top;
-        // Brighter when this step is the one currently playing
-        const juce::Colour neon = playing ? trackCol.brighter (0.45f) : trackCol;
+        const float bH      = box.getHeight();
 
+        // Octave (1 V) tick marks — faint scale reference, shown in the unlit area
+        {
+            const double vmin = slider.getMinimum(), vmax = slider.getMaximum();
+            const double span = vmax - vmin;
+            if (span > 0.0)
+                for (int volt = (int) std::ceil (vmin); volt <= (int) std::floor (vmax); ++volt)
+                {
+                    if (bipolar && volt == 0) continue;   // centre line handled below
+                    const float ty = box.getBottom() - (float) ((volt - vmin) / span) * bH;
+                    g.setColour (juce::Colours::white.withAlpha (0.07f));
+                    g.fillRect (box.getX() + 2.0f, ty - 0.5f, box.getWidth() - 4.0f, 1.0f);
+                }
+        }
+
+        // Thermal LED-segment meter: colour maps to absolute height
+        // (cyan low → green → yellow → red high); lit segments fill base→value.
         if (fillH > 0.5f)
         {
             juce::Graphics::ScopedSaveState ss (g);
             juce::Path clip; clip.addRoundedRectangle (box, corner);
             g.reduceClipRegion (clip);
 
-            // Soft glow behind the fill
-            g.setColour (neon.withAlpha (playing ? 0.30f : 0.18f));
-            g.fillRect (box.getX(), top - 3.0f, box.getWidth(), fillH + 6.0f);
-
-            // Neon gradient fill — dim at the base, bright toward the cap
-            juce::ColourGradient grad (neon.withAlpha (0.28f), box.getCentreX(), bot,
-                                       neon.brighter (0.65f).withAlpha (0.95f), box.getCentreX(), top, false);
-            g.setGradientFill (grad);
-            g.fillRect (box.getX() + 1.0f, top, box.getWidth() - 2.0f, fillH);
-
-            // Glassy highlight down the left third
-            g.setColour (juce::Colours::white.withAlpha (0.06f));
-            g.fillRect (box.getX() + 1.0f, top, (box.getWidth() - 2.0f) * 0.34f, fillH);
+            auto thermal = [] (float h) {
+                return juce::Colour::fromHSV (juce::jmap (juce::jlimit (0.0f, 1.0f, h), 0.5f, 0.0f),
+                                              0.82f, 1.0f, 1.0f);
+            };
+            const int   nSeg = juce::jmax (6, (int) (bH / 7.0f));
+            const float segH = bH / (float) nSeg;
+            for (int s = 0; s < nSeg; ++s)
+            {
+                const float segBot = box.getBottom() - (float) s * segH;
+                const float segTop = segBot - (segH - 1.3f);
+                const float midY   = (segTop + segBot) * 0.5f;
+                if (midY > bot || midY < top) continue;            // outside the fill
+                const float h = (box.getBottom() - midY) / bH;     // 0 bottom .. 1 top
+                const juce::Colour c = thermal (h);
+                g.setColour (c.withAlpha (0.22f));                                       // glow
+                g.fillRect (box.getX(), segTop - 0.6f, box.getWidth(), segH + 0.6f);
+                g.setColour (playing ? c.brighter (0.25f) : c.withAlpha (0.92f));        // LED bar
+                g.fillRect (box.getX() + 1.6f, segTop, box.getWidth() - 3.2f, segH - 1.3f);
+            }
         }
 
         // Centre reference line (bipolar)
         if (bipolar)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.14f));
+            g.setColour (juce::Colours::white.withAlpha (0.16f));
             g.fillRect (box.getX() + 1.0f, box.getCentreY() - 0.5f, box.getWidth() - 2.0f, 1.0f);
         }
 
-        // Glowing value cap — soft bloom + white-hot core
+        // Glowing value cap — white-hot peak indicator
+        if (fillH > 0.5f)
         {
             const float capX = box.getX() + 1.0f, capW = box.getWidth() - 2.0f;
-            g.setColour (neon.withAlpha (0.50f));
+            const juce::Colour capCol = juce::Colour::fromHSV (
+                juce::jmap (juce::jlimit (0.0f, 1.0f, (box.getBottom() - valY) / bH), 0.5f, 0.0f),
+                0.6f, 1.0f, 1.0f);
+            g.setColour (capCol.withAlpha (0.55f));
             g.fillRect (capX, valY - 3.0f, capW, 6.0f);                                  // bloom
-            g.setColour (juce::Colours::white.withAlpha (playing ? 0.95f : 0.8f)
-                                          .interpolatedWith (neon, 0.35f));
+            g.setColour (juce::Colours::white.withAlpha (playing ? 0.98f : 0.85f));
             g.fillRect (capX, valY - 1.0f, capW, 2.0f);                                  // core
         }
 
-        // Border (brighter halo when playing)
+        // Border (brighter voice-coloured halo when this step is playing)
         if (playing)
         {
-            g.setColour (neon.withAlpha (0.85f));
+            g.setColour (trackCol.brighter (0.5f).withAlpha (0.9f));
             g.drawRoundedRectangle (box, corner, 1.5f);
         }
         else
