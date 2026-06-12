@@ -35,14 +35,14 @@ namespace {
     // Sequencer strips
     constexpr int seqX       =    5;
     constexpr int seqW       = 1490;   // 16 steps × 88 px + margins
-    constexpr int seqH       =  134;   // taller lane
+    constexpr int seqH       =  164;   // taller lane (uses freed space below)
     constexpr int stepStride =   44;   // packed box columns (was 88)
 
     // Step controls (relative to strip Y origin)
     constexpr int stepSliderTop = 5;
-    constexpr int stepSliderH   = 98;    // taller box columns
-    constexpr int gateRelY      = 106;
-    constexpr int slideRelY     = 120;
+    constexpr int stepSliderH   = 128;   // taller box columns
+    constexpr int gateRelY      = 136;
+    constexpr int slideRelY     = 150;
 
     // Sub-strip band removed (controls now live in the seq lane's RHS) — keep a
     // thin gap between lanes.
