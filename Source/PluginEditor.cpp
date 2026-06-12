@@ -3005,7 +3005,7 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         drawPanel (pSeqX,  pSeqW,  "GLIDE");   // PORTA only (pattern controls moved up)
         drawPanel (pO1X,   pO1W + pO2W, "");   // OSC section (radio shows active view)
         drawPanel (pFltX,  pFltW,  "FILTER");
-        drawPanel (pAEX,   pAEW,   "AMP ENV");
+        drawPanel (pAEX,   pAEW,   "");   // ENVELOPES — Amp/Filter tags drawn below
         // LFO 1-4 panels removed — extend ctrl strip background to right edge
         // so the freed/branding zone matches the section colour (not base black).
         g.setColour (sectionColour.withAlpha (0.85f));
@@ -3062,19 +3062,22 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         g.drawText ("MODE",    pFltX+6,   lY2, 64,  12, juce::Justification::centred);
         g.drawText ("SLOPE",   pFltX+74,  lY2, 30,  12, juce::Justification::centred);
         g.drawText ("ENV",     pFltX+112, lY2, kSz, 12, juce::Justification::centred);
-        g.drawText ("A",  pFltX+2,   lY3, kSz, 12, juce::Justification::centred);
-        g.drawText ("D",  pFltX+48,  lY3, kSz, 12, juce::Justification::centred);
-        g.drawText ("S",  pFltX+94,  lY3, kSz, 12, juce::Justification::centred);
-        g.drawText ("R",  pFltX+140, lY3, kSz, 12, juce::Justification::centred);
-        // AMP ENV labels (Amp ADSR stays permanently on front page)
+        // (Filter ADSR labels move to the ENVELOPES column below — filter
+        //  panel's bottom row is now empty.)
+        // ── ENVELOPES column — Amp ADSR (row 1) over Filter ADSR (row 2) ──────
         g.setColour (dimColour); g.setFont (juce::Font (7.5f, juce::Font::bold));
-        g.drawText ("AMP",   pAEX, cY+14, pAEW, 10, juce::Justification::centred);
+        g.drawText ("AMP ENV",    pAEX, cY + 4,  pAEW, 10, juce::Justification::centred);
+        g.drawText ("FILTER ENV", pAEX, cY + 58, pAEW, 10, juce::Justification::centred);
         g.setColour (textColour); g.setFont (juce::Font (9.0f));
-        g.drawText ("A", pAEX+2,    lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("D", pAEX+50,   lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("S", pAEX+98,   lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("R", pAEX+146,  lY1, kSz, 12, juce::Justification::centred);
-        // MOD ENV lives in the MOD floating panel — no front-page labels needed
+        {
+            const char* adsr[4] = { "A", "D", "S", "R" };
+            for (int k = 0; k < 4; ++k)
+            {
+                g.drawText (adsr[k], pAEX + 2 + 48 * k, lY1, kSz, 12, juce::Justification::centred);
+                g.drawText (adsr[k], pAEX + 2 + 48 * k, lY2, kSz, 12, juce::Justification::centred);
+            }
+        }
+        // MOD ENV still lives in its floating panel for now (inlined next build)
 
         // Accent stripe on control panel left edge
         g.setColour (accent.withAlpha (0.4f));
@@ -3301,20 +3304,19 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     filterSlopeBtn    [v].setBounds (pFltX + 74,  cy2, 30, 20);
     filterEnvAmtSlider[v].setBounds (pFltX + 112, cy2, kSz, kSz);
 
-    // ── Amp Envelope ──────────────────────────────────────────────────────────
+    // ── ENVELOPES column — Amp ADSR (cy1) over Filter ADSR (cy2) ───────────────
     envResetBtn[v].setBounds (pAEX + pAEW - 44, ctrlTopY + 2, 42, 14);
     const int aeStride = 48;
-    attackSlider [v].setBounds (pAEX + 2,            cy1, kSz, kSz);
-    decaySlider  [v].setBounds (pAEX + 2 + aeStride, cy1, kSz, kSz);
+    // Amp ADSR (top)
+    attackSlider [v].setBounds (pAEX + 2,              cy1, kSz, kSz);
+    decaySlider  [v].setBounds (pAEX + 2 + aeStride,   cy1, kSz, kSz);
     sustainSlider[v].setBounds (pAEX + 2 + aeStride*2, cy1, kSz, kSz);
     releaseSlider[v].setBounds (pAEX + 2 + aeStride*3, cy1, kSz, kSz);
-
-    // ── Filter Envelope (in Filter panel cy3) ─────────────────────────────────
-    const int feStride = 46;
-    fAttackSlider [v].setBounds (pFltX + 2,               cy3, kSz, kSz);
-    fDecaySlider  [v].setBounds (pFltX + 2 + feStride,    cy3, kSz, kSz);
-    fSustainSlider[v].setBounds (pFltX + 2 + feStride*2,  cy3, kSz, kSz);
-    fReleaseSlider[v].setBounds (pFltX + 2 + feStride*3,  cy3, kSz, kSz);
+    // Filter ADSR (directly below, same column) — moved out of the filter panel
+    fAttackSlider [v].setBounds (pAEX + 2,              cy2, kSz, kSz);
+    fDecaySlider  [v].setBounds (pAEX + 2 + aeStride,   cy2, kSz, kSz);
+    fSustainSlider[v].setBounds (pAEX + 2 + aeStride*2, cy2, kSz, kSz);
+    fReleaseSlider[v].setBounds (pAEX + 2 + aeStride*3, cy2, kSz, kSz);
 
     // ── 4 LFO panels ─────────────────────────────────────────────────────────
     // Each panel is pLfoW=85px wide. Layout within each:
