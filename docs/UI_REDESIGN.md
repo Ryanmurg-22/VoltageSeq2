@@ -92,12 +92,26 @@ One inline slot toggled by a radio (replaces the LFO + MOD-ENV popups):
 ---
 
 ## Phases
-1. **Foundation** — radio-toggle infrastructure (replace OSC/MOD/LFO popups with
-   an inline switched panel); remove popup machinery.
-2. **Sequencer** — box-style sliders + compact right cluster + readout fixes.
-3. **Set-and-forget** — shrink quantizer/clock.
-4. **FX page** — both voices, fill space, global modulators.
-5. **Polish** — tooltips, preset browser, macro caption, consistency, rename Plaits.
-6. **Bug pass** — Run/Stop, Total steps, Delay sync, Chorus.
+1. **Foundation** — radio-toggle infrastructure. ✅ OSC inline (OSC1/OSC2/ENGINE),
+   MOD + LFO popups killed → inline `[LFO | MOD ENV]` slot (LFO 1-4 selector).
+   All three section popups now inline; popup open/close fns remain but unused.
+2. **Sequencer** — box-style sliders ✅ + compact right cluster ✅ (TOOLS reveal,
+   QUANT↔ORDER radio) + taller lanes ✅. Readout fixes still pending (Total steps).
+3. **Set-and-forget** — RANGE→performative top slider ✅, ROOT/SCALE/CLOCK moved to
+   the pattern section's QUANT slot ✅. (Top = pattern, bottom = synth split.)
+4. **FX page** — both voices, fill space, global modulators. ⏳ not started.
+5. **Polish** — tooltips, preset browser, macro caption, consistency, rename Plaits. ⏳
+6. **Bug pass** — Run/Stop, Total steps, Delay sync, Chorus. ⏳ (unipolar default ✅).
 
-Each phase builds + is verified visually before the next.
+### Structural summary (current state)
+- **TOP = the pattern**: step lanes (taller now) + TOTAL/STAGES, then performance
+  cluster (RANGE/LENGTH/SWING/transport/VELO), QUANT↔ORDER radio slot, TOOLS column.
+- **BOTTOM = the synth**: GLIDE(porta) · OSC (OSC1/OSC2/ENGINE) · FILTER (hero Cutoff)
+  · ENVELOPES column (Amp ADSR over Filter ADSR) · `[LFO | MOD ENV]` modulation slot
+  · branding (A) / macros (B).
+
+### Known rough edges to review
+- Modulation slot's right edge (~1084) may slightly underlap the VOLTAGESEQ logo on
+  Voice A's row (Voice B is clear — macros start at 1090). Narrow slot or move logo.
+- Filter panel's bottom row is now empty (ADSR moved out) — could tighten the panel.
+- Modulation slot inner labels are minimal (LFO view relies on the dropdowns/selector).
