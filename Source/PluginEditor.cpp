@@ -66,8 +66,8 @@ namespace {
 
     // Control panel X positions — set-and-forget (SEQ/QUANTIZER) shrunk, the rest
     // shifted left ~100px to reclaim a band on the right for the modulation slot.
-    constexpr int pSeqX  =    5, pSeqW  = 110;
-    constexpr int pQntX  =  120, pQntW  = 120;
+    constexpr int pSeqX  =    5, pSeqW  =  90;   // RANGE hero + PORTA
+    constexpr int pQntX  =  100, pQntW  = 140;   // ROOT/SCALE/CLOCK vertical stack
     constexpr int pO1X   =  246, pO1W   = 185;
     constexpr int pO2X   =  436, pO2W   = 175;
     constexpr int pFltX  =  612, pFltW  = 188;
@@ -873,10 +873,10 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     }
 
     // RANGE — full-width linear slider (most important sequencer parameter)
-    rangeSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
+    rangeSlider[v].setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     rangeSlider[v].setRange (0.0, 1.0, 0.01);
     rangeSlider[v].setValue (vp.rangeVCA, juce::dontSendNotification);
-    rangeSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 38, 18);
+    rangeSlider[v].setTextBoxStyle (juce::Slider::TextBoxBelow, false, 54, 16);
     rangeSlider[v].setColour (juce::Slider::trackColourId,            knobColour);
     rangeSlider[v].setColour (juce::Slider::backgroundColourId,       juce::Colour (0xff252540));
     rangeSlider[v].setColour (juce::Slider::textBoxTextColourId,      textColour);
@@ -2989,13 +2989,13 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         const int lY1 = cY + lOff1, lY2 = cY + lOff2, lY3 = cY + lOff3;
         g.setColour (textColour);
         g.setFont (juce::Font (9.0f));
-        // SEQ
-        g.drawText ("RANGE",    pSeqX,  lY1, pSeqW, 12, juce::Justification::centred);
-        g.drawText ("CLOCK",    pSeqX,  lY2, pSeqW, 12, juce::Justification::centred);
-        g.drawText ("PORTA",    pSeqX,  lY3, pSeqW, 12, juce::Justification::centred);
-        // QUANT
-        g.drawText ("ROOT",     pQntX,  lY1, pQntW, 12, juce::Justification::centred);
-        g.drawText ("SCALE",    pQntX,  lY2, pQntW, 12, juce::Justification::centred);
+        // SEQ — RANGE hero (value drawn below by the knob) + PORTA
+        g.drawText ("RANGE",    pSeqX,  cY + 14, pSeqW, 12, juce::Justification::centred);
+        g.drawText ("PORTA",    pSeqX,  lY3,     pSeqW, 12, juce::Justification::centred);
+        // QUANT — ROOT / SCALE / CLOCK vertical stack
+        g.drawText ("ROOT",     pQntX,  cY + 16,  pQntW, 12, juce::Justification::centred);
+        g.drawText ("SCALE",    pQntX,  cY + 62,  pQntW, 12, juce::Justification::centred);
+        g.drawText ("CLOCK",    pQntX,  cY + 108, pQntW, 12, juce::Justification::centred);
         // ── OSC section labels (per active view) ──────────────────────────────
         {
             const int oscX = pO1X, oscW = pO1W + pO2W;
@@ -3216,14 +3216,17 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
 
     applyToolsView (v);   // enforce TOOLS reveal + config-group visibility
 
-    // ── SEQ panel ─────────────────────────────────────────────────────────────
-    rangeSlider[v]  .setBounds (pSeqX + 5,                     cy1 - 2, pSeqW - 10, 22);
-    clockDivBox[v]  .setBounds (pSeqX + 8,                     cy2,     pSeqW - 16, 20);
-    portaSlider[v]  .setBounds (pSeqX + (pSeqW - kSz) / 2,    cy3,     kSz, kSz);
+    // ── SEQ panel — RANGE hero knob (performative) + PORTA ─────────────────────
+    {
+        const int rangeSz = 66;
+        rangeSlider[v].setBounds (pSeqX + (pSeqW - rangeSz) / 2, ctrlTopY + 24, rangeSz, rangeSz);
+        portaSlider[v].setBounds (pSeqX + (pSeqW - kSz) / 2,     cy3,           kSz, kSz);
+    }
 
-    // ── Quantizer ─────────────────────────────────────────────────────────────
-    rootBox [v].setBounds (pQntX + 8, cy1, pQntW - 16, 22);
-    scaleBox[v].setBounds (pQntX + 8, cy2, pQntW - 16, 22);
+    // ── Quantizer / Clock — compact vertical stack (set-and-forget) ────────────
+    rootBox    [v].setBounds (pQntX + 8, ctrlTopY + 28,  pQntW - 16, 20);
+    scaleBox   [v].setBounds (pQntX + 8, ctrlTopY + 74,  pQntW - 16, 20);
+    clockDivBox[v].setBounds (pQntX + 8, ctrlTopY + 120, pQntW - 16, 20);
 
     // Panel toggle buttons (MOD/LFO still use popups for now; OSC is inline)
     {
