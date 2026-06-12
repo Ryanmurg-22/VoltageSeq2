@@ -3085,26 +3085,26 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
                 g.drawText ("RATIO", oscX + 86, cY + 112, 200, 10, juce::Justification::centredLeft);
             }
         }
-        // Filter — hero Cutoff label spans the bigger knob
-        g.drawText ("CUTOFF",  pFltX+6,   lY1, 52,  12, juce::Justification::centred);
-        g.drawText ("RES",     pFltX+66,  lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("DRIVE",   pFltX+112, lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("MODE",    pFltX+6,   lY2, 64,  12, juce::Justification::centred);
-        g.drawText ("SLOPE",   pFltX+74,  lY2, 30,  12, juce::Justification::centred);
-        g.drawText ("ENV",     pFltX+112, lY2, kSz, 12, juce::Justification::centred);
+        // Filter — hero Cutoff label spans the bigger knob (rows centred, +20)
+        g.drawText ("CUTOFF",  pFltX+6,   lY1+20, 52,  12, juce::Justification::centred);
+        g.drawText ("RES",     pFltX+66,  lY1+20, kSz, 12, juce::Justification::centred);
+        g.drawText ("DRIVE",   pFltX+112, lY1+20, kSz, 12, juce::Justification::centred);
+        g.drawText ("MODE",    pFltX+6,   lY2+20, 64,  12, juce::Justification::centred);
+        g.drawText ("SLOPE",   pFltX+74,  lY2+20, 30,  12, juce::Justification::centred);
+        g.drawText ("ENV",     pFltX+112, lY2+20, kSz, 12, juce::Justification::centred);
         // (Filter ADSR labels move to the ENVELOPES column below — filter
         //  panel's bottom row is now empty.)
         // ── ENVELOPES column — Amp ADSR (row 1) over Filter ADSR (row 2) ──────
         g.setColour (dimColour); g.setFont (juce::Font (7.5f, juce::Font::bold));
         g.drawText ("AMP ENV",    pAEX, cY + 4,  pAEW, 10, juce::Justification::centred);
-        g.drawText ("FILTER ENV", pAEX, cY + 58, pAEW, 10, juce::Justification::centred);
+        g.drawText ("FILTER ENV", pAEX, cY + 74, pAEW, 10, juce::Justification::centred);  // in the gap between rows
         g.setColour (textColour); g.setFont (juce::Font (9.0f));
         {
             const char* adsr[4] = { "A", "D", "S", "R" };
             for (int k = 0; k < 4; ++k)
             {
-                g.drawText (adsr[k], pAEX + 2 + 48 * k, lY1, kSz, 12, juce::Justification::centred);
-                g.drawText (adsr[k], pAEX + 2 + 48 * k, lY2, kSz, 12, juce::Justification::centred);
+                g.drawText (adsr[k], pAEX + 2 + 48 * k, lY1,      kSz, 12, juce::Justification::centred);  // amp — above
+                g.drawText (adsr[k], pAEX + 2 + 48 * k, cY + 128, kSz, 12, juce::Justification::centred);  // filter — below
             }
         }
         // ── Modulation slot labels (per view) ────────────────────────────────
@@ -3120,7 +3120,12 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
                 g.drawText ("DEPTH", mX + 6,  cY + 94, 44,  10, juce::Justification::centred);
                 g.drawText ("DEST",  mX + 56, cY + 96, 118, 10, juce::Justification::centredLeft);
             }
-            // LFO view: wave + target dropdowns and the 1-4 selector are self-labelling
+            else   // LFO — label the rate/depth knobs (wave + target dropdowns self-label)
+            {
+                g.setColour (dimColour); g.setFont (juce::Font (7.0f, juce::Font::bold));
+                g.drawText ("RATE",  mX + 14, cY + 115, kSz, 9, juce::Justification::centred);
+                g.drawText ("DEPTH", mX + 92, cY + 115, kSz, 9, juce::Justification::centred);
+            }
         }
 
         // Accent stripe on control panel left edge
@@ -3341,13 +3346,16 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     plaitsOctBox [v].setBounds (oscX + 96, ctrlTopY + 114, 90, 22);
 
     // ── Filter — hero Cutoff (52px) anchors the section ─────────────────────────
+    // Rows nudged down (+20) to vertically centre the 2-row filter in the panel
+    // now that the Filter ADSR has moved to the envelopes column.
     const int heroSz = 52;
-    cutoffSlider      [v].setBounds (pFltX + 6,   cy1,     heroSz, heroSz);
-    resonanceSlider   [v].setBounds (pFltX + 66,  cy1 + 5, kSz, kSz);
-    filterDriveSlider [v].setBounds (pFltX + 112, cy1 + 5, kSz, kSz);
-    filterModeBox     [v].setBounds (pFltX + 6,   cy2, 64, 20);
-    filterSlopeBtn    [v].setBounds (pFltX + 74,  cy2, 30, 20);
-    filterEnvAmtSlider[v].setBounds (pFltX + 112, cy2, kSz, kSz);
+    const int fcy1 = cy1 + 20, fcy2 = cy2 + 20;
+    cutoffSlider      [v].setBounds (pFltX + 6,   fcy1,     heroSz, heroSz);
+    resonanceSlider   [v].setBounds (pFltX + 66,  fcy1 + 5, kSz, kSz);
+    filterDriveSlider [v].setBounds (pFltX + 112, fcy1 + 5, kSz, kSz);
+    filterModeBox     [v].setBounds (pFltX + 6,   fcy2, 64, 20);
+    filterSlopeBtn    [v].setBounds (pFltX + 74,  fcy2, 30, 20);
+    filterEnvAmtSlider[v].setBounds (pFltX + 112, fcy2, kSz, kSz);
 
     // ── ENVELOPES column — Amp ADSR (cy1) over Filter ADSR (cy2) ───────────────
     envResetBtn[v].setBounds (pAEX + pAEW - 44, ctrlTopY + 2, 42, 14);
@@ -3373,12 +3381,12 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
 
     for (int li = 0; li < 4; ++li)
     {
-        waveBoxes [li]->setBounds (modX + 4,  ctrlTopY + 50,  modW - 8, 18);
-        rateSliders[li]->setBounds (modX + 14, ctrlTopY + 76,  kSz, kSz);
-        depSliders [li]->setBounds (modX + 92, ctrlTopY + 76,  kSz, kSz);
-        tgtBoxes  [li]->setBounds (modX + 4,  ctrlTopY + 124, modW - 8, 18);
-        syncBtns  [li]->setBounds (modX + 4,  ctrlTopY + 150, 50, 18);
-        divBoxes  [li]->setBounds (modX + 58, ctrlTopY + 150, 50, 18);
+        waveBoxes [li]->setBounds (modX + 4,  ctrlTopY + 48,  modW - 8, 18);
+        rateSliders[li]->setBounds (modX + 14, ctrlTopY + 72,  kSz, kSz);
+        depSliders [li]->setBounds (modX + 92, ctrlTopY + 72,  kSz, kSz);
+        tgtBoxes  [li]->setBounds (modX + 4,  ctrlTopY + 128, modW - 8, 18);
+        syncBtns  [li]->setBounds (modX + 4,  ctrlTopY + 152, 50, 18);
+        divBoxes  [li]->setBounds (modX + 58, ctrlTopY + 152, 50, 18);
     }
 
     // ── Mod Envelope — shares the slot; shown in MOD ENV view ─────────────────
