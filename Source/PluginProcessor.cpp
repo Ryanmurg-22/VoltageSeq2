@@ -689,14 +689,19 @@ void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamp
         {
             fxWrite (fxs.chorusBuf, fxs.chorusW, (inL + inR) * 0.5f);
             float outL = 0.f, outR = 0.f;
+            // Smooth the depth so knob moves don't zipper the modulation amplitude.
+            fxs.smoothedChorusDepth += (p.chorusDepth - fxs.smoothedChorusDepth) * 0.001f;
+            const float depth = fxs.smoothedChorusDepth;
             // 3 voices, spread in stereo: voice 0 = left, 1 = centre, 2 = right
             const float panning[3] = { 1.0f, 0.5f, 0.0f };
             for (int v = 0; v < 3; ++v)
             {
                 fxs.chorusPh[v] = std::fmod (fxs.chorusPh[v]
                                   + (float)(p.chorusRate / sr), 1.0f);
-                // Delay: 5ms center ± depth*10ms
-                const float delayMs  = 5.0f + p.chorusDepth * 10.0f
+                // Delay: 12ms centre ± depth*9ms — stays strictly positive (was
+                // 5±depth*10, which went NEGATIVE past depth 0.5 and read past the
+                // write pointer → the clicky aliasing).
+                const float delayMs  = 12.0f + depth * 9.0f
                                        * std::sin (fxs.chorusPh[v] * juce::MathConstants<float>::twoPi);
                 const float delaySmp = delayMs * 0.001f * (float)sr;
                 const float sv = fxReadLerp (fxs.chorusBuf, fxs.chorusW, delaySmp);

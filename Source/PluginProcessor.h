@@ -554,6 +554,7 @@ private:
         std::vector<float> chorusBuf;
         int   chorusW = 0;
         float chorusPh[3] = { 0.f, 1.f/3.f, 2.f/3.f };
+        float smoothedChorusDepth = 0.5f;   // LP-smoothed depth — no zipper on knob moves
     };
     FxState fxs[2];   // fxs[0] = Voice A DSP state,  fxs[1] = Voice B DSP state
 
