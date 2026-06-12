@@ -784,7 +784,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
             vp.stepVelocity[i]    = 100.0f;
             vp.stepProbability[i] = 100.0f;
         }
-        vp.unipolar = false;                 // back to bipolar default
+        vp.unipolar = true;                  // clean slate = UNI (positive-only) default
 
         // Push step pitches (APVTS-backed) to the params/host, then refresh the
         // non-APVTS UI (gate buttons, velocity overlays, bipolar toggle).

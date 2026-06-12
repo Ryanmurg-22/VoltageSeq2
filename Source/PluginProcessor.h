@@ -95,7 +95,7 @@ public:
         float swingAmount      = 0.5f;
         int   clockDivision    = 2;      // 1/16 default
         int   sequenceLength   = 16;
-        bool  unipolar         = false;
+        bool  unipolar         = true;   // default UNI (0..5 V) — positive-only
         int   playOrder        = 0;      // Forward
         int   nudgeOffset      = 0;      // step start offset [0 .. sequenceLength-1]
 
@@ -225,7 +225,7 @@ public:
         float swingAmount      = 0.5f;
         float portamentoTime   = 0.0f;
         int   playOrder        = 0;
-        bool  unipolar         = false;
+        bool  unipolar         = true;   // default UNI (0..5 V) — positive-only
         int   rootNote         = 0;
         int   currentScale     = 0;
         float rangeVCA         = 1.0f;

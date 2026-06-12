@@ -78,6 +78,10 @@ One inline slot toggled by a radio (replaces the LFO + MOD-ENV popups):
 
 ## Functional bugs (fold in)
 - [x] Filter envelope depth 4→8 octaves (range felt ~30%).
+- [x] Default both voices to UNIPOLAR (was inconsistent: struct default bipolar,
+      ctor unipolar, RESET bipolar). Now UNI everywhere (struct + ctor + RESET).
+- [x] Random pitch range correlates with UNI/BIPOLAR (already did: UNI→0..5 V,
+      BI→-5..+5 V; the visible "only positive" was just the unipolar default).
 - [ ] Run/Stop button not working.
 - [ ] "Total" steps not updating except on randomize.
 - [ ] Delay Time not synced.
