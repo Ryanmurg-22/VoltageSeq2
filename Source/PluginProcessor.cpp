@@ -1074,8 +1074,12 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     {
         const double samplePPQ = startPPQ + (double)s * ppqPerSample;
 
-        const bool runA = hostAvailable ? hostPlaying : voice[0].sequencerRunning.load();
-        const bool runB = hostAvailable ? hostPlaying : voice[1].sequencerRunning.load();
+        // Per-voice Run/Stop gates the transport in BOTH modes: in a DAW the voice
+        // follows the host transport *and* must be enabled; standalone uses the
+        // button alone. (Previously the host path ignored the button entirely.)
+        const bool transportRolling = hostAvailable ? hostPlaying : true;
+        const bool runA = transportRolling && voice[0].sequencerRunning.load();
+        const bool runB = transportRolling && voice[1].sequencerRunning.load();
 
         float outAL, outAR, outBL, outBR;
         processSingleVoiceSample (0,
