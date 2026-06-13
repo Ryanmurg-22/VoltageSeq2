@@ -59,7 +59,7 @@ public:
         float  assignedVoltage = 0.0f;
     };
 
-    // Mod envelope — ADSR envelope assignable to FM or Pitch, with optional clock sync
+    // Mod envelope — ADSR envelope, macro-style multi-destination routing.
     struct ModEnvParams
     {
         float attack  = 0.01f;
@@ -67,9 +67,23 @@ public:
         float sustain = 0.0f;
         float release = 0.3f;
         float depth   = 0.0f;
-        int   dest    = 0;      // 0=FM Depth  1=Pitch  2=Filter
+        int   dest    = 0;      // LEGACY single dest (kept for old-preset migration)
         bool  clockSync = false;
         int   clockDiv  = 3;    // index into cenvDivBars[]
+    };
+
+    // ── Macro-style modulation routing (shared by LFOs + mod-env) ─────────────
+    // A modulation SOURCE (LFO or mod-env) carries up to kMaxModRoutes destinations.
+    // Each route stores a target (in the MacroTarget enum space — LFO targets 0..8
+    // already mirror it) and a signed depth. Edited on the message thread, read on
+    // the audio thread: fixed array + atomic count (write count LAST to publish).
+    static constexpr int kMaxModRoutes = 8;
+    struct ModRoute { int target = 0; float depth = 0.0f; };
+    struct ModRouting
+    {
+        ModRoute         routes[kMaxModRoutes];
+        std::atomic<int> count { 0 };
+        ModRouting() = default;
     };
 
     // All per-voice parameters — written by the UI thread.
@@ -95,7 +109,7 @@ public:
         float swingAmount      = 0.5f;
         int   clockDivision    = 2;      // 1/16 default
         int   sequenceLength   = 16;
-        bool  unipolar         = false;
+        bool  unipolar         = true;   // default UNI (0..5 V) — positive-only
         int   playOrder        = 0;      // Forward
         int   nudgeOffset      = 0;      // step start offset [0 .. sequenceLength-1]
 
@@ -179,6 +193,13 @@ public:
         // ── Mod Envelope ─────────────────────────────────────────────────────
         ModEnvParams modEnv;
 
+        // ── Macro-style mod routing (per LFO + the mod-env) ───────────────────
+        // routes[i].target uses the MacroTarget enum space. Master amount is still
+        // the per-source depth knob (lfoNDepth / modEnv.depth); each route adds a
+        // further signed scaler.
+        ModRouting lfoRouting[4];
+        ModRouting modEnvRouting;
+
         // ── MIDI Out ─────────────────────────────────────────────────────────
         bool midiOutEnabled = false;
         int  midiOutChannel = 1;     // 1–16
@@ -225,7 +246,7 @@ public:
         float swingAmount      = 0.5f;
         float portamentoTime   = 0.0f;
         int   playOrder        = 0;
-        bool  unipolar         = false;
+        bool  unipolar         = true;   // default UNI (0..5 V) — positive-only
         int   rootNote         = 0;
         int   currentScale     = 0;
         float rangeVCA         = 1.0f;
@@ -419,7 +440,8 @@ public:
     void applyEuclidean (int vi, int steps, int hits, int maxRatchets);
 
     // Shared between both voices
-    double            internalBPM = 120.0;
+    double            internalBPM = 120.0;   // persisted standalone tempo
+    double            liveBPM     = 120.0;   // live effective tempo (host or internal) for tempo-synced FX
     std::atomic<bool> autoRun     { true };
 
     // Clock divisions for mod envelope (bars; 1 bar = 4 beats)
@@ -553,6 +575,7 @@ private:
         std::vector<float> chorusBuf;
         int   chorusW = 0;
         float chorusPh[3] = { 0.f, 1.f/3.f, 2.f/3.f };
+        float smoothedChorusDepth = 0.5f;   // LP-smoothed depth — no zipper on knob moves
     };
     FxState fxs[2];   // fxs[0] = Voice A DSP state,  fxs[1] = Voice B DSP state
 

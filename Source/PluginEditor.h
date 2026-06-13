@@ -89,7 +89,7 @@ public:
         label += " ";
         label += scaleNames[juce::jlimit (0, 8, ps.currentScale)];
         g.setFont (juce::Font (11.0f, juce::Font::bold));
-        g.setColour (juce::Colour (0xffe09040));
+        g.setColour (juce::Colour (0xff3a78d8));
         g.drawText (label, 0, 18, getWidth(), 14, juce::Justification::centred);
 
         // Mini 16-step gate grid
@@ -199,6 +199,11 @@ private:
 
     // ── LookAndFeel — must be declared before any child components ────────────
     VoltageSeqLookAndFeel voltageSeqLAF;
+
+    // ── Tooltips ──────────────────────────────────────────────────────────────
+    // One shared window; pops up a control's setTooltip() text on hover (~0.7s).
+    juce::TooltipWindow tooltipWindow { this, 700 };
+    void installTooltips();   // hand-authored descriptions, set once at construction
 
     // ── Per-voice controls  [vi][step] or [vi] ───────────────────────────────
     juce::Slider     stepKnob  [2][16];
@@ -344,34 +349,34 @@ private:
     std::vector<juce::Component*> synthPageComponents;
     std::vector<juce::Component*> patternPageComponents;
 
-    // ── FX page controls ─────────────────────────────────────────────────────
+    // ── FX page controls (per voice — A over B, no tab) ──────────────────────
     // Tape Delay
-    juce::TextButton delayOnBtn;
-    juce::TextButton delayPingPongBtn;
-    juce::TextButton delaySyncBtn;
-    juce::ComboBox   delaySyncDivBox;
-    juce::Slider     delayTimeMsSlider;
-    juce::Slider     delayFeedbackSlider;
-    juce::Slider     delayMixSlider;
+    juce::TextButton delayOnBtn       [2];
+    juce::TextButton delayPingPongBtn [2];
+    juce::TextButton delaySyncBtn     [2];
+    juce::ComboBox   delaySyncDivBox  [2];
+    juce::Slider     delayTimeMsSlider  [2];
+    juce::Slider     delayFeedbackSlider [2];
+    juce::Slider     delayMixSlider      [2];
     // Tape character + Bernoulli gate
-    juce::Slider     delayWowSlider;
-    juce::Slider     delayFlutterSlider;
-    juce::Slider     delaySatSlider;
-    juce::Slider     delayProbSlider;
+    juce::Slider     delayWowSlider     [2];
+    juce::Slider     delayFlutterSlider [2];
+    juce::Slider     delaySatSlider     [2];
+    juce::Slider     delayProbSlider    [2];
     // Reverb
-    juce::TextButton reverbOnBtn;
-    juce::Slider     reverbSizeSlider;
-    juce::Slider     reverbDampingSlider;
-    juce::Slider     reverbPreDelaySlider;
-    juce::Slider     reverbMixSlider;
+    juce::TextButton reverbOnBtn         [2];
+    juce::Slider     reverbSizeSlider    [2];
+    juce::Slider     reverbDampingSlider [2];
+    juce::Slider     reverbPreDelaySlider[2];
+    juce::Slider     reverbMixSlider     [2];
     // Chorus
-    juce::TextButton chorusOnBtn;
-    juce::Slider     chorusRateSlider;
-    juce::Slider     chorusDepthSlider;
-    juce::Slider     chorusMixSlider;
+    juce::TextButton chorusOnBtn      [2];
+    juce::Slider     chorusRateSlider [2];
+    juce::Slider     chorusDepthSlider[2];
+    juce::Slider     chorusMixSlider  [2];
     // Master
-    juce::Slider     masterDriveSlider;
-    juce::Slider     masterGainSlider;
+    juce::Slider     masterDriveSlider[2];
+    juce::Slider     masterGainSlider [2];
 
     // ── Page 3 — FX ───────────────────────────────────────────────────────────
     juce::TextButton fxPageBtn;
@@ -420,17 +425,39 @@ private:
     void setupGenControls();
     void layoutGenPage();
 
-    // ── FX page voice selector ─────────────────────────────────────────────
-    int              fxVoiceTab = 0;    // 0 = Voice A FX,  1 = Voice B FX
-    juce::TextButton fxVoiceABtn, fxVoiceBBtn;   // tab selectors
-    juce::TextButton fxBypassBtn;                // per-voice bypass
+    // ── FX page — per-voice bypass (both voices shown at once, no tab) ───────
+    juce::TextButton fxBypassBtn [2];
 
-    // Refresh all FX page controls from audioProcessor.fx[fxVoiceTab].
+    // Refresh both voices' FX page controls from audioProcessor.fx[].
     void syncFxPageFromVoice();
 
     // ── MIDI Out (per voice, on Synth page) ────────────────────────────────
     juce::TextButton midiOutBtn    [2];   // enable toggle
     juce::ComboBox   midiOutChBox  [2];   // MIDI channel 1–16
+
+    // ── MIDI/VOICE config radio (toggles which config sub-group is visible) ──
+    juce::TextButton midiViewBtn   [2];   // "MIDI" radio
+    juce::TextButton voiceViewBtn  [2];   // "VOICE" radio
+    int              cfgView       [2] = { 1, 1 };   // 0 = MIDI, 1 = VOICE (default)
+    void applyCfgView (int v);
+
+    // TOOLS is the 3rd option of the QUANT/ORDER/TOOLS radio (see midView below).
+    juce::TextButton toolsBtn      [2];   // "TOOLS" radio
+
+    // ── Middle radio slot: QUANT (Root/Scale/Clock) ↔ ORDER (play order) ────
+    juce::TextButton quantViewBtn  [2];   // "QUANT" radio
+    juce::TextButton orderViewBtn  [2];   // "ORDER" radio
+    int              midView       [2] = { 0, 0 };   // 0 = QUANT, 1 = ORDER, 2 = TOOLS
+    void applyMidView (int v);
+
+    // Cached TOTAL-pulses per voice; timer repaints the readout when it changes.
+    int              lastTotalPulses[2] = { -1, -1 };
+
+    // ── Modulation slot: inline [ LFO | MOD ENV ] (replaces both popups) ────
+    int              modSlotView   [2] = { 0, 0 };   // 0 = LFO, 1 = MOD ENV
+    int              lfoSel        [2] = { 0, 0 };   // which LFO (0..3) is shown
+    juce::TextButton lfoSelBtn     [2][4];           // "1".."4" LFO selector
+    void refreshModSlot (int v);
 
     // ── Unison / Poly mode (per voice, on Synth page) ──────────────────────
     juce::ComboBox   voiceModeBox   [2];   // MONO / UNISON / POLY
@@ -441,6 +468,11 @@ private:
 
     // ── Backplate SVG ─────────────────────────────────────────────────────────
     std::unique_ptr<juce::Drawable> backplate;
+
+    // ── Brushed-metal Eurorack faceplate (generated once, blitted in paint) ───
+    juce::Image backplateMetal;
+    void buildBackplateMetal (int w, int h);
+    void drawPanelScrew (juce::Graphics& g, float cx, float cy, float r);
 
     // ── Gate button right-click listener (ratchet selection) ──────────────────
     struct GateBtnListener : public juce::MouseListener
@@ -505,36 +537,82 @@ private:
     juce::Label macroAssignLabel[kNumMacros];   // multiline assignment list
     std::unique_ptr<SliderAtt> macroAttach[kNumMacros];
     juce::TextButton macroAssignBtn[kNumMacros];   // "ASSIGN" — enters learn mode
+    juce::TextButton macrosBtn;                     // reveal toggle (hidden by default)
+    bool             macrosShown = false;
+    void applyMacrosVisible();
     void setupMacros();
     void showMacroMenu (int m);
     void refreshMacroLabels();
 
     // ── Click-to-assign ("learn") mode + depth-ring overlay ──────────────────
-    int macroLearnActive = -1;        // macro index currently learning, -1 = none
+    // A modulation SOURCE: a macro (global) or an LFO / mod-env (per-voice). The
+    // learn mode, depth rings and drag are all keyed off this so macros, LFOs and
+    // the mod-env share one workflow.
+    struct ModSource {
+        enum Kind { None = -1, Macro = 0, LFO = 1, ModEnv = 2 };
+        int kind  = None;
+        int voice = 0;    // for LFO / ModEnv
+        int index = 0;    // macro # (0..1) or LFO # (0..3)
+        bool valid() const { return kind != None; }
+        bool operator== (const ModSource& o) const
+        { return kind == o.kind && voice == o.voice && index == o.index; }
+    };
+    ModSource learnSource;            // currently learning, or {None}
 
     // One assignable on-screen control → (macro target, voice).
     struct Assignable { juce::Slider* slider; int target; int voice; };
     std::vector<Assignable> buildAssignables();
 
-    void enterMacroLearn (int m);
-    void exitMacroLearn();
-    void updateMacroAssignBtns();
-    // Map a clicked assignable to a new macro assignment (scope: 2=Both if alt).
+    void enterLearn (ModSource s);    // generalised learn-mode entry
+    void enterMacroLearn (int m) { enterLearn ({ ModSource::Macro, 0, m }); }
+    void exitMacroLearn();            // exits learn for ANY source
+    void updateMacroAssignBtns();     // refreshes macro + LFO/mod-env assign buttons
+    // Map a clicked assignable to a new assignment on the active learn source.
     void assignFromClick (int sliderTarget, int voice, bool both);
+
+    // ── Per-source routing accessors (macro vs LFO/mod-env live in different
+    //    structs in the processor; these unify them for the overlay) ──────────
+    int          srcCount       (const ModSource&) const;
+    int          srcTarget      (const ModSource&, int i) const;
+    float        srcDepth       (const ModSource&, int i) const;
+    void         srcSetDepth    (const ModSource&, int i, float d);
+    float        srcValue       (const ModSource&) const;   // live value (macro only)
+    juce::Colour srcColour      (const ModSource&) const;
+    bool         srcUsesScope   (const ModSource& s) const { return s.kind == ModSource::Macro; }
+    bool         srcAllowsTarget (const ModSource&, int target) const;  // audio-rate filter
+    void         refreshModAssignLabels();
+
     // Bounds of an assignable knob in overlay/editor coords, empty if not visible.
     juce::Rectangle<int> assignableScreenBounds (juce::Slider* s);
 
     // One depth ring to draw around an assigned, currently-visible knob.
     struct RingInfo {
-        int   macro, assignIdx;
+        ModSource source;
+        int   assignIdx;
         juce::Point<float> centre;
         float radius, depth;
         juce::Colour colour;
+        bool  liveDot;
     };
     std::vector<RingInfo> buildRings();
-    int dragRingMacro = -1, dragRingAssign = -1;   // active depth-ring drag
+    ModSource dragRingSource;          // active depth-ring drag source ({None}=idle)
+    int   dragRingAssign = -1;
     float dragRingStartDepth = 0.0f;
     float lastMacroValue[kNumMacros] = { -1.0f, -1.0f };   // for live-dot repaint
+
+    // ── LFO / mod-env macro-style assign UI (per voice) ──────────────────────
+    // Left-click enters learn mode; right-click opens the remove/clear menu.
+    struct AssignButton : public juce::TextButton {
+        std::function<void()> onRightClick;
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            if (e.mods.isPopupMenu()) { if (onRightClick) onRightClick(); return; }
+            juce::TextButton::mouseDown (e);
+        }
+    };
+    AssignButton lfoAssignBtn   [2], modEnvAssignBtn   [2];
+    juce::Label  lfoAssignLabel [2], modEnvAssignLabel [2];
+    void showModMenu (ModSource s);   // remove / clear routes for a mod source
 
     // Transparent top-level overlay: highlights assignable knobs in learn mode,
     // captures the assign click, and draws + drags the depth rings. It always
@@ -635,6 +713,12 @@ private:
     bool          lfoPanelOpen[2] = { false, false };
 
     juce::TextButton oscPanelBtn[2], envPanelBtn[2], lfoPanelBtn[2];
+
+    // ── Inline OSC section (replaces the OSC popup) ──────────────────────────
+    juce::TextButton oscView1Btn[2];   // "OSC 1" radio
+    juce::TextButton oscView2Btn[2];   // "OSC 2" radio
+    int              oscView[2] = { 0, 0 };   // 0 = OSC1, 1 = OSC2 (native); Plaits overrides
+    void refreshOscView (int v);       // show OSC1 / OSC2 / Plaits group inline
 
     void openOscPanel  (int v);
     void closeOscPanel (int v);

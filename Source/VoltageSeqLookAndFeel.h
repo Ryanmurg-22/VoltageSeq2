@@ -27,10 +27,12 @@ public:
         setColour (juce::ResizableWindow::backgroundColourId, juce::Colour (0xff0d0d1a));
 
         // Sliders — defaults; individual sliders can override with setColour()
-        setColour (juce::Slider::thumbColourId,       juce::Colour (0xffe09040));
-        setColour (juce::Slider::trackColourId,       juce::Colour (0xffe09040));
+        // Accent is a soft azure (lighter than the logo blue, near the velocity cyan)
+        // so the many knob arcs read as light highlights rather than heavy blue.
+        setColour (juce::Slider::thumbColourId,       juce::Colour (0xff63b4ec));
+        setColour (juce::Slider::trackColourId,       juce::Colour (0xff63b4ec));
         setColour (juce::Slider::backgroundColourId,  juce::Colour (0xff252540));
-        setColour (juce::Slider::rotarySliderFillColourId,    juce::Colour (0xffe09040));
+        setColour (juce::Slider::rotarySliderFillColourId,    juce::Colour (0xff63b4ec));
         setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (0xff252540));
 
         // Buttons
@@ -158,9 +160,132 @@ public:
                            juce::Slider& slider) override
     {
         if (style == juce::Slider::LinearVertical)
-            drawVerticalSlider (g, x, y, width, height, sliderPos, slider);
+        {
+            // Step/velo sliders opt into a readable box style via a property.
+            if (slider.getProperties().getWithDefault ("boxStyle", false))
+                drawBoxSlider (g, x, y, width, height, sliderPos, slider);
+            else
+                drawVerticalSlider (g, x, y, width, height, sliderPos, slider);
+        }
         else
             drawHorizontalSlider (g, x, y, width, height, sliderPos, slider);
+    }
+
+    // =========================================================================
+    // BOX-STYLE VERTICAL SLIDER — filled column + value readout (sequencer steps)
+    // Bipolar ranges fill from the centre line; unipolar from the bottom.
+    // =========================================================================
+    void drawBoxSlider (juce::Graphics& g,
+                        int x, int y, int width, int height,
+                        float sliderPos, juce::Slider& slider)
+    {
+        const juce::Colour bgCol = slider.findColour (juce::Slider::backgroundColourId);
+        const bool playing = (bool) slider.getProperties().getWithDefault ("playing", false);
+        auto box = juce::Rectangle<float> ((float) x, (float) y, (float) width, (float) height)
+                       .reduced (1.5f);
+        const float corner = 3.0f;
+
+        // Glassy body — subtle top-lit vertical gradient
+        {
+            juce::ColourGradient body (bgCol.brighter (0.10f), box.getX(), box.getY(),
+                                       bgCol.darker   (0.30f), box.getX(), box.getBottom(), false);
+            g.setGradientFill (body);
+            g.fillRoundedRectangle (box, corner);
+        }
+
+        const bool  bipolar = slider.getMinimum() < -0.001;
+        const float baseY   = bipolar ? box.getCentreY() : box.getBottom();
+        const float valY    = juce::jlimit (box.getY(), box.getBottom(), sliderPos);
+        const float top     = juce::jmin (baseY, valY);
+        const float bot     = juce::jmax (baseY, valY);
+        const float fillH   = bot - top;
+        const float bH      = box.getHeight();
+
+        // Octave (1 V) tick marks — faint scale reference, shown in the unlit area
+        {
+            const double vmin = slider.getMinimum(), vmax = slider.getMaximum();
+            const double span = vmax - vmin;
+            if (span > 0.0)
+                for (int volt = (int) std::ceil (vmin); volt <= (int) std::floor (vmax); ++volt)
+                {
+                    if (bipolar && volt == 0) continue;   // centre line handled below
+                    const float ty = box.getBottom() - (float) ((volt - vmin) / span) * bH;
+                    g.setColour (juce::Colours::white.withAlpha (0.07f));
+                    g.fillRect (box.getX() + 2.0f, ty - 0.5f, box.getWidth() - 4.0f, 1.0f);
+                }
+        }
+
+        // Teal that darkens as it rises: bright teal at the bottom, deep teal up top.
+        auto tealAtHeight = [playing] (float h)   // h: 0 = box bottom, 1 = box top
+        {
+            const float bright = juce::jmap (juce::jlimit (0.0f, 1.0f, h), 0.0f, 1.0f, 0.98f, 0.30f);
+            const float sat    = juce::jmap (juce::jlimit (0.0f, 1.0f, h), 0.0f, 1.0f, 0.70f, 0.95f);
+            auto c = juce::Colour::fromHSV (0.475f, sat, bright, 1.0f);
+            return playing ? c.brighter (0.30f) : c;
+        };
+
+        // Glassy teal fill (clipped to the rounded body)
+        if (fillH > 0.5f)
+        {
+            juce::Graphics::ScopedSaveState ss (g);
+            juce::Path clip; clip.addRoundedRectangle (box, corner);
+            g.reduceClipRegion (clip);
+
+            const juce::Colour tealLo = tealAtHeight (0.0f);   // bottom (bright)
+            const juce::Colour tealHi = tealAtHeight (1.0f);   // top (dark)
+
+            // Soft glow behind the fill (sampled at the value height)
+            g.setColour (tealAtHeight ((box.getBottom() - valY) / bH).withAlpha (playing ? 0.28f : 0.18f));
+            g.fillRect (box.getX(), top - 3.0f, box.getWidth(), fillH + 6.0f);
+
+            // Main fill — vertical gradient that darkens toward the top
+            juce::ColourGradient grad (tealLo.withAlpha (0.95f), box.getCentreX(), box.getBottom(),
+                                       tealHi.withAlpha (0.95f), box.getCentreX(), box.getY(), false);
+            g.setGradientFill (grad);
+            g.fillRect (box.getX() + 1.0f, top, box.getWidth() - 2.0f, fillH);
+
+            // Glassy highlight down the left third
+            g.setColour (juce::Colours::white.withAlpha (0.07f));
+            g.fillRect (box.getX() + 1.0f, top, (box.getWidth() - 2.0f) * 0.34f, fillH);
+        }
+
+        // Centre reference line (bipolar)
+        if (bipolar)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.16f));
+            g.fillRect (box.getX() + 1.0f, box.getCentreY() - 0.5f, box.getWidth() - 2.0f, 1.0f);
+        }
+
+        // Value cap — soft bloom + bright core (teal-white)
+        if (fillH > 0.5f)
+        {
+            const float capX = box.getX() + 1.0f, capW = box.getWidth() - 2.0f;
+            const juce::Colour capCol = tealAtHeight ((box.getBottom() - valY) / bH);
+            g.setColour (capCol.brighter (0.4f).withAlpha (0.55f));
+            g.fillRect (capX, valY - 3.0f, capW, 6.0f);                                  // bloom
+            g.setColour (juce::Colours::white.withAlpha (playing ? 0.95f : 0.8f)
+                                          .interpolatedWith (capCol.brighter (0.6f), 0.35f));
+            g.fillRect (capX, valY - 1.0f, capW, 2.0f);                                  // core
+        }
+
+        // Border (bright teal halo when this step is playing)
+        if (playing)
+        {
+            g.setColour (juce::Colour::fromHSV (0.475f, 0.55f, 1.0f, 1.0f).withAlpha (0.9f));
+            g.drawRoundedRectangle (box, corner, 1.5f);
+        }
+        else
+        {
+            g.setColour (bgCol.brighter (0.40f));
+            g.drawRoundedRectangle (box, corner, 1.0f);
+        }
+
+        // Value readout
+        g.setColour (juce::Colours::white.withAlpha (0.82f));
+        g.setFont (getUIFont (juce::jmin (11.0f, box.getWidth() * 0.46f), false));
+        g.drawText (slider.getTextFromValue (slider.getValue()),
+                    box.reduced (1.0f).withTrimmedBottom (1.0f).toNearestInt(),
+                    juce::Justification::centredBottom, false);
     }
 
     // =========================================================================

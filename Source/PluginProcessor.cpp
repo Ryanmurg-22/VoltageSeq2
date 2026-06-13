@@ -235,6 +235,8 @@ VoltageSeq2AudioProcessor::VoltageSeq2AudioProcessor()
         }
         voice[vi].unipolar      = true;   // unipolar (0..5 V range)
         voice[vi].currentScale  = 8;      // Chromatic = effectively unquantized
+        // LFOs / mod-env start UNMAPPED — no routes until the user assigns one
+        // (so no depth rings appear on a fresh instance).
     }
 
     // Randomise Turing Machine register
@@ -468,7 +470,7 @@ void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamp
             {
                 static constexpr double divTable[7] = {
                     1.0, 0.5, 0.25, 1.0/3.0, 1.0/6.0, 0.75, 0.375 };
-                delayMs = (float)(divTable[p.delaySyncDiv] * 4.0 * 60000.0 / internalBPM);
+                delayMs = (float)(divTable[p.delaySyncDiv] * 4.0 * 60000.0 / liveBPM);
             }
             else
                 delayMs = p.delayTimeMs;
@@ -689,14 +691,19 @@ void VoltageSeq2AudioProcessor::processFxBuffer (float* L, float* R, int numSamp
         {
             fxWrite (fxs.chorusBuf, fxs.chorusW, (inL + inR) * 0.5f);
             float outL = 0.f, outR = 0.f;
+            // Smooth the depth so knob moves don't zipper the modulation amplitude.
+            fxs.smoothedChorusDepth += (p.chorusDepth - fxs.smoothedChorusDepth) * 0.001f;
+            const float depth = fxs.smoothedChorusDepth;
             // 3 voices, spread in stereo: voice 0 = left, 1 = centre, 2 = right
             const float panning[3] = { 1.0f, 0.5f, 0.0f };
             for (int v = 0; v < 3; ++v)
             {
                 fxs.chorusPh[v] = std::fmod (fxs.chorusPh[v]
                                   + (float)(p.chorusRate / sr), 1.0f);
-                // Delay: 5ms center ± depth*10ms
-                const float delayMs  = 5.0f + p.chorusDepth * 10.0f
+                // Delay: 12ms centre ± depth*9ms — stays strictly positive (was
+                // 5±depth*10, which went NEGATIVE past depth 0.5 and read past the
+                // write pointer → the clicky aliasing).
+                const float delayMs  = 12.0f + depth * 9.0f
                                        * std::sin (fxs.chorusPh[v] * juce::MathConstants<float>::twoPi);
                 const float delaySmp = delayMs * 0.001f * (float)sr;
                 const float sv = fxReadLerp (fxs.chorusBuf, fxs.chorusW, delaySmp);
@@ -808,6 +815,8 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 { startPPQ = *ppq; useHostSync = (startPPQ >= 0.0); }
         }
     }
+
+    liveBPM = effectiveBPM;   // expose the live tempo to tempo-synced FX (delay)
 
     const double ppqPerSample = effectiveBPM / 60.0 / currentSampleRate;
 
@@ -1074,8 +1083,12 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     {
         const double samplePPQ = startPPQ + (double)s * ppqPerSample;
 
-        const bool runA = hostAvailable ? hostPlaying : voice[0].sequencerRunning.load();
-        const bool runB = hostAvailable ? hostPlaying : voice[1].sequencerRunning.load();
+        // Per-voice Run/Stop gates the transport in BOTH modes: in a DAW the voice
+        // follows the host transport *and* must be enabled; standalone uses the
+        // button alone. (Previously the host path ignored the button entirely.)
+        const bool transportRolling = hostAvailable ? hostPlaying : true;
+        const bool runA = transportRolling && voice[0].sequencerRunning.load();
+        const bool runB = transportRolling && voice[1].sequencerRunning.load();
 
         float outAL, outAR, outBL, outBR;
         processSingleVoiceSample (0,
@@ -1790,43 +1803,61 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
     float lfo3Val = lfoWave (vs.lfo3Phase, vp.lfo3Waveform) * vp.lfo3Depth;
     float lfo4Val = lfoWave (vs.lfo4Phase, vp.lfo4Waveform) * vp.lfo4Depth;
 
-    float pwmMod          = 0.0f;
-    float cutoffMod       = 0.0f;
-    float pitchMod        = 1.0f;
-    float lfoRangeMod     = 0.0f;
-    float lfoFMMod        = 0.0f;
-    float lfoHarmMod      = 0.0f;
-    float lfoTimbMod      = 0.0f;
-    float lfoMorphMod     = 0.0f;
-    float lfoDelayModAcc  = 0.0f;
-    constexpr float maxDelayMs = 250.0f;   // full-depth LFO→Delay-Time swing (±ms)
+    // ── Unified audio-rate modulation accumulators ───────────────────────────
+    // Every source (LFOs, macros, mod-env) adds into these via applyMod().
+    float pwmMod      = 0.0f;
+    float cutoffMod   = 0.0f;
+    float pitchMod    = 1.0f;     // frequency ratio (multiplicative)
+    float rangeMod    = 0.0f;
+    float fmMod       = 0.0f;
+    float harmMod     = 0.0f;
+    float timbMod     = 0.0f;
+    float morphMod    = 0.0f;
+    float delayModAcc = 0.0f;
+    float resoMod     = 0.0f;     // added to filter resonance boost
+    float driveMod    = 0.0f;     // added to filter drive
+    float mixModAcc   = 0.0f;     // added to delay wet/dry mix
+    float ampMod      = 0.0f;     // added to amp gain (1 + mod)
+    constexpr float maxDelayMs = 250.0f;   // full-depth → Delay-Time swing (±ms)
 
-    // Macro-only extra accumulators (targets 9..12).
-    float macroResoMod    = 0.0f;   // added to filter resonance boost
-    float macroDriveMod   = 0.0f;   // added to filter drive
-    float macroMixModAcc  = 0.0f;   // added to delay wet/dry mix
-    float macroAmpMod     = 0.0f;   // added to amp gain (1 + mod)
-
-    auto accLFO = [&](float val, int target)
+    // Single apply switch shared by every modulation source. `c` is the signed
+    // contribution (source value × route depth); target is a MacroTarget.
+    auto applyMod = [&](float c, int target)
     {
-        if (target == 0) pwmMod         += val * 0.4f;
-        if (target == 1) cutoffMod      += val * 4000.0f;
-        if (target == 2) pitchMod       *= std::pow (2.0f, val / 12.0f);
-        if (target == 3) lfoRangeMod    += val;
-        if (target == 4) lfoFMMod       += val;
-        if (target == 5) lfoHarmMod     += val;
-        if (target == 6) lfoTimbMod     += val;
-        if (target == 7) lfoMorphMod    += val;
-        if (target == 8) lfoDelayModAcc += val * maxDelayMs;
+        switch (target)
+        {
+            case MT_PWM:       pwmMod      += c * 0.4f;                  break;
+            case MT_Cutoff:    cutoffMod   += c * 4000.0f;              break;
+            case MT_Pitch:     pitchMod    *= std::pow (2.0f, c / 12.0f); break;
+            case MT_Range:     rangeMod    += c;                        break;
+            case MT_FM:        fmMod       += c;                        break;
+            case MT_Harm:      harmMod     += c;                        break;
+            case MT_Timbre:    timbMod     += c;                        break;
+            case MT_Morph:     morphMod    += c;                        break;
+            case MT_Delay:     delayModAcc += c * maxDelayMs;           break;
+            case MT_Resonance: resoMod     += c;                        break;
+            case MT_Drive:     driveMod    += c;                        break;
+            case MT_DelayMix:  mixModAcc   += c;                        break;
+            case MT_AmpLevel:  ampMod      += c;                        break;
+            default: break;
+        }
     };
-    accLFO (lfo1Val, vp.lfoTarget);
-    accLFO (lfo2Val, vp.lfo2Target);
-    accLFO (lfo3Val, vp.lfo3Target);
-    accLFO (lfo4Val, vp.lfo4Target);
 
-    // ── Macro routing ────────────────────────────────────────────────────────
-    // Each macro adds (wheelValue * depth) into the same accumulators. Targets
-    // 0..8 reuse the LFO scaling via accLFO; 9..12 are macro-only extras.
+    // ── LFO routing ───────────────────────────────────────────────────────────
+    // Each LFO's value (already scaled by its master depth) fans out across its
+    // assignment list, each route applying a further signed depth.
+    {
+        const float lfoVals[4] = { lfo1Val, lfo2Val, lfo3Val, lfo4Val };
+        for (int li = 0; li < 4; ++li)
+        {
+            const auto& rt = vp.lfoRouting[li];
+            const int   n  = rt.count.load();
+            for (int a = 0; a < n && a < kMaxModRoutes; ++a)
+                applyMod (lfoVals[li] * rt.routes[a].depth, rt.routes[a].target);
+        }
+    }
+
+    // ── Macro routing ──────────────────────────────────────────────────────────
     for (int m = 0; m < numMacros; ++m)
     {
         const float mv = macros[m].value.load();
@@ -1835,49 +1866,32 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
         {
             const auto& as = macros[m].assign[a];
             if (! macroScopeHitsVoice (as.scope, vi)) continue;
-            const float c = mv * as.depth;            // contribution, -1..+1
-            switch (as.target)
-            {
-                case MT_Resonance: macroResoMod   += c;        break;
-                case MT_Drive:     macroDriveMod  += c;        break;
-                case MT_DelayMix:  macroMixModAcc += c;        break;
-                case MT_AmpLevel:  macroAmpMod    += c;        break;
-                default:           accLFO (c, as.target);      break;  // 0..8
-            }
+            applyMod (mv * as.depth, as.target);
         }
     }
 
     // Hand the (block-rate) delay-time + delay-mix modulation off to the FX stage.
-    lfoDelayMod[vi]      = lfoDelayModAcc;
-    macroDelayMixMod[vi] = macroMixModAcc;
+    lfoDelayMod[vi]      = delayModAcc;
+    macroDelayMixMod[vi] = mixModAcc;
 
     vs.pulseWidth = juce::jlimit (0.05f, 0.95f, vp.osc1PulseWidth + pwmMod);
 
     //--------------------------------------------------------------------------
-    // MOD ENVELOPE
+    // MOD ENVELOPE — routes through the same accumulators as LFOs/macros.
     //--------------------------------------------------------------------------
     const bool gateOn   = running && vp.stepGates[vp.currentStep];
     const float modEnvOut = processModEnv (vp.modEnv, vs, gateOn, effectiveBPM)
                             * vp.modEnv.depth;
+    {
+        const auto& rt = vp.modEnvRouting;
+        const int   n  = rt.count.load();
+        for (int a = 0; a < n && a < kMaxModRoutes; ++a)
+            applyMod (modEnvOut * rt.routes[a].depth, rt.routes[a].target);
+    }
 
-    float cenvAmpMod     = 1.0f;
-    float cenvCutoffMod  = 1.0f;
-    float cenvRangeMod   = 0.0f;
-    float cenvFMDepthMod = 0.0f;
-    float cenvHarmMod    = 0.0f;
-    float cenvTimbMod    = 0.0f;
-    float cenvMorphMod   = 0.0f;
+    const float effectiveFMDepth = juce::jlimit (0.0f, 1.0f, vp.fmDepth + fmMod);
 
-    if (vp.modEnv.dest == 0) cenvFMDepthMod = modEnvOut;
-    if (vp.modEnv.dest == 1) cenvRangeMod   = modEnvOut;
-    if (vp.modEnv.dest == 2) cenvCutoffMod  = std::pow (2.0f, modEnvOut * 4.0f);
-    if (vp.modEnv.dest == 3) cenvHarmMod    = modEnvOut;
-    if (vp.modEnv.dest == 4) cenvTimbMod    = modEnvOut;
-    if (vp.modEnv.dest == 5) cenvMorphMod   = modEnvOut;
-
-    const float effectiveFMDepth = juce::jlimit (0.0f, 1.0f, vp.fmDepth + cenvFMDepthMod + lfoFMMod);
-
-    const float totalRangeMod = cenvRangeMod + lfoRangeMod;
+    const float totalRangeMod = rangeMod;
     if (std::abs (totalRangeMod) > 0.001f && running)
     {
         const float effRange = juce::jlimit (0.0f, 2.0f, vp.rangeVCA + totalRangeMod);
@@ -1901,10 +1915,11 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
     //--------------------------------------------------------------------------
     float fEnvSample   = vs.filterEnv.getNextSample();
     const float accentEnvAmt = vp.filterEnvAmount + (vs.accentActive ? 0.25f : 0.0f);
+    // Env depth: up to 8 octaves at full amount so a low base cutoff can sweep
+    // the full audible range (4 octaves felt ~30% of expected — beta feedback).
     float effectiveCut = vp.filterCutoff
-                         * std::pow (2.0f, juce::jlimit (0.0f, 1.0f, accentEnvAmt) * 4.0f * fEnvSample);
-    effectiveCut = juce::jlimit (20.0f, 20000.0f,
-                                 (effectiveCut + cutoffMod) * cenvCutoffMod);
+                         * std::pow (2.0f, juce::jlimit (0.0f, 1.0f, accentEnvAmt) * 8.0f * fEnvSample);
+    effectiveCut = juce::jlimit (20.0f, 20000.0f, effectiveCut + cutoffMod);
 
     //--------------------------------------------------------------------------
     // PER-SLOT OSCILLATORS → sum to mono (with stereo pan weights)
@@ -1945,11 +1960,11 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
 
             // Apply live timbral modulation (LFO + ModEnv) — clamped to [0,1]
             ps.patch.harmonics = juce::jlimit (0.0f, 1.0f,
-                vp.plaitsHarmonics + lfoHarmMod + cenvHarmMod);
+                vp.plaitsHarmonics + harmMod);
             ps.patch.timbre    = juce::jlimit (0.0f, 1.0f,
-                vp.plaitsTimbre    + lfoTimbMod + cenvTimbMod);
+                vp.plaitsTimbre    + timbMod);
             ps.patch.morph     = juce::jlimit (0.0f, 1.0f,
-                vp.plaitsMorph     + lfoMorphMod + cenvMorphMod
+                vp.plaitsMorph     + morphMod
                 + (vs.accentActive ? 0.20f : 0.0f));
 
             // Trigger mode: LPG fired by gate (pluck/drum behaviour)
@@ -2022,17 +2037,17 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
 
     // Run the SVF on each channel separately using independent state registers.
     // For MONO (nSlots==1) sumL==sumR so both channels produce identical output.
-    const float accentRes = (vs.accentActive ? 0.15f : 0.0f) + macroResoMod;
+    const float accentRes = (vs.accentActive ? 0.15f : 0.0f) + resoMod;
     float filtL = applyFilter (vs.ic1eq,  vs.ic2eq,  vs.ic1eq2,  vs.ic2eq2,
-                               vp, sumL * norm, effectiveCut, accentRes, macroDriveMod);
+                               vp, sumL * norm, effectiveCut, accentRes, driveMod);
     float filtR = applyFilter (vs.ic1eqR, vs.ic2eqR, vs.ic1eq2R, vs.ic2eq2R,
-                               vp, sumR * norm, effectiveCut, accentRes, macroDriveMod);
+                               vp, sumR * norm, effectiveCut, accentRes, driveMod);
 
     float envelope = vs.adsr.getNextSample();
     const float accentVCA  = vs.accentActive ? 1.4125f : 1.0f;   // +3 dB = 10^(3/20)
     const float velocityVCA = (float)vs.midiStepVel / 100.0f;    // vel 100 = unity, 127 = +2.7dB
-    const float macroAmpGain = juce::jlimit (0.0f, 2.0f, 1.0f + macroAmpMod);
-    const float gain = envelope * cenvAmpMod * accentVCA * velocityVCA * macroAmpGain * 0.3f;
+    const float macroAmpGain = juce::jlimit (0.0f, 2.0f, 1.0f + ampMod);
+    const float gain = envelope * accentVCA * velocityVCA * macroAmpGain * 0.3f;
 
     outL = filtL * gain;
     outR = filtR * gain;
@@ -2370,6 +2385,26 @@ static void saveVoiceToXml (juce::XmlElement& el,
     el.setAttribute ("uniSpread",    (double)vp.unisonSpread);
     el.setAttribute ("uniWidth",     (double)vp.unisonWidth);
     el.setAttribute ("srChordMode",  (int)vp.shiftRegChordMode);
+
+    // Macro-style mod routing (LFOs + mod-env). New in v5; old presets without
+    // these child elements migrate from the legacy single-target fields on load.
+    auto saveRouting = [&el](const char* tag, const VoltageSeq2AudioProcessor::ModRouting& rt)
+    {
+        auto* r = el.createNewChildElement (tag);
+        const int n = rt.count.load();
+        r->setAttribute ("n", n);
+        for (int i = 0; i < n && i < VoltageSeq2AudioProcessor::kMaxModRoutes; ++i)
+        {
+            auto* a = r->createNewChildElement ("R");
+            a->setAttribute ("t", rt.routes[i].target);
+            a->setAttribute ("d", (double)rt.routes[i].depth);
+        }
+    };
+    saveRouting ("LFO1Rt", vp.lfoRouting[0]);
+    saveRouting ("LFO2Rt", vp.lfoRouting[1]);
+    saveRouting ("LFO3Rt", vp.lfoRouting[2]);
+    saveRouting ("LFO4Rt", vp.lfoRouting[3]);
+    saveRouting ("MEnvRt", vp.modEnvRouting);
 }
 
 static void loadVoiceFromXml (const juce::XmlElement& el,
@@ -2484,6 +2519,51 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
     vp.unisonSpread       = getF ("uniSpread", 0.15f);
     vp.unisonWidth        = getF ("uniWidth",  0.7f);
     vp.shiftRegChordMode  = getB ("srChordMode", false);
+
+    // ── Macro-style mod routing ───────────────────────────────────────────────
+    // Read the child elements if present (v5+). For older presets, migrate the
+    // legacy single-target into a one-route list at full depth.
+    auto legacyModEnvTarget = [](int dest) -> int
+    {
+        switch (dest)
+        {
+            case 0:  return VoltageSeq2AudioProcessor::MT_FM;
+            case 1:  return VoltageSeq2AudioProcessor::MT_Range;
+            case 2:  return VoltageSeq2AudioProcessor::MT_Cutoff;
+            case 3:  return VoltageSeq2AudioProcessor::MT_Harm;
+            case 4:  return VoltageSeq2AudioProcessor::MT_Timbre;
+            case 5:  return VoltageSeq2AudioProcessor::MT_Morph;
+            default: return VoltageSeq2AudioProcessor::MT_FM;
+        }
+    };
+    auto loadRouting = [&el](const char* tag, VoltageSeq2AudioProcessor::ModRouting& rt, int legacyTarget)
+    {
+        rt.count.store (0);
+        if (auto* r = el.getChildByName (tag))
+        {
+            const int n = juce::jlimit (0, VoltageSeq2AudioProcessor::kMaxModRoutes, r->getIntAttribute ("n", 0));
+            int idx = 0;
+            for (auto* a : r->getChildIterator())
+            {
+                if (idx >= n) break;
+                rt.routes[idx].target = a->getIntAttribute    ("t", 0);
+                rt.routes[idx].depth  = (float) a->getDoubleAttribute ("d", 1.0);
+                ++idx;
+            }
+            rt.count.store (idx);
+        }
+        else if (legacyTarget >= 0)   // migrate old single target
+        {
+            rt.routes[0].target = legacyTarget;
+            rt.routes[0].depth  = 1.0f;
+            rt.count.store (1);
+        }
+    };
+    loadRouting ("LFO1Rt", vp.lfoRouting[0], vp.lfoTarget);
+    loadRouting ("LFO2Rt", vp.lfoRouting[1], vp.lfo2Target);
+    loadRouting ("LFO3Rt", vp.lfoRouting[2], vp.lfo3Target);
+    loadRouting ("LFO4Rt", vp.lfoRouting[3], vp.lfo4Target);
+    loadRouting ("MEnvRt", vp.modEnvRouting, legacyModEnvTarget (vp.modEnv.dest));
 }
 
 //==============================================================================
@@ -2809,7 +2889,7 @@ void VoltageSeq2AudioProcessor::setStateInformation (const void* data, int sizeI
                     p.swingAmount    = (float)slotEl->getDoubleAttribute ("swing", 0.5);
                     p.portamentoTime = (float)slotEl->getDoubleAttribute ("porta", 0.0);
                     p.playOrder      = slotEl->getIntAttribute    ("order",  0);
-                    p.unipolar       = slotEl->getIntAttribute    ("uni",    0) != 0;
+                    p.unipolar       = slotEl->getIntAttribute    ("uni",    1) != 0;
                     p.rangeVCA       = (float)slotEl->getDoubleAttribute ("range", 1.0);
                     // Parse step arrays
                     auto parseFloats = [](const juce::String& s, float* arr, int n) {
@@ -3011,7 +3091,9 @@ void VoltageSeq2AudioProcessor::loadPatternAudio (int vi, int slot, bool resetPo
     v.swingAmount    = p.swingAmount;
     v.portamentoTime = p.portamentoTime;
     v.playOrder      = p.playOrder;
-    v.unipolar       = p.unipolar;
+    // NOTE: v.unipolar is intentionally NOT loaded here. It's a live display/edit
+    // preference (UNI vs BI), not pattern data — auto-advancing the pattern
+    // sequencer was reverting a user's BI choice to UNI every cycle.
     v.rootNote       = p.rootNote;
     v.currentScale   = p.currentScale;
     v.rangeVCA       = p.rangeVCA;

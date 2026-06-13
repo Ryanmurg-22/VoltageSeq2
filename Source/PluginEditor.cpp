@@ -12,7 +12,7 @@ namespace {
     const juce::Colour gateOnColour       { 0xff00d4aa };
     const juce::Colour gateOffColour      { 0xff161622 };
     const juce::Colour slideOnColour      { 0xffe94560 };
-    const juce::Colour knobColour         { 0xffe09040 };
+    const juce::Colour knobColour         { 0xff63b4ec };   // soft azure (knob/indicator accent)
     const juce::Colour runColour          { 0xff00d4aa };
     const juce::Colour stopColour         { 0xffe94560 };
     const juce::Colour activeGateOnColour { 0xffffffff };
@@ -35,17 +35,18 @@ namespace {
     // Sequencer strips
     constexpr int seqX       =    5;
     constexpr int seqW       = 1490;   // 16 steps × 88 px + margins
-    constexpr int seqH       =  120;
-    constexpr int stepStride =   88;
+    constexpr int seqH       =  164;   // taller lane (uses freed space below)
+    constexpr int stepStride =   58;   // wider columns — sequencer is the hero (~70/30)
 
     // Step controls (relative to strip Y origin)
-    constexpr int stepSliderTop = 14;
-    constexpr int stepSliderH   = 76;
-    constexpr int gateRelY      = 93;
-    constexpr int slideRelY     = 107;
+    constexpr int stepSliderTop = 5;
+    constexpr int stepSliderH   = 128;   // taller box columns
+    constexpr int gateRelY      = 135;   // gate row (now taller — see layoutVoice)
+    constexpr int slideRelY     = 152;
 
-    // Sub-strips (taller — room for label row + control row)
-    constexpr int subH = 40;
+    // Sub-strip band removed (controls now live in the seq lane's RHS) — keep a
+    // thin gap between lanes.
+    constexpr int subH = 8;
 
     // Absolute Y positions
     constexpr int seqAY  = headerH + gapH;      //  50
@@ -60,16 +61,20 @@ namespace {
     // Label / knob row offsets inside a control panel
     constexpr int lOff1 = 18, lOff2 = 72, lOff3 = 122;
     constexpr int cOff1 = 30, cOff2 = 84, cOff3 = 134;
-    // Knob size: 38 × 38 px
-    constexpr int kSz = 38;
+    // Knob size: 42 × 42 px (bumped from 38 for approachability)
+    constexpr int kSz = 42;
 
-    // Control panel X positions (total span 5…1490 = 1485 px inside 1500 px window)
-    constexpr int pSeqX  =    5, pSeqW  = 155;
-    constexpr int pQntX  =  165, pQntW  = 175;
-    constexpr int pO1X   =  345, pO1W   = 185;
-    constexpr int pO2X   =  535, pO2W   = 175;
-    constexpr int pFltX  =  715, pFltW  = 170;
-    constexpr int pAEX   =  890, pAEW   = 200;
+    // Control panel X positions — set-and-forget (SEQ/QUANTIZER) shrunk, the rest
+    // shifted left ~100px to reclaim a band on the right for the modulation slot.
+    // Bottom = the SYNTH. RANGE/ROOT/SCALE/CLOCK have moved UP to the pattern
+    // (top) section, so the bottom-left holds only GLIDE (porta); the synth
+    // panels shift left, opening a wide right band for envelopes + modulation.
+    constexpr int pSeqX  =    5, pSeqW  =  78;   // GLIDE (PORTA only)
+    constexpr int pQntX  =  100, pQntW  = 140;   // (unused: QUANT moved to top)
+    constexpr int pO1X   =   86, pO1W   = 185;
+    constexpr int pO2X   =  276, pO2W   = 175;
+    constexpr int pFltX  =  452, pFltW  = 188;
+    constexpr int pAEX   =  646, pAEW   = 200;
     constexpr int pLfo1X = 1095, pLfoW  =  95;  // all 4 LFO panels same width
     constexpr int pLfo2X = 1195;
     constexpr int pLfo3X = 1295;
@@ -355,33 +360,66 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
         addChildComponent (lfoPanel[v]);
         synthPageComponents.push_back (&lfoPanel[v]);
 
-        // Toggle buttons (will be positioned in layoutVoice)
-        oscPanelBtn[v].setButtonText (juce::String::fromUTF8 ("OSC \xe2\x96\xbc"));
-        oscPanelBtn[v].setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff161630));
-        oscPanelBtn[v].setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe0e0e0));
-        oscPanelBtn[v].onClick = [this, v]() {
-            oscPanelOpen[v] ? closeOscPanel(v) : openOscPanel(v);
-        };
-        addAndMakeVisible (oscPanelBtn[v]);
-        synthPageComponents.push_back (&oscPanelBtn[v]);
+        // OSC 1 / OSC 2 view radio (replaces the OSC popup toggle)
+        {
+            auto styleOscRadio = [](juce::TextButton& b, const juce::String& t)
+            {
+                b.setButtonText (t);
+                b.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff161630));
+                b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff2255aa));
+                b.setColour (juce::TextButton::textColourOffId,  juce::Colour (0xffa0a0b4));
+                b.setColour (juce::TextButton::textColourOnId,   juce::Colour (0xffffffff));
+            };
+            styleOscRadio (oscView1Btn[v], "OSC 1");
+            styleOscRadio (oscView2Btn[v], "OSC 2");
+            oscView1Btn[v].onClick = [this, v]() { oscView[v] = 0; refreshOscView (v); };
+            oscView2Btn[v].onClick = [this, v]() { oscView[v] = 1; refreshOscView (v); };
+            addAndMakeVisible (oscView1Btn[v]);  synthPageComponents.push_back (&oscView1Btn[v]);
+            addAndMakeVisible (oscView2Btn[v]);  synthPageComponents.push_back (&oscView2Btn[v]);
+        }
 
-        envPanelBtn[v].setButtonText (juce::String::fromUTF8 ("MOD \xe2\x96\xbc"));
-        envPanelBtn[v].setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff161630));
-        envPanelBtn[v].setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe0e0e0));
-        envPanelBtn[v].onClick = [this, v]() {
-            envPanelOpen[v] ? closeEnvPanel(v) : openEnvPanel(v);
+        // ── Modulation slot radio: [ LFO | MOD ENV ] (inline, no popups) ──────
+        auto styleModRadio = [](juce::TextButton& b, const juce::String& t)
+        {
+            b.setButtonText (t);
+            b.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff161630));
+            b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff2255aa));
+            b.setColour (juce::TextButton::textColourOffId,  juce::Colour (0xffa0a0b4));
+            b.setColour (juce::TextButton::textColourOnId,   juce::Colour (0xffffffff));
         };
-        addAndMakeVisible (envPanelBtn[v]);
-        synthPageComponents.push_back (&envPanelBtn[v]);
+        styleModRadio (lfoPanelBtn[v], "LFO");
+        styleModRadio (envPanelBtn[v], "MOD ENV");
+        lfoPanelBtn[v].onClick = [this, v]() { modSlotView[v] = 0; refreshModSlot (v); };
+        envPanelBtn[v].onClick = [this, v]() { modSlotView[v] = 1; refreshModSlot (v); };
+        addAndMakeVisible (lfoPanelBtn[v]); synthPageComponents.push_back (&lfoPanelBtn[v]);
+        addAndMakeVisible (envPanelBtn[v]); synthPageComponents.push_back (&envPanelBtn[v]);
 
-        lfoPanelBtn[v].setButtonText (juce::String::fromUTF8 ("LFO \xe2\x96\xbc"));
-        lfoPanelBtn[v].setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff161630));
-        lfoPanelBtn[v].setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe0e0e0));
-        lfoPanelBtn[v].onClick = [this, v]() {
-            lfoPanelOpen[v] ? closeLfoPanel(v) : openLfoPanel(v);
+        // LFO selector tabs (1..4) — visible only in LFO view
+        for (int i = 0; i < 4; ++i)
+        {
+            auto& b = lfoSelBtn[v][i];
+            b.setButtonText (juce::String (i + 1));
+            b.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff161630));
+            b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff3a6ad0));
+            b.setColour (juce::TextButton::textColourOffId,  juce::Colour (0xffa0a0b4));
+            b.setColour (juce::TextButton::textColourOnId,   juce::Colour (0xffffffff));
+            b.onClick = [this, v, i]() { lfoSel[v] = i; refreshModSlot (v); };
+            addAndMakeVisible (b); synthPageComponents.push_back (&b);
+        }
+
+        // The LFO + Mod-Env controls are set up later (after the synthPageComponents
+        // catch-all), so they aren't swept into it. Register them here so they hide
+        // on non-synth pages (refreshModSlot then refines which is visible on page 0).
+        juce::Component* slotComps[] = {
+            &lfoWaveBox[v],  &lfoRateSlider[v],  &lfoDepthSlider[v],  &lfoTargetBox[v],  &lfoSyncBtn[v],  &lfoSyncDivBox[v],
+            &lfo2WaveBox[v], &lfo2RateSlider[v], &lfo2DepthSlider[v], &lfo2TargetBox[v], &lfo2SyncBtn[v], &lfo2SyncDivBox[v],
+            &lfo3WaveBox[v], &lfo3RateSlider[v], &lfo3DepthSlider[v], &lfo3TargetBox[v], &lfo3SyncBtn[v], &lfo3SyncDivBox[v],
+            &lfo4WaveBox[v], &lfo4RateSlider[v], &lfo4DepthSlider[v], &lfo4TargetBox[v], &lfo4SyncBtn[v], &lfo4SyncDivBox[v],
+            &modEnvAtkSlider[v], &modEnvDecSlider[v], &modEnvSusSlider[v], &modEnvRelSlider[v],
+            &modEnvDepthSlider[v], &modEnvDestBox[v], &modEnvSyncBtn[v], &modEnvDivBox[v],
+            &lfoAssignBtn[v], &lfoAssignLabel[v], &modEnvAssignBtn[v], &modEnvAssignLabel[v]
         };
-        addAndMakeVisible (lfoPanelBtn[v]);
-        synthPageComponents.push_back (&lfoPanelBtn[v]);
+        for (auto* c : slotComps) synthPageComponents.push_back (c);
     }
 
     //==========================================================================
@@ -600,9 +638,13 @@ VoltageSeq2AudioProcessorEditor::VoltageSeq2AudioProcessorEditor (VoltageSeq2Aud
     // ── About page ────────────────────────────────────────────────────────────
     setupAboutPage();
 
+    // ── Tooltips (hover help on every control) ────────────────────────────────
+    installTooltips();
+
     // setSize LAST — triggers resized() which calls layoutVoice()
     setSize (1500, winH);
     showPage (0);   // ensure FX / pattern / gen controls start hidden
+    syncUIFromProcessor();   // sync all controls (incl. step uni/bi ranges) at startup
     startTimerHz (30);
 }
 
@@ -610,6 +652,120 @@ VoltageSeq2AudioProcessorEditor::~VoltageSeq2AudioProcessorEditor()
 {
     stopTimer();
     juce::LookAndFeel::setDefaultLookAndFeel (nullptr);  // restore before voltageSeqLAF is destroyed
+}
+
+//==============================================================================
+// Tooltips — hand-authored hover help, set once at construction
+//==============================================================================
+void VoltageSeq2AudioProcessorEditor::installTooltips()
+{
+    for (int v = 0; v < 2; ++v)
+    {
+        // ── Sequencer ─────────────────────────────────────────────────────────
+        for (int i = 0; i < 16; ++i)
+        {
+            stepKnob[v][i].setTooltip ("Step " + juce::String (i + 1)
+                + " pitch (volts) - quantised by Scale/Root. UNI 0..5V, BI +/-5V.");
+            veloKnob[v][i].setTooltip ("Step " + juce::String (i + 1) + " velocity (1-127).");
+            gateBtn [v][i].setTooltip ("Gate for step " + juce::String (i + 1)
+                + " - click to toggle the note. Right-click for ratchets, ties, octave, accent & probability.");
+            slideBtn[v][i].setTooltip ("Slide - portamento/glide into step " + juce::String (i + 1) + ".");
+        }
+        veloModeBtn  [v].setTooltip ("VELO - show & edit per-step velocity instead of pitch.");
+        seqLengthSlider[v].setTooltip ("LENGTH - number of active steps before the pattern loops.");
+        swingSlider  [v].setTooltip ("SWING - delays even steps for shuffle (50% = straight).");
+        playFwdBtn   [v].setTooltip ("Play order: forward.");
+        playRevBtn   [v].setTooltip ("Play order: reverse.");
+        playConvBtn  [v].setTooltip ("Play order: converge (outside-in).");
+        playRndBtn   [v].setTooltip ("Play order: random.");
+        resetBtn     [v].setTooltip ("RST - clear this voice's sequence (pitch, gates, ratchets).");
+        bipolarBtn   [v].setTooltip ("UNI / BI - unipolar (0..5V) or bipolar (+/-5V) pitch range.");
+        nudgeLeftBtn [v].setTooltip ("Nudge the sequence start point one step earlier.");
+        nudgeRightBtn[v].setTooltip ("Nudge the sequence start point one step later.");
+        runStopBtn   [v].setTooltip ("RUN / STOP - start or stop this voice's sequencer.");
+        envResetBtn  [v].setTooltip ("LEGATO - when on, envelopes don't retrigger on tied/overlapping steps.");
+        pulseModeBtn [v].setTooltip ("STAGES / PULSES - reset after a number of stages, or after a fixed pulse count.");
+        pulseLenBox  [v].setTooltip ("Total pulses before the sequence resets (pulse mode).");
+        portaSlider  [v].setTooltip ("PORTA - glide/portamento time between steps.");
+        rangeSlider  [v].setTooltip ("RANGE - pitch-span scaling of the CV (1.00 = 1:1).");
+        clockDivBox  [v].setTooltip ("CLOCK - sequencer clock division relative to host tempo.");
+        rootBox      [v].setTooltip ("ROOT - root note for scale quantisation.");
+        scaleBox     [v].setTooltip ("SCALE - quantise step pitches to this scale (Chromatic = off).");
+
+        // ── Oscillators / Macro OSC ─────────────────────────────────────────────
+        plaitsBtn       [v].setTooltip ("Macro OSC - swap the native oscillators for the macro-oscillator engine.");
+        plaitsEngBox    [v].setTooltip ("Macro OSC model / engine.");
+        plaitsHarmSlider[v].setTooltip ("HARMONICS - Macro OSC harmonics parameter.");
+        plaitsTimSlider [v].setTooltip ("TIMBRE - Macro OSC timbre parameter.");
+        plaitsMorphSlider[v].setTooltip ("MORPH - Macro OSC morph parameter.");
+        plaitsAuxSlider [v].setTooltip ("AUX - blend between the engine's main and aux outputs.");
+        plaitsTrigBtn   [v].setTooltip ("TRIG - internal LPG (plucked) vs free-running (ADSR-shaped).");
+        plaitsOctBox    [v].setTooltip ("Octave transpose for the Macro OSC.");
+        osc1WaveBox     [v].setTooltip ("OSC 1 waveform.");
+        osc1LevelSlider [v].setTooltip ("OSC 1 level.");
+        osc1OctaveBox   [v].setTooltip ("OSC 1 octave.");
+        osc1PWMSlider   [v].setTooltip ("PWM - pulse width (square/pulse wave).");
+        osc1FeedbackSlider[v].setTooltip ("FB - OSC 1 self-FM feedback.");
+        driftSlider     [v].setTooltip ("DRIFT - analogue-style random pitch drift.");
+        osc2PosSlider   [v].setTooltip ("OSC 2 wavetable position.");
+        osc2LevelSlider [v].setTooltip ("OSC 2 level.");
+        osc2OctaveBox   [v].setTooltip ("OSC 2 octave.");
+        fmDepthSlider   [v].setTooltip ("FM DEPTH - OSC 2 -> OSC 1 frequency modulation.");
+        fmRatioSlider   [v].setTooltip ("FM RATIO - OSC 2 frequency ratio for FM.");
+        crossModSlider  [v].setTooltip ("CROSS-MOD - FM from the other voice.");
+
+        // ── Filter ──────────────────────────────────────────────────────────────
+        cutoffSlider      [v].setTooltip ("CUTOFF - filter cutoff frequency.");
+        resonanceSlider   [v].setTooltip ("RES - filter resonance / emphasis.");
+        filterEnvAmtSlider[v].setTooltip ("ENV - filter-envelope depth (up to 8 octaves).");
+        filterDriveSlider [v].setTooltip ("DRIVE - pre-filter saturation/overdrive.");
+        filterModeBox     [v].setTooltip ("Filter mode - LP / BP / HP.");
+        filterSlopeBtn    [v].setTooltip ("Filter slope - 12 or 24 dB/octave.");
+
+        // ── Envelopes ───────────────────────────────────────────────────────────
+        attackSlider [v].setTooltip ("Amp envelope attack.");
+        decaySlider  [v].setTooltip ("Amp envelope decay.");
+        sustainSlider[v].setTooltip ("Amp envelope sustain.");
+        releaseSlider[v].setTooltip ("Amp envelope release.");
+        fAttackSlider [v].setTooltip ("Filter envelope attack.");
+        fDecaySlider  [v].setTooltip ("Filter envelope decay.");
+        fSustainSlider[v].setTooltip ("Filter envelope sustain.");
+        fReleaseSlider[v].setTooltip ("Filter envelope release.");
+
+        // ── Modulation slot ─────────────────────────────────────────────────────
+        juce::Slider* lfoRate[4]  = { &lfoRateSlider[v],  &lfo2RateSlider[v],  &lfo3RateSlider[v],  &lfo4RateSlider[v]  };
+        juce::Slider* lfoDep [4]  = { &lfoDepthSlider[v], &lfo2DepthSlider[v], &lfo3DepthSlider[v], &lfo4DepthSlider[v] };
+        juce::ComboBox* lfoWav[4] = { &lfoWaveBox[v],     &lfo2WaveBox[v],     &lfo3WaveBox[v],     &lfo4WaveBox[v]     };
+        juce::TextButton* lfoSyn[4]={ &lfoSyncBtn[v],     &lfo2SyncBtn[v],     &lfo3SyncBtn[v],     &lfo4SyncBtn[v]     };
+        juce::ComboBox* lfoDiv[4] = { &lfoSyncDivBox[v],  &lfo2SyncDivBox[v],  &lfo3SyncDivBox[v],  &lfo4SyncDivBox[v]  };
+        for (int li = 0; li < 4; ++li)
+        {
+            const juce::String n (li + 1);
+            lfoRate[li]->setTooltip ("LFO " + n + " rate.");
+            lfoDep [li]->setTooltip ("LFO " + n + " depth - master amount for all of its assignments.");
+            lfoWav [li]->setTooltip ("LFO " + n + " waveform.");
+            lfoSyn [li]->setTooltip ("FREE / SYNC - free-running Hz or tempo-synced.");
+            lfoDiv [li]->setTooltip ("LFO " + n + " clock division (sync mode).");
+        }
+        lfoAssignBtn    [v].setTooltip ("ASSIGN - click, then a knob, to route this LFO. Drag the ring to set depth. Right-click to remove.");
+        modEnvAssignBtn [v].setTooltip ("ASSIGN - click, then a knob, to route the mod-env. Drag the ring to set depth. Right-click to remove.");
+        modEnvAtkSlider [v].setTooltip ("Mod-envelope attack.");
+        modEnvDecSlider [v].setTooltip ("Mod-envelope decay.");
+        modEnvSusSlider [v].setTooltip ("Mod-envelope sustain.");
+        modEnvRelSlider [v].setTooltip ("Mod-envelope release.");
+        modEnvDepthSlider[v].setTooltip ("Mod-envelope depth - master amount for all of its assignments.");
+        modEnvSyncBtn   [v].setTooltip ("GATE / SYNC - retrigger on the step gate, or free-run on a clock division.");
+        modEnvDivBox    [v].setTooltip ("Mod-envelope clock division (sync mode).");
+    }
+
+    // ── Global / header ───────────────────────────────────────────────────────
+    for (int m = 0; m < kNumMacros; ++m)
+    {
+        macroKnob     [m].setTooltip ("Macro " + juce::String (m + 1)
+            + " - turn to move every assigned parameter. Host-automatable.");
+        macroAssignBtn[m].setTooltip ("ASSIGN - click, then a knob, to add a destination. Drag the ring to set depth.");
+    }
+    macrosBtn.setTooltip ("Show / hide the macro controllers.");
 }
 
 //==============================================================================
@@ -644,6 +800,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     {
         stepKnob[v][i].setSliderStyle (juce::Slider::LinearVertical);
         stepKnob[v][i].setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        stepKnob[v][i].getProperties().set ("boxStyle", true);   // readable box render
         stepKnob[v][i].setColour (juce::Slider::trackColourId,      knobColour);
         stepKnob[v][i].setColour (juce::Slider::backgroundColourId, juce::Colour (0xff252540));
         addAndMakeVisible (stepKnob[v][i]);
@@ -656,6 +813,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
         // ── Velocity overlay slider (hidden until VELO mode active) ───────────
         veloKnob[v][i].setSliderStyle (juce::Slider::LinearVertical);
         veloKnob[v][i].setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        veloKnob[v][i].getProperties().set ("boxStyle", true);   // readable box render
         veloKnob[v][i].setRange (1.0, 127.0, 1.0);
         veloKnob[v][i].setValue (audioProcessor.voice[v].stepVelocity[i], juce::dontSendNotification);
         veloKnob[v][i].setColour (juce::Slider::trackColourId,      juce::Colour (0xff00aaff));  // cyan — clearly distinct from pitch amber
@@ -715,7 +873,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     seqLengthSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
     seqLengthSlider[v].setRange (2.0, 16.0, 1.0);
     seqLengthSlider[v].setValue (vp.sequenceLength, juce::dontSendNotification);
-    seqLengthSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 18, 18);
+    seqLengthSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 34, 18);
     seqLengthSlider[v].setColour (juce::Slider::trackColourId,             knobColour);
     seqLengthSlider[v].setColour (juce::Slider::backgroundColourId,        juce::Colour (0xff252540));
     seqLengthSlider[v].setColour (juce::Slider::textBoxTextColourId,       textColour);
@@ -769,7 +927,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
             vp.stepVelocity[i]    = 100.0f;
             vp.stepProbability[i] = 100.0f;
         }
-        vp.unipolar = false;                 // back to bipolar default
+        vp.unipolar = true;                  // clean slate = UNI (positive-only) default
 
         // Push step pitches (APVTS-backed) to the params/host, then refresh the
         // non-APVTS UI (gate buttons, velocity overlays, bipolar toggle).
@@ -836,12 +994,16 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
 
     // Swing
     swingSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
-    swingSlider[v].setRange (0.5, 0.75, 0.001);
-    swingSlider[v].setValue (vp.swingAmount, juce::dontSendNotification);
-    swingSlider[v].setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-    swingSlider[v].setColour (juce::Slider::trackColourId,      knobColour);
-    swingSlider[v].setColour (juce::Slider::backgroundColourId, juce::Colour (0xff252540));
-    swingSlider[v].onValueChange = [this, v]() { audioProcessor.voice[v].swingAmount = (float)swingSlider[v].getValue(); };
+    swingSlider[v].setRange (50.0, 75.0, 1.0);            // displayed as integer %
+    swingSlider[v].setValue (vp.swingAmount * 100.0, juce::dontSendNotification);
+    swingSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 34, 18);
+    swingSlider[v].setTextValueSuffix ("%");
+    swingSlider[v].setColour (juce::Slider::trackColourId,             knobColour);
+    swingSlider[v].setColour (juce::Slider::backgroundColourId,        juce::Colour (0xff252540));
+    swingSlider[v].setColour (juce::Slider::textBoxTextColourId,       textColour);
+    swingSlider[v].setColour (juce::Slider::textBoxBackgroundColourId, bgColour);   // blend box into panel (match RANGE/LENGTH)
+    swingSlider[v].setColour (juce::Slider::textBoxOutlineColourId,    bgColour);
+    swingSlider[v].onValueChange = [this, v]() { audioProcessor.voice[v].swingAmount = (float) (swingSlider[v].getValue() / 100.0); };
     addAndMakeVisible (swingSlider[v]);
 
     // Run / Stop
@@ -864,7 +1026,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     rangeSlider[v].setSliderStyle (juce::Slider::LinearHorizontal);
     rangeSlider[v].setRange (0.0, 1.0, 0.01);
     rangeSlider[v].setValue (vp.rangeVCA, juce::dontSendNotification);
-    rangeSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 38, 18);
+    rangeSlider[v].setTextBoxStyle (juce::Slider::TextBoxRight, false, 34, 18);
     rangeSlider[v].setColour (juce::Slider::trackColourId,            knobColour);
     rangeSlider[v].setColour (juce::Slider::backgroundColourId,       juce::Colour (0xff252540));
     rangeSlider[v].setColour (juce::Slider::textBoxTextColourId,      textColour);
@@ -1244,6 +1406,44 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     modEnvDestBox[v].onChange = [this,v]() { audioProcessor.voice[v].modEnv.dest = modEnvDestBox[v].getSelectedItemIndex(); };
     addAndMakeVisible (modEnvDestBox[v]);
     envSectionComps[v].push_back (&modEnvDestBox[v]);
+    modEnvDestBox[v].setVisible (false);   // legacy — replaced by macro-style assign
+
+    // ── Macro-style assign for the LFOs + mod-env ─────────────────────────────
+    auto styleAssign = [](AssignButton& b)
+    {
+        b.setButtonText ("ASSIGN");
+        b.setClickingTogglesState (false);
+        b.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff14242a));
+        b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff63b4ec));
+        b.setColour (juce::TextButton::textColourOffId,  juce::Colour (0xff63b4ec));
+        b.setColour (juce::TextButton::textColourOnId,   juce::Colour (0xff071518));
+    };
+    auto styleAssignLabel = [](juce::Label& l)
+    {
+        l.setFont (juce::Font (8.5f));
+        l.setColour (juce::Label::textColourId, juce::Colour (0xffc8d2dc));
+        l.setJustificationType (juce::Justification::topLeft);
+        l.setMinimumHorizontalScale (1.0f);
+    };
+    styleAssign (lfoAssignBtn[v]);
+    lfoAssignBtn[v].onClick      = [this,v]() {
+        ModSource s { ModSource::LFO, v, lfoSel[v] };
+        (learnSource == s) ? exitMacroLearn() : enterLearn (s);
+    };
+    lfoAssignBtn[v].onRightClick = [this,v]() { showModMenu ({ ModSource::LFO, v, lfoSel[v] }); };
+    addAndMakeVisible (lfoAssignBtn[v]);
+    styleAssignLabel (lfoAssignLabel[v]);
+    addAndMakeVisible (lfoAssignLabel[v]);
+
+    styleAssign (modEnvAssignBtn[v]);
+    modEnvAssignBtn[v].onClick      = [this,v]() {
+        ModSource s { ModSource::ModEnv, v, 0 };
+        (learnSource == s) ? exitMacroLearn() : enterLearn (s);
+    };
+    modEnvAssignBtn[v].onRightClick = [this,v]() { showModMenu ({ ModSource::ModEnv, v, 0 }); };
+    addAndMakeVisible (modEnvAssignBtn[v]);
+    styleAssignLabel (modEnvAssignLabel[v]);
+    addAndMakeVisible (modEnvAssignLabel[v]);
 
     // Default = GATE (retriggers on every sequencer gate, same as amp/filter envs)
     // Toggled  = SYNC (free-runs on a clock division)
@@ -1291,6 +1491,45 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     addAndMakeVisible (midiOutBtn[v]);
     synthPageComponents.push_back (&midiOutBtn[v]);
     synthPageComponents.push_back (&randModeBtn[v]);
+
+    // ── MIDI / VOICE config radio (one config group visible at a time) ────────
+    {
+        auto styleRadio = [](juce::TextButton& b, const juce::String& t)
+        {
+            b.setButtonText (t);
+            b.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff161630));
+            b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff2255aa));
+            b.setColour (juce::TextButton::textColourOffId,  juce::Colour (0xffa0a0b4));
+            b.setColour (juce::TextButton::textColourOnId,   juce::Colour (0xffffffff));
+        };
+        styleRadio (midiViewBtn[v],  "MIDI");
+        styleRadio (voiceViewBtn[v], "VOICE");
+        midiViewBtn[v].onClick  = [this, v]() { cfgView[v] = 0; applyCfgView (v); };
+        voiceViewBtn[v].onClick = [this, v]() { cfgView[v] = 1; applyCfgView (v); };
+        addAndMakeVisible (midiViewBtn[v]);  synthPageComponents.push_back (&midiViewBtn[v]);
+        addAndMakeVisible (voiceViewBtn[v]); synthPageComponents.push_back (&voiceViewBtn[v]);
+
+        // QUANT / ORDER / TOOLS — one 3-way radio sharing the middle slot.
+        // QUANT = Root/Scale/Clock · ORDER = play order · TOOLS = RST/UNI,
+        // randomise, nudge, MIDI/VOICE config (all collapsed behind one switch).
+        auto styleMid = [](juce::TextButton& b, const juce::String& t)
+        {
+            b.setButtonText (t);
+            b.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff161630));
+            b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff2255aa));
+            b.setColour (juce::TextButton::textColourOffId,  juce::Colour (0xffa0a0b4));
+            b.setColour (juce::TextButton::textColourOnId,   juce::Colour (0xffffffff));
+        };
+        styleMid (quantViewBtn[v], "QUANT");
+        styleMid (orderViewBtn[v], "ORDER");
+        styleMid (toolsBtn[v],     "TOOLS");
+        quantViewBtn[v].onClick = [this, v]() { midView[v] = 0; applyMidView (v); };
+        orderViewBtn[v].onClick = [this, v]() { midView[v] = 1; applyMidView (v); };
+        toolsBtn[v].onClick     = [this, v]() { midView[v] = 2; applyMidView (v); };
+        addAndMakeVisible (quantViewBtn[v]); synthPageComponents.push_back (&quantViewBtn[v]);
+        addAndMakeVisible (orderViewBtn[v]); synthPageComponents.push_back (&orderViewBtn[v]);
+        addAndMakeVisible (toolsBtn[v]);     synthPageComponents.push_back (&toolsBtn[v]);
+    }
 
     for (int ch = 1; ch <= 16; ++ch)
         midiOutChBox[v].addItem ("Ch " + juce::String (ch), ch);
@@ -1365,7 +1604,7 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     synthPageComponents.push_back (&uniWidthSlider[v]);
 
     // ── PLAITS toggle ─────────────────────────────────────────────────────────
-    plaitsBtn[v].setButtonText ("PLAITS");
+    plaitsBtn[v].setButtonText ("Macro OSC");
     plaitsBtn[v].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff161630));
     plaitsBtn[v].setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe0e0e0));
     plaitsBtn[v].onClick = [this, v]()
@@ -1475,46 +1714,14 @@ void VoltageSeq2AudioProcessorEditor::refreshPlaitsMode (int v)
     plaitsBtn[v].setColour (juce::TextButton::textColourOffId,
         on ? juce::Colour (0xffcc88ff) : juce::Colour (0xffe0e0e0));
 
-    // ── Front-page OSC1 basic controls (always managed, independent of panel) ─
-    // These live permanently in the ctrl strip — hide when Plaits replaces them.
-    if (currentPage == 0)
-    {
-        osc1WaveBox    [v].setVisible (!on);
-        osc1LevelSlider[v].setVisible (!on);
-        osc1OctaveBox  [v].setVisible (!on);
-        // oscScope stays visible regardless of Plaits mode
-        repaint();
-    }
-
-    // ── Panel controls — only update when OSC panel is open ───────────────────
-    if (currentPage != 0 || !oscPanelOpen[v]) return;
-
-    // Show Plaits engine selector + parameter knobs only when active
-    plaitsEngBox       [v].setVisible (on);
-    plaitsHarmSlider   [v].setVisible (on);
-    plaitsTimSlider    [v].setVisible (on);
-    plaitsMorphSlider  [v].setVisible (on);
-    plaitsAuxSlider    [v].setVisible (on);
-
-    // Octave transpose box + TRIG button — visible only when Plaits is on
-    plaitsOctBox  [v].setVisible (on);
-    plaitsTrigBtn [v].setVisible (on);
+    // TRIG button colour
     plaitsTrigBtn[v].setColour (juce::TextButton::buttonColourId,
         trig ? juce::Colour (0xff442200) : juce::Colour (0xff161630));
     plaitsTrigBtn[v].setColour (juce::TextButton::textColourOffId,
         trig ? juce::Colour (0xffff8844) : juce::Colour (0xffe0e0e0));
 
-    // Hide panel-only OSC/FM controls when Plaits is active (they overlap in panel)
-    osc1PWMSlider      [v].setVisible (!on);
-    osc1FeedbackSlider [v].setVisible (!on);
-    driftSlider        [v].setVisible (!on);
-    osc2PosSlider      [v].setVisible (!on);
-    osc2LevelSlider    [v].setVisible (!on);
-    osc2OctaveBox      [v].setVisible (!on);
-    wavetableDisplay   [v]->setVisible (!on);
-    fmDepthSlider      [v].setVisible (!on);
-    fmRatioSlider      [v].setVisible (!on);
-    crossModSlider     [v].setVisible (!on);
+    // All OSC / Plaits control visibility now flows through the inline view toggle.
+    refreshOscView (v);
 
     macroOverlay.toFront (false);   // visible-knob set changed — refresh rings
     macroOverlay.repaint();
@@ -1890,300 +2097,271 @@ void VoltageSeq2AudioProcessorEditor::setupFxControls()
         fxPageComponents.push_back (&c);
     };
 
-    // ── Voice A / B tab buttons ───────────────────────────────────────────────
-    auto setupVoiceTab = [&](juce::TextButton& btn, int vi, const char* label)
+    // Both voices' FX are shown at once (Voice A over Voice B). Each control binds
+    // to a fixed voice index v → audioProcessor.fx[v].
+    for (int v = 0; v < 2; ++v)
     {
-        btn.setButtonText (label);
-        btn.setClickingTogglesState (false);
-        btn.setColour (juce::TextButton::buttonColourId,
-                       vi == 0 ? juce::Colour(0xff2255aa) : juce::Colour(0xff161630));
-        btn.onClick = [this, vi]()
-        {
-            fxVoiceTab = vi;
-            fxVoiceABtn.setColour (juce::TextButton::buttonColourId,
-                                   vi == 0 ? juce::Colour(0xff2255aa) : juce::Colour(0xff161630));
-            fxVoiceBBtn.setColour (juce::TextButton::buttonColourId,
-                                   vi == 1 ? juce::Colour(0xff2255aa) : juce::Colour(0xff161630));
-            syncFxPageFromVoice();
+        // ── Bypass ───────────────────────────────────────────────────────────
+        fxBypassBtn[v].setButtonText ("BYPASS");
+        fxBypassBtn[v].setClickingTogglesState (true);
+        fxBypassBtn[v].setColour (juce::TextButton::buttonColourId,   juce::Colour(0xff161630));
+        fxBypassBtn[v].setColour (juce::TextButton::buttonOnColourId, juce::Colour(0xffaa3322));
+        fxBypassBtn[v].onClick = [this,v]() {
+            bool b = fxBypassBtn[v].getToggleState();
+            audioProcessor.fx[v].fxBypass = b;
+            fxBypassBtn[v].setColour (juce::TextButton::buttonColourId,
+                                      b ? juce::Colour(0xffaa3322) : juce::Colour(0xff161630));
         };
-        addFx (btn);
-    };
-    setupVoiceTab (fxVoiceABtn, 0, "VOICE A");
-    setupVoiceTab (fxVoiceBBtn, 1, "VOICE B");
+        addFx (fxBypassBtn[v]);
 
-    // ── Bypass button ─────────────────────────────────────────────────────────
-    fxBypassBtn.setButtonText ("BYPASS");
-    fxBypassBtn.setClickingTogglesState (true);
-    fxBypassBtn.setToggleState (false, juce::dontSendNotification);
-    fxBypassBtn.setColour (juce::TextButton::buttonColourId,   juce::Colour(0xff161630));
-    fxBypassBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour(0xffaa3322));
-    fxBypassBtn.onClick = [this]()
-    {
-        bool b = fxBypassBtn.getToggleState();
-        audioProcessor.fx[fxVoiceTab].fxBypass = b;
-        fxBypassBtn.setColour (juce::TextButton::buttonColourId,
-                               b ? juce::Colour(0xffaa3322) : juce::Colour(0xff161630));
-    };
-    addFx (fxBypassBtn);
+        // ── Delay ────────────────────────────────────────────────────────────
+        delayOnBtn[v].setButtonText ("OFF");
+        delayOnBtn[v].setClickingTogglesState (true);
+        delayOnBtn[v].setColour (juce::TextButton::buttonColourId,   gateOffColour);
+        delayOnBtn[v].setColour (juce::TextButton::buttonOnColourId, gateOnColour);
+        delayOnBtn[v].onClick = [this,v]() {
+            bool s = delayOnBtn[v].getToggleState();
+            audioProcessor.fx[v].delayOn = s;
+            delayOnBtn[v].setButtonText (s ? "ON" : "OFF");
+            delayOnBtn[v].setColour (juce::TextButton::buttonColourId, s ? gateOnColour : gateOffColour);
+        };
+        addFx (delayOnBtn[v]);
 
-    // ── Delay ─────────────────────────────────────────────────────────────────
-    // Controls read/write audioProcessor.fx[fxVoiceTab] at the time of interaction.
-    delayOnBtn.setButtonText ("OFF");
-    delayOnBtn.setClickingTogglesState (true);
-    delayOnBtn.setColour (juce::TextButton::buttonColourId,   gateOffColour);
-    delayOnBtn.setColour (juce::TextButton::buttonOnColourId, gateOnColour);
-    delayOnBtn.onClick = [this]() {
-        bool s = delayOnBtn.getToggleState();
-        audioProcessor.fx[fxVoiceTab].delayOn = s;
-        delayOnBtn.setButtonText (s ? "ON" : "OFF");
-        delayOnBtn.setColour (juce::TextButton::buttonColourId, s ? gateOnColour : gateOffColour);
-    };
-    addFx (delayOnBtn);
+        delaySyncBtn[v].setButtonText ("SYNC");
+        delaySyncBtn[v].setClickingTogglesState (true);
+        delaySyncBtn[v].setColour (juce::TextButton::buttonColourId,   juce::Colour(0xff63b4ec));
+        delaySyncBtn[v].setColour (juce::TextButton::buttonOnColourId, juce::Colour(0xff63b4ec));
+        delaySyncBtn[v].onClick = [this,v]() {
+            bool s = delaySyncBtn[v].getToggleState();
+            audioProcessor.fx[v].delaySync = s;
+            delaySyncBtn[v].setButtonText (s ? "SYNC" : "FREE");
+            delaySyncBtn[v].setColour (juce::TextButton::buttonColourId, s ? juce::Colour(0xff63b4ec) : gateOffColour);
+        };
+        addFx (delaySyncBtn[v]);
 
-    delaySyncBtn.setButtonText ("SYNC");
-    delaySyncBtn.setClickingTogglesState (true);
-    delaySyncBtn.setColour (juce::TextButton::buttonColourId,   juce::Colour(0xffe09040));
-    delaySyncBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour(0xffe09040));
-    delaySyncBtn.onClick = [this]() {
-        bool s = delaySyncBtn.getToggleState();
-        audioProcessor.fx[fxVoiceTab].delaySync = s;
-        delaySyncBtn.setButtonText (s ? "SYNC" : "FREE");
-        delaySyncBtn.setColour (juce::TextButton::buttonColourId, s ? juce::Colour(0xffe09040) : gateOffColour);
-    };
-    addFx (delaySyncBtn);
+        for (auto* it : { "1/4","1/8","1/16","1/8T","1/16T","1/8.","1/16." })
+            delaySyncDivBox[v].addItem (it, delaySyncDivBox[v].getNumItems() + 1);
+        delaySyncDivBox[v].onChange = [this,v]() { audioProcessor.fx[v].delaySyncDiv = delaySyncDivBox[v].getSelectedItemIndex(); };
+        delaySyncDivBox[v].setColour (juce::ComboBox::backgroundColourId, juce::Colour(0xff0e1020));
+        delaySyncDivBox[v].setColour (juce::ComboBox::textColourId,       juce::Colour(0xffe0e0e0));
+        addFx (delaySyncDivBox[v]);
 
-    delaySyncDivBox.addItem ("1/4",   1);
-    delaySyncDivBox.addItem ("1/8",   2);
-    delaySyncDivBox.addItem ("1/16",  3);
-    delaySyncDivBox.addItem ("1/8T",  4);
-    delaySyncDivBox.addItem ("1/16T", 5);
-    delaySyncDivBox.addItem ("1/8.",  6);
-    delaySyncDivBox.addItem ("1/16.", 7);
-    delaySyncDivBox.onChange = [this]() { audioProcessor.fx[fxVoiceTab].delaySyncDiv = delaySyncDivBox.getSelectedItemIndex(); };
-    delaySyncDivBox.setColour (juce::ComboBox::backgroundColourId, juce::Colour(0xff0e1020));
-    delaySyncDivBox.setColour (juce::ComboBox::textColourId,       juce::Colour(0xffe0e0e0));
-    addFx (delaySyncDivBox);
+        setupKnob (delayTimeMsSlider[v], 1.0, 2000.0, 375.0);
+        delayTimeMsSlider[v].onValueChange = [this,v]() { audioProcessor.fx[v].delayTimeMs = (float)delayTimeMsSlider[v].getValue(); };
+        addFx (delayTimeMsSlider[v]);
 
-    setupKnob (delayTimeMsSlider, 1.0, 2000.0, 375.0);
-    delayTimeMsSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].delayTimeMs = (float)delayTimeMsSlider.getValue(); };
-    addFx (delayTimeMsSlider);
+        setupKnob (delayFeedbackSlider[v], 0.0, 0.95, 0.40);
+        delayFeedbackSlider[v].onValueChange = [this,v]() { audioProcessor.fx[v].delayFeedback = (float)delayFeedbackSlider[v].getValue(); };
+        addFx (delayFeedbackSlider[v]);
 
-    setupKnob (delayFeedbackSlider, 0.0, 0.95, 0.40);
-    delayFeedbackSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].delayFeedback = (float)delayFeedbackSlider.getValue(); };
-    addFx (delayFeedbackSlider);
+        delayPingPongBtn[v].setButtonText ("PING");
+        delayPingPongBtn[v].setClickingTogglesState (true);
+        delayPingPongBtn[v].setColour (juce::TextButton::buttonColourId,   gateOffColour);
+        delayPingPongBtn[v].setColour (juce::TextButton::buttonOnColourId, juce::Colour(0xff5566dd));
+        delayPingPongBtn[v].onClick = [this,v]() {
+            bool s = delayPingPongBtn[v].getToggleState();
+            audioProcessor.fx[v].delayPingPong = s;
+            delayPingPongBtn[v].setColour (juce::TextButton::buttonColourId, s ? juce::Colour(0xff5566dd) : gateOffColour);
+        };
+        addFx (delayPingPongBtn[v]);
 
-    delayPingPongBtn.setButtonText ("PING");
-    delayPingPongBtn.setClickingTogglesState (true);
-    delayPingPongBtn.setColour (juce::TextButton::buttonColourId,   gateOffColour);
-    delayPingPongBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour(0xff5566dd));
-    delayPingPongBtn.onClick = [this]() {
-        bool s = delayPingPongBtn.getToggleState();
-        audioProcessor.fx[fxVoiceTab].delayPingPong = s;
-        delayPingPongBtn.setColour (juce::TextButton::buttonColourId, s ? juce::Colour(0xff5566dd) : gateOffColour);
-    };
-    addFx (delayPingPongBtn);
+        setupKnob (delayMixSlider[v], 0.0, 1.0, 0.30);
+        delayMixSlider[v].onValueChange = [this,v]() { audioProcessor.fx[v].delayMix = (float)delayMixSlider[v].getValue(); };
+        addFx (delayMixSlider[v]);
 
-    setupKnob (delayMixSlider, 0.0, 1.0, 0.30);
-    delayMixSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].delayMix = (float)delayMixSlider.getValue(); };
-    addFx (delayMixSlider);
+        setupKnob (delayWowSlider[v], 0.0, 1.0, 0.0);
+        delayWowSlider[v].onValueChange = [this,v]() { audioProcessor.fx[v].delayWow = (float)delayWowSlider[v].getValue(); };
+        addFx (delayWowSlider[v]);
 
-    // Tape character knobs
-    setupKnob (delayWowSlider, 0.0, 1.0, 0.0);
-    delayWowSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].delayWow = (float)delayWowSlider.getValue(); };
-    addFx (delayWowSlider);
+        setupKnob (delayFlutterSlider[v], 0.0, 1.0, 0.0);
+        delayFlutterSlider[v].onValueChange = [this,v]() { audioProcessor.fx[v].delayFlutter = (float)delayFlutterSlider[v].getValue(); };
+        addFx (delayFlutterSlider[v]);
 
-    setupKnob (delayFlutterSlider, 0.0, 1.0, 0.0);
-    delayFlutterSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].delayFlutter = (float)delayFlutterSlider.getValue(); };
-    addFx (delayFlutterSlider);
+        setupKnob (delaySatSlider[v], 0.0, 1.0, 0.0);
+        delaySatSlider[v].onValueChange = [this,v]() { audioProcessor.fx[v].delaySat = (float)delaySatSlider[v].getValue(); };
+        addFx (delaySatSlider[v]);
 
-    setupKnob (delaySatSlider, 0.0, 1.0, 0.0);
-    delaySatSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].delaySat = (float)delaySatSlider.getValue(); };
-    addFx (delaySatSlider);
+        setupKnob (delayProbSlider[v], 0.0, 1.0, 1.0);
+        delayProbSlider[v].setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xffe09040));
+        delayProbSlider[v].onValueChange = [this,v]() { audioProcessor.fx[v].delayProb = (float)delayProbSlider[v].getValue(); };
+        addFx (delayProbSlider[v]);
 
-    // Bernoulli gate probability knob — amber accent to signal it's special
-    setupKnob (delayProbSlider, 0.0, 1.0, 1.0);
-    delayProbSlider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xffe09040));
-    delayProbSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].delayProb = (float)delayProbSlider.getValue(); };
-    addFx (delayProbSlider);
+        // ── Reverb ───────────────────────────────────────────────────────────
+        reverbOnBtn[v].setButtonText ("OFF");
+        reverbOnBtn[v].setClickingTogglesState (true);
+        reverbOnBtn[v].setColour (juce::TextButton::buttonColourId,   gateOffColour);
+        reverbOnBtn[v].setColour (juce::TextButton::buttonOnColourId, gateOnColour);
+        reverbOnBtn[v].onClick = [this,v]() {
+            bool s = reverbOnBtn[v].getToggleState();
+            audioProcessor.fx[v].reverbOn = s;
+            reverbOnBtn[v].setButtonText (s ? "ON" : "OFF");
+            reverbOnBtn[v].setColour (juce::TextButton::buttonColourId, s ? gateOnColour : gateOffColour);
+        };
+        addFx (reverbOnBtn[v]);
 
-    // ── Reverb ────────────────────────────────────────────────────────────────
-    reverbOnBtn.setButtonText ("OFF");
-    reverbOnBtn.setClickingTogglesState (true);
-    reverbOnBtn.setColour (juce::TextButton::buttonColourId,   gateOffColour);
-    reverbOnBtn.setColour (juce::TextButton::buttonOnColourId, gateOnColour);
-    reverbOnBtn.onClick = [this]() {
-        bool s = reverbOnBtn.getToggleState();
-        audioProcessor.fx[fxVoiceTab].reverbOn = s;
-        reverbOnBtn.setButtonText (s ? "ON" : "OFF");
-        reverbOnBtn.setColour (juce::TextButton::buttonColourId, s ? gateOnColour : gateOffColour);
-    };
-    addFx (reverbOnBtn);
+        setupKnob (reverbSizeSlider[v],     0.0, 1.0, 0.75);
+        reverbSizeSlider[v].onValueChange = [this,v]() { audioProcessor.fx[v].reverbSize = (float)reverbSizeSlider[v].getValue(); };
+        addFx (reverbSizeSlider[v]);
 
-    setupKnob (reverbSizeSlider,     0.0, 1.0, 0.75);
-    reverbSizeSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].reverbSize = (float)reverbSizeSlider.getValue(); };
-    addFx (reverbSizeSlider);
+        setupKnob (reverbDampingSlider[v],  0.0, 1.0, 0.40);
+        reverbDampingSlider[v].onValueChange = [this,v]() { audioProcessor.fx[v].reverbDamping = (float)reverbDampingSlider[v].getValue(); };
+        addFx (reverbDampingSlider[v]);
 
-    setupKnob (reverbDampingSlider,  0.0, 1.0, 0.40);
-    reverbDampingSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].reverbDamping = (float)reverbDampingSlider.getValue(); };
-    addFx (reverbDampingSlider);
+        setupKnob (reverbPreDelaySlider[v], 0.0, 100.0, 20.0);
+        reverbPreDelaySlider[v].onValueChange = [this,v]() { audioProcessor.fx[v].reverbPreDelay = (float)reverbPreDelaySlider[v].getValue(); };
+        addFx (reverbPreDelaySlider[v]);
 
-    setupKnob (reverbPreDelaySlider, 0.0, 100.0, 20.0);
-    reverbPreDelaySlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].reverbPreDelay = (float)reverbPreDelaySlider.getValue(); };
-    addFx (reverbPreDelaySlider);
+        setupKnob (reverbMixSlider[v], 0.0, 1.0, 0.25);
+        reverbMixSlider[v].onValueChange = [this,v]() { audioProcessor.fx[v].reverbMix = (float)reverbMixSlider[v].getValue(); };
+        addFx (reverbMixSlider[v]);
 
-    setupKnob (reverbMixSlider, 0.0, 1.0, 0.25);
-    reverbMixSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].reverbMix = (float)reverbMixSlider.getValue(); };
-    addFx (reverbMixSlider);
+        // ── Chorus ───────────────────────────────────────────────────────────
+        chorusOnBtn[v].setButtonText ("OFF");
+        chorusOnBtn[v].setClickingTogglesState (true);
+        chorusOnBtn[v].setColour (juce::TextButton::buttonColourId,   gateOffColour);
+        chorusOnBtn[v].setColour (juce::TextButton::buttonOnColourId, gateOnColour);
+        chorusOnBtn[v].onClick = [this,v]() {
+            bool s = chorusOnBtn[v].getToggleState();
+            audioProcessor.fx[v].chorusOn = s;
+            chorusOnBtn[v].setButtonText (s ? "ON" : "OFF");
+            chorusOnBtn[v].setColour (juce::TextButton::buttonColourId, s ? gateOnColour : gateOffColour);
+        };
+        addFx (chorusOnBtn[v]);
 
-    // ── Chorus ────────────────────────────────────────────────────────────────
-    chorusOnBtn.setButtonText ("OFF");
-    chorusOnBtn.setClickingTogglesState (true);
-    chorusOnBtn.setColour (juce::TextButton::buttonColourId,   gateOffColour);
-    chorusOnBtn.setColour (juce::TextButton::buttonOnColourId, gateOnColour);
-    chorusOnBtn.onClick = [this]() {
-        bool s = chorusOnBtn.getToggleState();
-        audioProcessor.fx[fxVoiceTab].chorusOn = s;
-        chorusOnBtn.setButtonText (s ? "ON" : "OFF");
-        chorusOnBtn.setColour (juce::TextButton::buttonColourId, s ? gateOnColour : gateOffColour);
-    };
-    addFx (chorusOnBtn);
+        setupKnob (chorusRateSlider[v],  0.1, 5.0, 0.50);
+        chorusRateSlider[v].onValueChange = [this,v]() { audioProcessor.fx[v].chorusRate = (float)chorusRateSlider[v].getValue(); };
+        addFx (chorusRateSlider[v]);
 
-    setupKnob (chorusRateSlider,  0.1, 5.0, 0.50);
-    chorusRateSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].chorusRate = (float)chorusRateSlider.getValue(); };
-    addFx (chorusRateSlider);
+        setupKnob (chorusDepthSlider[v], 0.0, 1.0, 0.50);
+        chorusDepthSlider[v].onValueChange = [this,v]() { audioProcessor.fx[v].chorusDepth = (float)chorusDepthSlider[v].getValue(); };
+        addFx (chorusDepthSlider[v]);
 
-    setupKnob (chorusDepthSlider, 0.0, 1.0, 0.50);
-    chorusDepthSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].chorusDepth = (float)chorusDepthSlider.getValue(); };
-    addFx (chorusDepthSlider);
+        setupKnob (chorusMixSlider[v], 0.0, 1.0, 0.50);
+        chorusMixSlider[v].onValueChange = [this,v]() { audioProcessor.fx[v].chorusMix = (float)chorusMixSlider[v].getValue(); };
+        addFx (chorusMixSlider[v]);
 
-    setupKnob (chorusMixSlider, 0.0, 1.0, 0.50);
-    chorusMixSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].chorusMix = (float)chorusMixSlider.getValue(); };
-    addFx (chorusMixSlider);
+        // ── Master ───────────────────────────────────────────────────────────
+        setupKnob (masterDriveSlider[v], 0.0, 1.0, 0.0);
+        masterDriveSlider[v].onValueChange = [this,v]() { audioProcessor.fx[v].masterDrive = (float)masterDriveSlider[v].getValue(); };
+        addFx (masterDriveSlider[v]);
 
-    // ── Master ────────────────────────────────────────────────────────────────
-    setupKnob (masterDriveSlider, 0.0, 1.0, 0.0);
-    masterDriveSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].masterDrive = (float)masterDriveSlider.getValue(); };
-    addFx (masterDriveSlider);
+        setupKnob (masterGainSlider[v], 0.0, 2.0, 1.0);
+        masterGainSlider[v].onValueChange = [this,v]() { audioProcessor.fx[v].masterGain = (float)masterGainSlider[v].getValue(); };
+        addFx (masterGainSlider[v]);
+    }
 
-    setupKnob (masterGainSlider, 0.0, 2.0, 1.0);
-    masterGainSlider.onValueChange = [this]() { audioProcessor.fx[fxVoiceTab].masterGain = (float)masterGainSlider.getValue(); };
-    addFx (masterGainSlider);
-
-    // Sync controls to Voice A defaults at startup.
-    syncFxPageFromVoice();
+    syncFxPageFromVoice();   // load both voices' values into their controls
 }
 
 //==============================================================================
 // layoutFxPage — size and position all FX page controls
 //==============================================================================
+// Per-voice band tops for the FX page (Voice A over Voice B).
+namespace { constexpr int fxBandAY = 40, fxBandBY = 388, fxKsz = 54; }
+
 void VoltageSeq2AudioProcessorEditor::layoutFxPage()
 {
-    // Voice tab row — sits just below the nav bar (nav bar ends at y=25)
-    constexpr int tabY = 30, tabH = 24;
-    fxVoiceABtn .setBounds (10,  tabY, 100, tabH);
-    fxVoiceBBtn .setBounds (120, tabY, 100, tabH);
-    fxBypassBtn .setBounds (240, tabY, 100, tabH);
+    for (int v = 0; v < 2; ++v)
+    {
+        const int top  = (v == 0) ? fxBandAY : fxBandBY;
+        const int btnY = top + 30;
+        const int kY1  = top + 116;   // knob row 1
+        const int kY2  = top + 210;   // knob row 2 (delay tape/gate)
+        const int K    = fxKsz, sp = 70;
 
-    // Four panels across the page: DELAY | REVERB | CHORUS | MASTER
-    // Controls start at py=90, leaving ~30px gap below the tab row
-    constexpr int py = 90, dR2 = 90 + 150;
+        // BYPASS — band top-right
+        fxBypassBtn[v].setBounds (1372, top + 6, 110, 22);
 
-    // DELAY — two rows, self-contained in x=10..440
-    constexpr int dX  = 10;
-    constexpr int dR3 = dR2 + 76;    // second knob row (tape char + gate)
-    delayOnBtn         .setBounds (dX,      py+10,  80, 26);
-    delaySyncBtn       .setBounds (dX+90,   py+10,  80, 26);
-    delaySyncDivBox    .setBounds (dX+180,  py+10, 100, 26);
-    delayPingPongBtn   .setBounds (dX+290,  py+10,  80, 26);
-    // Row 1: core controls
-    delayTimeMsSlider  .setBounds (dX+10,   dR2,    52, 52);
-    delayFeedbackSlider.setBounds (dX+80,   dR2,    52, 52);
-    delayMixSlider     .setBounds (dX+150,  dR2,    52, 52);
-    // Row 2: tape character + Bernoulli gate
-    delayWowSlider     .setBounds (dX+10,   dR3,    52, 52);
-    delayFlutterSlider .setBounds (dX+80,   dR3,    52, 52);
-    delaySatSlider     .setBounds (dX+150,  dR3,    52, 52);
-    delayProbSlider    .setBounds (dX+240,  dR3,    52, 52);
+        // DELAY  x=10..450
+        const int dX = 10;
+        delayOnBtn      [v].setBounds (dX + 10,  btnY, 70, 24);
+        delaySyncBtn    [v].setBounds (dX + 86,  btnY, 70, 24);
+        delaySyncDivBox [v].setBounds (dX + 162, btnY, 86, 24);
+        delayPingPongBtn[v].setBounds (dX + 254, btnY, 70, 24);
+        delayTimeMsSlider  [v].setBounds (dX + 14,        kY1, K, K);
+        delayFeedbackSlider[v].setBounds (dX + 14 + sp,   kY1, K, K);
+        delayMixSlider     [v].setBounds (dX + 14 + sp*2, kY1, K, K);
+        delayWowSlider     [v].setBounds (dX + 14,        kY2, K, K);
+        delayFlutterSlider [v].setBounds (dX + 14 + sp,   kY2, K, K);
+        delaySatSlider     [v].setBounds (dX + 14 + sp*2, kY2, K, K);
+        delayProbSlider    [v].setBounds (dX + 14 + sp*3, kY2, K, K);
 
-    // REVERB: x=460..890
-    constexpr int rX=460;
-    reverbOnBtn         .setBounds (rX,      py+10,  80, 26);
-    reverbSizeSlider    .setBounds (rX+10,   dR2,    52, 52);
-    reverbDampingSlider .setBounds (rX+80,   dR2,    52, 52);
-    reverbPreDelaySlider.setBounds (rX+150,  dR2,    52, 52);
-    reverbMixSlider     .setBounds (rX+220,  dR2,    52, 52);
+        // REVERB  x=470..760
+        const int rX = 470;
+        reverbOnBtn         [v].setBounds (rX + 10, btnY, 70, 24);
+        reverbSizeSlider    [v].setBounds (rX + 14,        kY1, K, K);
+        reverbDampingSlider [v].setBounds (rX + 14 + sp,   kY1, K, K);
+        reverbPreDelaySlider[v].setBounds (rX + 14 + sp*2, kY1, K, K);
+        reverbMixSlider     [v].setBounds (rX + 14 + sp*3, kY1, K, K);
 
-    // CHORUS: x=960..1260
-    constexpr int cX=960;
-    chorusOnBtn       .setBounds (cX,      py+10,  80, 26);
-    chorusRateSlider  .setBounds (cX+10,   dR2,    52, 52);
-    chorusDepthSlider .setBounds (cX+80,   dR2,    52, 52);
-    chorusMixSlider   .setBounds (cX+150,  dR2,    52, 52);
+        // CHORUS  x=780..1020
+        const int cX = 780;
+        chorusOnBtn      [v].setBounds (cX + 10, btnY, 70, 24);
+        chorusRateSlider [v].setBounds (cX + 14,        kY1, K, K);
+        chorusDepthSlider[v].setBounds (cX + 14 + sp,   kY1, K, K);
+        chorusMixSlider  [v].setBounds (cX + 14 + sp*2, kY1, K, K);
 
-    // MASTER: x=1290..1490
-    constexpr int mX=1290;
-    masterDriveSlider .setBounds (mX+10,   dR2,    52, 52);
-    masterGainSlider  .setBounds (mX+80,   dR2,    52, 52);
+        // MASTER  x=1040..1230
+        const int mX = 1040;
+        masterDriveSlider[v].setBounds (mX + 14,      kY1, K, K);
+        masterGainSlider [v].setBounds (mX + 14 + sp, kY1, K, K);
+    }
 }
 
 //==============================================================================
-// syncFxPageFromVoice — refresh all FX controls from audioProcessor.fx[fxVoiceTab]
+// syncFxPageFromVoice — refresh BOTH voices' FX controls from audioProcessor.fx[]
 //==============================================================================
 void VoltageSeq2AudioProcessorEditor::syncFxPageFromVoice()
 {
-    const auto& p = audioProcessor.fx[fxVoiceTab];
+    for (int v = 0; v < 2; ++v)
+    {
+        const auto& p = audioProcessor.fx[v];
 
-    // Voice tab highlight
-    fxVoiceABtn.setColour (juce::TextButton::buttonColourId,
-                           fxVoiceTab == 0 ? juce::Colour(0xff2255aa) : juce::Colour(0xff161630));
-    fxVoiceBBtn.setColour (juce::TextButton::buttonColourId,
-                           fxVoiceTab == 1 ? juce::Colour(0xff2255aa) : juce::Colour(0xff161630));
+        fxBypassBtn[v].setToggleState (p.fxBypass, juce::dontSendNotification);
+        fxBypassBtn[v].setColour (juce::TextButton::buttonColourId,
+                                  p.fxBypass ? juce::Colour(0xffaa3322) : juce::Colour(0xff161630));
 
-    // Bypass
-    fxBypassBtn.setToggleState (p.fxBypass, juce::dontSendNotification);
-    fxBypassBtn.setColour (juce::TextButton::buttonColourId,
-                           p.fxBypass ? juce::Colour(0xffaa3322) : juce::Colour(0xff161630));
+        // Delay
+        delayOnBtn[v].setToggleState (p.delayOn, juce::dontSendNotification);
+        delayOnBtn[v].setButtonText (p.delayOn ? "ON" : "OFF");
+        delayOnBtn[v].setColour (juce::TextButton::buttonColourId, p.delayOn ? gateOnColour : gateOffColour);
+        delaySyncBtn[v].setToggleState (p.delaySync, juce::dontSendNotification);
+        delaySyncBtn[v].setButtonText (p.delaySync ? "SYNC" : "FREE");
+        delaySyncBtn[v].setColour (juce::TextButton::buttonColourId,
+                                   p.delaySync ? juce::Colour(0xff63b4ec) : gateOffColour);
+        delaySyncDivBox[v].setSelectedItemIndex (p.delaySyncDiv, juce::dontSendNotification);
+        delayTimeMsSlider[v].setValue (p.delayTimeMs,   juce::dontSendNotification);
+        delayFeedbackSlider[v].setValue (p.delayFeedback, juce::dontSendNotification);
+        delayPingPongBtn[v].setToggleState (p.delayPingPong, juce::dontSendNotification);
+        delayPingPongBtn[v].setColour (juce::TextButton::buttonColourId,
+                                       p.delayPingPong ? juce::Colour(0xff5566dd) : gateOffColour);
+        delayMixSlider[v].setValue    (p.delayMix,     juce::dontSendNotification);
+        delayWowSlider[v].setValue    (p.delayWow,     juce::dontSendNotification);
+        delayFlutterSlider[v].setValue(p.delayFlutter, juce::dontSendNotification);
+        delaySatSlider[v].setValue    (p.delaySat,     juce::dontSendNotification);
+        delayProbSlider[v].setValue   (p.delayProb,    juce::dontSendNotification);
 
-    // Delay
-    delayOnBtn.setToggleState (p.delayOn, juce::dontSendNotification);
-    delayOnBtn.setButtonText (p.delayOn ? "ON" : "OFF");
-    delayOnBtn.setColour (juce::TextButton::buttonColourId, p.delayOn ? gateOnColour : gateOffColour);
-    delaySyncBtn.setToggleState (p.delaySync, juce::dontSendNotification);
-    delaySyncBtn.setButtonText (p.delaySync ? "SYNC" : "FREE");
-    delaySyncBtn.setColour (juce::TextButton::buttonColourId,
-                            p.delaySync ? juce::Colour(0xffe09040) : gateOffColour);
-    delaySyncDivBox.setSelectedItemIndex (p.delaySyncDiv, juce::dontSendNotification);
-    delayTimeMsSlider.setValue (p.delayTimeMs,   juce::dontSendNotification);
-    delayFeedbackSlider.setValue (p.delayFeedback, juce::dontSendNotification);
-    delayPingPongBtn.setToggleState (p.delayPingPong, juce::dontSendNotification);
-    delayPingPongBtn.setColour (juce::TextButton::buttonColourId,
-                                p.delayPingPong ? juce::Colour(0xff5566dd) : gateOffColour);
-    delayMixSlider.setValue    (p.delayMix,     juce::dontSendNotification);
-    delayWowSlider.setValue    (p.delayWow,     juce::dontSendNotification);
-    delayFlutterSlider.setValue(p.delayFlutter, juce::dontSendNotification);
-    delaySatSlider.setValue    (p.delaySat,     juce::dontSendNotification);
-    delayProbSlider.setValue   (p.delayProb,    juce::dontSendNotification);
+        // Reverb
+        reverbOnBtn[v].setToggleState (p.reverbOn, juce::dontSendNotification);
+        reverbOnBtn[v].setButtonText (p.reverbOn ? "ON" : "OFF");
+        reverbOnBtn[v].setColour (juce::TextButton::buttonColourId, p.reverbOn ? gateOnColour : gateOffColour);
+        reverbSizeSlider[v].setValue    (p.reverbSize,     juce::dontSendNotification);
+        reverbDampingSlider[v].setValue (p.reverbDamping,  juce::dontSendNotification);
+        reverbPreDelaySlider[v].setValue(p.reverbPreDelay, juce::dontSendNotification);
+        reverbMixSlider[v].setValue     (p.reverbMix,      juce::dontSendNotification);
 
-    // Reverb
-    reverbOnBtn.setToggleState (p.reverbOn, juce::dontSendNotification);
-    reverbOnBtn.setButtonText (p.reverbOn ? "ON" : "OFF");
-    reverbOnBtn.setColour (juce::TextButton::buttonColourId, p.reverbOn ? gateOnColour : gateOffColour);
-    reverbSizeSlider.setValue    (p.reverbSize,     juce::dontSendNotification);
-    reverbDampingSlider.setValue (p.reverbDamping,  juce::dontSendNotification);
-    reverbPreDelaySlider.setValue(p.reverbPreDelay, juce::dontSendNotification);
-    reverbMixSlider.setValue     (p.reverbMix,      juce::dontSendNotification);
+        // Chorus
+        chorusOnBtn[v].setToggleState (p.chorusOn, juce::dontSendNotification);
+        chorusOnBtn[v].setButtonText (p.chorusOn ? "ON" : "OFF");
+        chorusOnBtn[v].setColour (juce::TextButton::buttonColourId, p.chorusOn ? gateOnColour : gateOffColour);
+        chorusRateSlider[v].setValue  (p.chorusRate,  juce::dontSendNotification);
+        chorusDepthSlider[v].setValue (p.chorusDepth, juce::dontSendNotification);
+        chorusMixSlider[v].setValue   (p.chorusMix,   juce::dontSendNotification);
 
-    // Chorus
-    chorusOnBtn.setToggleState (p.chorusOn, juce::dontSendNotification);
-    chorusOnBtn.setButtonText (p.chorusOn ? "ON" : "OFF");
-    chorusOnBtn.setColour (juce::TextButton::buttonColourId, p.chorusOn ? gateOnColour : gateOffColour);
-    chorusRateSlider.setValue  (p.chorusRate,  juce::dontSendNotification);
-    chorusDepthSlider.setValue (p.chorusDepth, juce::dontSendNotification);
-    chorusMixSlider.setValue   (p.chorusMix,   juce::dontSendNotification);
-
-    // Master
-    masterDriveSlider.setValue (p.masterDrive, juce::dontSendNotification);
-    masterGainSlider.setValue  (p.masterGain,  juce::dontSendNotification);
+        // Master
+        masterDriveSlider[v].setValue (p.masterDrive, juce::dontSendNotification);
+        masterGainSlider[v].setValue  (p.masterGain,  juce::dontSendNotification);
+    }
 }
 
 //==============================================================================
@@ -2192,7 +2370,7 @@ void VoltageSeq2AudioProcessorEditor::syncFxPageFromVoice()
 void VoltageSeq2AudioProcessorEditor::showPage (int page)
 {
     currentPage = page;
-    if (page != 0 && macroLearnActive >= 0) exitMacroLearn();   // cancel learn on page change
+    if (page != 0 && learnSource.valid()) exitMacroLearn();   // cancel learn on page change
     for (auto* c : synthPageComponents)   c->setVisible (page == 0);
     for (auto* c : patternPageComponents) c->setVisible (page == 1);
     for (auto* c : fxPageComponents)      c->setVisible (page == 2);
@@ -2220,6 +2398,10 @@ void VoltageSeq2AudioProcessorEditor::showPage (int page)
             // their floating panels. The bulk-show above would have forced them
             // visible, so re-apply the collapsed state here.
             applySectionVisibility (v);
+            applyMidView (v);    // QUANT / ORDER / TOOLS slot (+ MIDI/VOICE config)
+            refreshOscView (v);  // inline OSC1/OSC2/Plaits visibility (after section hide)
+            refreshModSlot (v);  // inline LFO/MOD ENV slot (after section hide)
+            if (v == 0) applyMacrosVisible();   // macros hidden by default (bare metal)
 
             // The bulk-show also forces the panel overlays themselves visible.
             // Restore each panel to its actual open/closed state.
@@ -2304,9 +2486,107 @@ void VoltageSeq2AudioProcessorEditor::layoutPatternPage()
 //==============================================================================
 // PAINT
 //==============================================================================
+// ─────────────────────────────────────────────────────────────────────────────
+// Brushed-metal Eurorack faceplate — generated once, blitted each paint.
+// ─────────────────────────────────────────────────────────────────────────────
+void VoltageSeq2AudioProcessorEditor::buildBackplateMetal (int w, int h)
+{
+    if (w <= 0 || h <= 0) return;
+    backplateMetal = juce::Image (juce::Image::RGB, w, h, false);
+    juce::Graphics ig (backplateMetal);
+
+    // Base — gunmetal, lit toward the top
+    juce::ColourGradient base (juce::Colour (0xff3c3c46), 0.0f, 0.0f,
+                               juce::Colour (0xff1c1c24), 0.0f, (float) h, false);
+    base.addColour (0.5, juce::Colour (0xff2c2c36));
+    ig.setGradientFill (base);
+    ig.fillRect (0, 0, w, h);
+
+    juce::Random rng (24601);
+
+    // Fine isotropic speckle — a matte graphite/cast grain (non-directional, so it
+    // doesn't lead the eye the way horizontal brushing did).
+    for (int i = 0; i < w * h / 36; ++i)
+    {
+        const int   sx = rng.nextInt (w);
+        const int   sy = rng.nextInt (h);
+        const float a  = rng.nextFloat();
+        ig.setColour (a > 0.5f ? juce::Colours::white.withAlpha (0.035f)
+                               : juce::Colours::black.withAlpha (0.045f));
+        ig.fillRect (sx, sy, 1, 1);
+    }
+
+    // Perforated mic-grille — hex-packed recessed holes, low contrast so it stays a
+    // texture under the controls rather than a focal point.
+    const float sp = 13.0f, r = 2.2f;
+    int rowIdx = 0;
+    for (float cy = sp * 0.5f; cy < (float) h; cy += sp * 0.87f, ++rowIdx)
+    {
+        const float xoff = (rowIdx & 1) ? sp * 0.5f : 0.0f;
+        for (float cx = sp * 0.5f + xoff; cx < (float) w; cx += sp)
+        {
+            // Recessed hole body
+            ig.setColour (juce::Colours::black.withAlpha (0.17f));
+            ig.fillEllipse (cx - r, cy - r, r * 2.0f, r * 2.0f);
+            // Light catch on the lower-inner edge (lit from top)
+            ig.setColour (juce::Colours::white.withAlpha (0.08f));
+            ig.fillEllipse (cx - r * 0.62f, cy - r * 0.15f, r * 1.24f, r * 0.9f);
+            // Crisp shadow on the upper edge
+            ig.setColour (juce::Colours::black.withAlpha (0.10f));
+            ig.fillEllipse (cx - r * 0.8f, cy - r, r * 1.6f, r * 0.7f);
+        }
+    }
+
+    // Soft top-light sheen — gentle, and pushed off the very top so the bare-metal
+    // band above VOICE A doesn't read as a bright/chaotic grey hotspot.
+    juce::ColourGradient sheen (juce::Colours::white.withAlpha (0.035f),
+                                (float) w * 0.5f, (float) h * 0.18f,
+                                juce::Colours::transparentWhite,
+                                (float) w * 0.5f, (float) h * 0.80f, true);
+    ig.setGradientFill (sheen);
+    ig.fillRect (0, 0, w, h);
+
+    // Edge vignette
+    juce::ColourGradient vig (juce::Colours::transparentBlack, (float) w * 0.5f, (float) h * 0.5f,
+                              juce::Colours::black.withAlpha (0.40f), 0.0f, 0.0f, true);
+    ig.setGradientFill (vig);
+    ig.fillRect (0, 0, w, h);
+}
+
+void VoltageSeq2AudioProcessorEditor::drawPanelScrew (juce::Graphics& g, float cx, float cy, float r)
+{
+    // Recessed hole
+    juce::ColourGradient hole (juce::Colour (0xff0b0b0f), cx, cy - r * 0.4f,
+                               juce::Colour (0xff2c2c34), cx, cy + r, false);
+    g.setGradientFill (hole);
+    g.fillEllipse (cx - r, cy - r, r * 2.0f, r * 2.0f);
+    // Screw head
+    const float hr = r * 0.72f;
+    juce::ColourGradient head (juce::Colour (0xff60606a), cx - hr, cy - hr,
+                               juce::Colour (0xff2d2d35), cx + hr, cy + hr, false);
+    g.setGradientFill (head);
+    g.fillEllipse (cx - hr, cy - hr, hr * 2.0f, hr * 2.0f);
+    g.setColour (juce::Colours::black.withAlpha (0.45f));
+    g.drawEllipse (cx - hr, cy - hr, hr * 2.0f, hr * 2.0f, 1.0f);
+    // Flathead slot (angled)
+    {
+        juce::Graphics::ScopedSaveState ss (g);
+        g.addTransform (juce::AffineTransform::rotation (0.7f, cx, cy));
+        g.setColour (juce::Colour (0xff121218));
+        g.fillRect (cx - hr * 0.85f, cy - 1.3f, hr * 1.7f, 2.6f);
+    }
+    // Spec highlight
+    g.setColour (juce::Colours::white.withAlpha (0.18f));
+    g.fillEllipse (cx - hr * 0.55f, cy - hr * 0.62f, hr * 0.55f, hr * 0.42f);
+}
+
 void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (bgColour);
+    // Brushed-metal faceplate background (lazily (re)built on size change)
+    if (backplateMetal.isNull() || backplateMetal.getWidth() != getWidth()
+                                || backplateMetal.getHeight() != getHeight())
+        buildBackplateMetal (getWidth(), getHeight());
+    g.drawImageAt (backplateMetal, 0, 0);
 
     // ── Global header ─────────────────────────────────────────────────────────
     g.setColour (juce::Colour (0xff0a0a1a));
@@ -2314,11 +2594,21 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
 
     // Branding
     g.setFont (juce::Font (15.0f, juce::Font::bold));
-    g.setColour (juce::Colour (0xffe09040));
+    g.setColour (juce::Colour (0xff3a78d8));
     g.drawText ("VoltageSEQ", 8, 3, 130, 22, juce::Justification::centredLeft);
-    g.setFont (juce::Font (13.0f, juce::Font::bold));
-    g.setColour (dimColour.withAlpha (0.55f));
-    g.drawText ("MURGATROYD INSTRUMENTS", 0, 0, getWidth(), headerH, juce::Justification::centred);
+    {
+        // Engraved maker nameplate — Copperplate, wide-kerned, incised look
+        // (dark top-edge shadow + light lower catch + polished-steel white face).
+        juce::Font maker ("Copperplate", 14.0f, juce::Font::bold);
+        maker = maker.withExtraKerningFactor (0.10f);
+        g.setFont (maker);
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.drawText ("MURGATROYD  INSTRUMENTS", 0, -1, getWidth(), headerH, juce::Justification::centred);
+        g.setColour (juce::Colours::white.withAlpha (0.18f));
+        g.drawText ("MURGATROYD  INSTRUMENTS", 0,  1, getWidth(), headerH, juce::Justification::centred);
+        g.setColour (juce::Colour (0xffe2e5ec));   // polished-steel white
+        g.drawText ("MURGATROYD  INSTRUMENTS", 0,  0, getWidth(), headerH, juce::Justification::centred);
+    }
 
     // Preset label
     g.setFont (juce::Font (9.0f, juce::Font::bold));
@@ -2328,7 +2618,8 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     // ── About page overlay ────────────────────────────────────────────────────
     if (currentPage == 4)
     {
-        g.setColour (juce::Colour (0xff060610));
+        // Brushed metal shows through a light translucent scrim (text stays legible).
+        g.setColour (juce::Colours::black.withAlpha (0.30f));
         g.fillRect (0, headerH, getWidth(), getHeight() - headerH);
 
         auto ib = aboutImageBounds;
@@ -2354,22 +2645,36 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     // ── Pattern page overlay ──────────────────────────────────────────────────
     if (currentPage == 1)
     {
-        g.setColour (juce::Colour (0xff040410));
-        g.fillRect (0, headerH, getWidth(), winH - headerH);
+        // Brushed metal already blitted under all pages — draw translucent voice
+        // bands over it (matching the synth/FX pages).
+        auto metalPanel = [&] (int px, int top, int pw, int ph)
+        {
+            auto r = juce::Rectangle<float> ((float)px, (float)top, (float)pw, (float)ph);
+            g.setColour (sectionColour.withAlpha (0.22f));
+            g.fillRoundedRectangle (r, 4.0f);
+            {
+                juce::Graphics::ScopedSaveState ss (g);
+                juce::Path clip; clip.addRoundedRectangle (r, 4.0f);
+                g.reduceClipRegion (clip);
+                juce::ColourGradient well (juce::Colours::black.withAlpha (0.30f), 0.0f, (float)top,
+                                           juce::Colours::transparentBlack, 0.0f, (float)top + 16.0f, false);
+                g.setGradientFill (well); g.fillRect (r);
+            }
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.2f);
+            g.setColour (juce::Colours::white.withAlpha (0.08f));
+            g.drawRoundedRectangle (r.reduced (1.6f).translated (0.0f, 0.6f), 3.4f, 1.0f);
+            drawPanelScrew (g, r.getX() + 9,     r.getY() + 9,      4.0f);
+            drawPanelScrew (g, r.getRight() - 9, r.getBottom() - 9, 4.0f);
+        };
+        metalPanel (6, 48,  getWidth() - 12, 282);   // Voice A band
+        metalPanel (6, 336, getWidth() - 12, 282);   // Voice B band
 
-        // rowA0=72, slotH=125, rowGap=6 → rowA1=203, end-of-A=328, rowB0=354
-        // Voice A label row: y=55
         g.setFont (juce::Font (9.0f, juce::Font::bold));
         g.setColour (voiceAColour);
-        g.drawText ("VOICE A — PATTERN BANK", 8, 55, 600, 14, juce::Justification::centredLeft);
-
-        // Divider and Voice B label at y=332/336
-        g.setColour (voiceAColour.withAlpha (0.2f));
-        g.fillRect (0, 332, getWidth(), 1);
-        g.setColour (voiceBColour.withAlpha (0.2f));
-        g.fillRect (0, 334, getWidth(), 1);
+        g.drawText ("VOICE A - PATTERN BANK", 14, 53, 600, 14, juce::Justification::centredLeft);
         g.setColour (voiceBColour);
-        g.drawText ("VOICE B — PATTERN BANK", 8, 337, 600, 14, juce::Justification::centredLeft);
+        g.drawText ("VOICE B - PATTERN BANK", 14, 341, 600, 14, juce::Justification::centredLeft);
 
         // ── Sequencer view panels (one per voice) ─────────────────────────────
         for (int v = 0; v < 2; ++v)
@@ -2377,8 +2682,8 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
             if (patPageView[v] == 1)
             {
                 const int py = (v == 0) ? 72 : 354;
-                g.setColour (juce::Colour (0xff080818));
-                g.fillRect (8, py, getWidth() - 16, 250);
+                g.setColour (juce::Colours::black.withAlpha (0.28f));
+                g.fillRoundedRectangle (8.0f, (float)py, (float)getWidth() - 16.0f, 250.0f, 4.0f);
 
                 const int m = audioProcessor.patSeq[v].mode;
                 const int activeLen = audioProcessor.patSeq[v].listLength;
@@ -2446,62 +2751,85 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     // ── FX page overlay ───────────────────────────────────────────────────────
     if (currentPage == 2)
     {
-        g.setColour (juce::Colour (0xff040410));
-        g.fillRect (0, headerH, getWidth(), winH - headerH);
+        // Brushed-metal faceplate already blitted at the top of paint(). Draw two
+        // voice bands (A over B), each with translucent recessed FX panels.
+        const int K = fxKsz;
 
-        // Panel backgrounds
-        auto drawFxPanel = [&](int px, int pw, const juce::String& title, juce::Colour accent)
+        auto fxPanel = [&] (int px, int top, int pw, int ph, const juce::String& title)
         {
-            g.setColour (juce::Colour (0xff0c0c18).withAlpha (0.92f));
-            g.fillRoundedRectangle ((float)px, 50.f, (float)pw, 630.f, 6.f);
-            g.setColour (accent.withAlpha (0.6f));
-            g.fillRect (px, 50, pw, 3);
-            g.setFont (juce::Font (11.f, juce::Font::bold));
-            g.setColour (accent);
-            g.drawText (title, px, 56, pw, 16, juce::Justification::centred);
+            auto r = juce::Rectangle<float> ((float)px, (float)top, (float)pw, (float)ph);
+            g.setColour (sectionColour.withAlpha (0.22f));
+            g.fillRoundedRectangle (r, 4.0f);
+            {
+                juce::Graphics::ScopedSaveState ss (g);
+                juce::Path clip; clip.addRoundedRectangle (r, 4.0f);
+                g.reduceClipRegion (clip);
+                juce::ColourGradient well (juce::Colours::black.withAlpha (0.30f), 0.0f, (float)top,
+                                           juce::Colours::transparentBlack, 0.0f, (float)top + 16.0f, false);
+                g.setGradientFill (well); g.fillRect (r);
+            }
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.2f);
+            g.setColour (juce::Colours::white.withAlpha (0.08f));
+            g.drawRoundedRectangle (r.reduced (1.6f).translated (0.0f, 0.6f), 3.4f, 1.0f);
+            drawPanelScrew (g, r.getX() + 9,     r.getY() + 9,      4.0f);
+            drawPanelScrew (g, r.getRight() - 9, r.getBottom() - 9, 4.0f);
+            g.setColour (juce::Colours::black.withAlpha (0.55f));
+            g.drawText (title, px, top + 4, pw, 12, juce::Justification::centred);
+            g.setColour (dimColour.brighter (0.10f));
+            g.drawText (title, px, top + 3, pw, 12, juce::Justification::centred);
         };
-        drawFxPanel (10,  320, "DELAY",  juce::Colour (0xff00d4aa));   // two-row layout
-        drawFxPanel (460, 430, "REVERB", juce::Colour (0xffaa44ff));
-        drawFxPanel (960, 300, "CHORUS", juce::Colour (0xffe09040));
-        drawFxPanel (1290,200, "MASTER", juce::Colour (0xffe94560));
+        auto lbl = [&] (const char* t, int x, int y) {
+            g.drawText (t, x, y, K, 12, juce::Justification::centred);
+        };
 
-        // Knob labels — drawn above the rotary knobs (knobs at dR2=240; labels sit just above)
-        constexpr int lblY = 224;
-        g.setFont (juce::Font (9.f));
-        g.setColour (textColour);
-        // Tape Delay labels — row 1 (core)
-        g.drawText ("TIME",    10+10,  lblY,      52, 12, juce::Justification::centred);
-        g.drawText ("FEEDBK",  10+80,  lblY,      52, 12, juce::Justification::centred);
-        g.drawText ("MIX",     10+150, lblY,      52, 12, juce::Justification::centred);
-        // Row 2 labels (tape char + gate) sit below row 2 knobs (lblY + 76)
-        constexpr int lblY2 = lblY + 76;
-        g.drawText ("WOW",     10+10,  lblY2,     52, 12, juce::Justification::centred);
-        g.drawText ("FLUTTER", 10+80,  lblY2,     52, 12, juce::Justification::centred);
-        g.drawText ("SAT",     10+150, lblY2,     52, 12, juce::Justification::centred);
-        // Bernoulli gate — amber label
-        g.setColour (juce::Colour (0xffe09040));
-        g.drawText ("PROB",    10+240, lblY2,     52, 12, juce::Justification::centred);
-        g.setColour (textColour);
-        // Reverb labels
-        g.drawText ("SIZE",    460+10,  lblY, 52, 12, juce::Justification::centred);
-        g.drawText ("DAMP",    460+80,  lblY, 52, 12, juce::Justification::centred);
-        g.drawText ("PRE-DLY", 460+150, lblY, 52, 12, juce::Justification::centred);
-        g.drawText ("MIX",     460+220, lblY, 52, 12, juce::Justification::centred);
-        // Chorus labels
-        g.drawText ("RATE",    960+10,  lblY, 52, 12, juce::Justification::centred);
-        g.drawText ("DEPTH",   960+80,  lblY, 52, 12, juce::Justification::centred);
-        g.drawText ("MIX",     960+150, lblY, 52, 12, juce::Justification::centred);
-        // Master labels
-        g.drawText ("DRIVE",  1290+10,  lblY, 52, 12, juce::Justification::centred);
-        g.drawText ("GAIN",   1290+80,  lblY, 52, 12, juce::Justification::centred);
+        for (int v = 0; v < 2; ++v)
+        {
+            const int top  = (v == 0) ? fxBandAY : fxBandBY;
+            const int ph   = 300;
+            const int kY1  = top + 116, kY2 = top + 210;
+            const juce::Colour accent = (v == 0) ? voiceAColour : voiceBColour;
+
+            // Panels
+            fxPanel (10,   top, 440, ph, "TAPE DELAY");
+            fxPanel (470,  top, 290, ph, "REVERB");
+            fxPanel (780,  top, 230, ph, "CHORUS");
+            fxPanel (1040, top, 190, ph, "MASTER");
+
+            // Voice band label (top-right, in the bare-metal zone past MASTER)
+            g.setColour (accent);
+            g.setFont (juce::Font (11.0f, juce::Font::bold));
+            g.drawText (v == 0 ? "VOICE  A  FX" : "VOICE  B  FX",
+                        1250, top + 4, 116, 14, juce::Justification::centredLeft);
+
+            // Knob labels (below the knobs)
+            g.setFont (juce::Font (8.5f));
+            g.setColour (textColour);
+            const int dX = 10, lY1 = kY1 + K, lY2 = kY2 + K, sp = 70;
+            lbl ("TIME", dX+14, lY1); lbl ("FEEDBK", dX+14+sp, lY1); lbl ("MIX", dX+14+sp*2, lY1);
+            lbl ("WOW",  dX+14, lY2); lbl ("FLUTTER",dX+14+sp, lY2); lbl ("SAT", dX+14+sp*2, lY2);
+            g.setColour (juce::Colour (0xffe09040));
+            lbl ("PROB", dX+14+sp*3, lY2);
+            g.setColour (textColour);
+            const int rX = 470;
+            lbl ("SIZE", rX+14, lY1); lbl ("DAMP", rX+14+sp, lY1); lbl ("PRE-DLY", rX+14+sp*2, lY1); lbl ("MIX", rX+14+sp*3, lY1);
+            const int cX = 780;
+            lbl ("RATE", cX+14, lY1); lbl ("DEPTH", cX+14+sp, lY1); lbl ("MIX", cX+14+sp*2, lY1);
+            const int mX = 1040;
+            lbl ("DRIVE", mX+14, lY1); lbl ("GAIN", mX+14+sp, lY1);
+        }
+
+        // Milled rail between the two voice bands
+        const int railY = (fxBandAY + 300 + fxBandBY) / 2;
+        g.setColour (juce::Colours::black.withAlpha (0.45f));  g.fillRect (0, railY,     getWidth(), 2);
+        g.setColour (juce::Colours::white.withAlpha (0.07f));  g.fillRect (0, railY + 2, getWidth(), 1);
         return;
     }
 
     // ── Generate page ─────────────────────────────────────────────────────────
     if (currentPage == 3)
     {
-        g.setColour (juce::Colour (0xff040410));
-        g.fillRect (0, headerH, getWidth(), winH - headerH);
+        // Brushed metal already blitted — translucent panel drawn below.
 
         // Bjorklund inline helper for preview
         auto bjorklundPreview = [](int k, int n) -> std::vector<int>
@@ -2530,10 +2858,28 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         constexpr int panelW = 1480;
         const     int panelH = winH - panelY - 10;
 
-        g.setColour (juce::Colour (0xff0c0c18));
-        g.fillRoundedRectangle ((float)panelX, (float)panelY, (float)panelW, (float)panelH, 6.f);
-
-        // Accent top bar
+        {
+            auto r = juce::Rectangle<float> ((float)panelX, (float)panelY, (float)panelW, (float)panelH);
+            g.setColour (sectionColour.withAlpha (0.22f));
+            g.fillRoundedRectangle (r, 6.0f);
+            {
+                juce::Graphics::ScopedSaveState ss (g);
+                juce::Path clip; clip.addRoundedRectangle (r, 6.0f);
+                g.reduceClipRegion (clip);
+                juce::ColourGradient well (juce::Colours::black.withAlpha (0.30f), 0.0f, (float)panelY,
+                                           juce::Colours::transparentBlack, 0.0f, (float)panelY + 18.0f, false);
+                g.setGradientFill (well); g.fillRect (r);
+            }
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.drawRoundedRectangle (r.reduced (0.5f), 6.0f, 1.2f);
+            g.setColour (juce::Colours::white.withAlpha (0.08f));
+            g.drawRoundedRectangle (r.reduced (1.6f).translated (0.0f, 0.6f), 5.4f, 1.0f);
+            drawPanelScrew (g, r.getX() + 10,     r.getY() + 10,      4.0f);
+            drawPanelScrew (g, r.getRight() - 10, r.getY() + 10,      4.0f);
+            drawPanelScrew (g, r.getX() + 10,     r.getBottom() - 10, 4.0f);
+            drawPanelScrew (g, r.getRight() - 10, r.getBottom() - 10, 4.0f);
+        }
+        // Accent top bar (tracks target voice)
         g.setColour (accent.withAlpha (0.7f));
         g.fillRect (panelX, panelY, panelW, 3);
 
@@ -2832,15 +3178,7 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
     // Backplate drawn once for the full content area.
     // stretchToFit fills the rect exactly (2600x1300 SVG → 1500x710 screen, ratio ~2:1 vs 2.11:1,
     // so distortion is minimal and the design was built for this mapping).
-    if (backplate != nullptr)
-    {
-        const juce::Rectangle<float> fullArea (0.0f, 0.0f,
-                                               (float)getWidth(), (float)winH);
-        // Base pass — covers whole plugin background (seq strips, header, etc.)
-        backplate->drawWithin (g, fullArea, juce::RectanglePlacement::stretchToFit, 0.82f);
-        // NOTE: the branding logo boost pass runs AFTER the ctrl strip fills
-        // (see end of paint) so the logo renders on top of the background panels.
-    }
+    // Backplate SVG logo removed — the brushed-metal faceplate is the whole surface.
 
     for (int v = 0; v < 2; ++v)
     {
@@ -2851,14 +3189,18 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         const juce::String  vLabel = (v == 0) ? "VOICE  A" : "VOICE  B";
 
         // ── Sequencer strip ───────────────────────────────────────────────────
-        g.setColour (sectionColour.withAlpha (0.82f));
+        // Translucent (0.45) so the brushed metal reads through the strip while a
+        // slightly darker bed keeps the busy step lanes legible.
+        g.setColour (sectionColour.withAlpha (0.45f));
         g.fillRoundedRectangle ((float)seqX, (float)sY, (float)seqW, (float)seqH, 4.0f);
         // Ensure colour fills to the very right edge (no black gap beyond seqW)
         g.fillRect (seqX + seqW, sY, getWidth() - (seqX + seqW), seqH);
 
-        // Voice label + accent bar
-        g.setColour (accent.withAlpha (0.18f));
-        g.fillRect (seqX, sY, seqW, 13);
+        // Corner screws — the pattern strip reads as one wide rack module
+        drawPanelScrew (g, (float)(seqX + 9),        (float)(sY + 9),         4.0f);
+        drawPanelScrew (g, (float)(getWidth() - 11), (float)(sY + seqH - 9),  4.0f);
+
+        // Voice label — coloured text alone identifies the voice (no accent bar)
         g.setColour (accent);
         g.setFont (juce::Font (9.0f, juce::Font::bold));
         g.drawText (vLabel, seqX + 4, sY + 1, 120, 11, juce::Justification::centredLeft);
@@ -2876,6 +3218,25 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
         g.setColour (slideOnColour);
         g.drawText ("SLIDE", seqX + 16 * stepStride + 3, sY + slideRelY, 50, 13, juce::Justification::centredLeft);
 
+        // RHS control-block group labels (match layoutVoice's rX / rows)
+        {
+            const int perfX = seqX + 16 * stepStride + 96;
+            const int midX  = perfX + 200;
+            g.setColour (dimColour);
+            g.setFont (juce::Font (8.0f, juce::Font::bold));
+            // Performance sliders
+            g.drawText ("RANGE",  perfX, sY + 5,  120, 10, juce::Justification::centredLeft);
+            g.drawText ("LENGTH", perfX, sY + 50, 180, 10, juce::Justification::centredLeft);
+            g.drawText ("SWING",  perfX, sY + 92, 180, 10, juce::Justification::centredLeft);
+            // Middle slot — labels per view (ORDER/TOOLS buttons self-label)
+            if (midView[v] == 0)        // QUANT
+            {
+                g.drawText ("ROOT",  midX, sY + 31, 36, 12, juce::Justification::centredRight);
+                g.drawText ("SCALE", midX, sY + 59, 36, 12, juce::Justification::centredRight);
+                g.drawText ("CLOCK", midX, sY + 87, 36, 12, juce::Justification::centredRight);
+            }
+        }
+
         // ── Pulse counter (top-right of sequencer strip) ───────────────────
         {
             const auto& vp2 = audioProcessor.voice[v];
@@ -2883,8 +3244,8 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
             for (int i = 0; i < vp2.sequenceLength; ++i)
                 totalPulses += vp2.stepPulses[i];
 
-            const int pCtrlX = seqX + 16 * stepStride + 4;
-            const int pCtrlW = seqW - 16 * stepStride - 8;
+            const int pCtrlX = seqX + 16 * stepStride + 8;
+            const int pCtrlW = 74;
 
             // Label
             g.setFont (juce::Font (7.5f, juce::Font::bold));
@@ -2929,130 +3290,241 @@ void VoltageSeq2AudioProcessorEditor::paint (juce::Graphics& g)
             }
         }
 
-        // ── Sub-strip ─────────────────────────────────────────────────────────
-        g.setColour (subStripColour.withAlpha (0.88f));
-        g.fillRoundedRectangle ((float)seqX, (float)sbY, (float)seqW, (float)subH, 3.0f);
-        g.setColour (dimColour);
-        g.setFont (juce::Font (8.5f, juce::Font::bold));
-        g.drawText ("LEN",    14,   sbY + 3, 40,  10, juce::Justification::centredLeft);
-        g.drawText ("ORDER",  112,  sbY + 3, 50,  10, juce::Justification::centredLeft);
-        g.drawText ("NUDGE",  384,  sbY + 3, 46,  10, juce::Justification::centred);
-        g.drawText ("SWING",  492,  sbY + 3, 50,  10, juce::Justification::centredLeft);
-        g.drawText ("MODE",   608,  sbY + 3, 52,  10, juce::Justification::centred);
-        g.drawText ("RAND",   663,  sbY + 3, 50,  10, juce::Justification::centred);
-        g.drawText ("MIDI",   730,  sbY + 3, 80,  10, juce::Justification::centred);
-        g.drawText ("VOICE",  900,  sbY + 3, 68,  10, juce::Justification::centred);
-        g.drawText ("SLOTS",  974,  sbY + 3, 28,  10, juce::Justification::centred);
-        g.drawText ("SPREAD", 1008, sbY + 3, 90,  10, juce::Justification::centred);
-        g.drawText ("WIDTH",  1104, sbY + 3, 90,  10, juce::Justification::centred);
-        g.drawText ("RUN",    1204, sbY + 3, 54,  10, juce::Justification::centred);
+        // ── Sub-strip removed — its controls now live in the RHS block of the
+        // step row (see layoutVoice). The freed band gets reclaimed by the
+        // control-row relayout in the next checkpoint.
+        juce::ignoreUnused (sbY);
 
-        // ── Control panels row ────────────────────────────────────────────────
+        // ── Control panels row — recessed insets on the brushed faceplate ──
         auto drawPanel = [&](int px, int pw, const juce::String& title)
         {
-            g.setColour (sectionColour.withAlpha (0.85f));
-            g.fillRoundedRectangle ((float)px, (float)cY, (float)pw, (float)ctrlH, 4.0f);
-            g.setColour (dimColour);
-            g.setFont (juce::Font (8.5f, juce::Font::bold));
-            g.drawText (title, px, cY + 3, pw, 12, juce::Justification::centred);
+            auto r = juce::Rectangle<float> ((float) px, (float) cY, (float) pw, (float) ctrlH);
+
+            // Faint tint so the brushed metal reads through as the surface
+            g.setColour (sectionColour.withAlpha (0.22f));
+            g.fillRoundedRectangle (r, 4.0f);
+
+            // Recessed-well shading — dark shadow falling from the top inner edge
+            {
+                juce::Graphics::ScopedSaveState ss (g);
+                juce::Path clip; clip.addRoundedRectangle (r, 4.0f);
+                g.reduceClipRegion (clip);
+                juce::ColourGradient well (juce::Colours::black.withAlpha (0.30f), 0.0f, (float) cY,
+                                           juce::Colours::transparentBlack, 0.0f, (float) cY + 16.0f, false);
+                g.setGradientFill (well);
+                g.fillRect (r);
+            }
+
+            // Engraved frame — dark groove (top-left) + light bevel (bottom-right)
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.2f);
+            g.setColour (juce::Colours::white.withAlpha (0.08f));
+            g.drawRoundedRectangle (r.reduced (1.6f).translated (0.0f, 0.6f), 3.4f, 1.0f);
+
+            // Corner screws (diagonal pair — classic Eurorack module look)
+            const float sr = 4.0f, si = 9.0f;
+            drawPanelScrew (g, r.getX() + si,        r.getY() + si,        sr);
+            drawPanelScrew (g, r.getRight() - si,    r.getBottom() - si,   sr);
+
+            // Engraved title — dark stamp + light face
+            if (title.isNotEmpty())
+            {
+                g.setFont (juce::Font (8.5f, juce::Font::bold));
+                g.setColour (juce::Colours::black.withAlpha (0.55f));
+                g.drawText (title, px, cY + 4, pw, 12, juce::Justification::centred);
+                g.setColour (dimColour.brighter (0.10f));
+                g.drawText (title, px, cY + 3, pw, 12, juce::Justification::centred);
+            }
         };
-        drawPanel (pSeqX,  pSeqW,  "SEQ");
-        drawPanel (pQntX,  pQntW,  "QUANTIZER");
-        drawPanel (pO1X,   pO1W,   audioProcessor.voice[v].plaitsEnabled ? "PLAITS" : "OSC 1");
-        drawPanel (pO2X,   pO2W,   "");   // OSC 2 controls live in OSC panel — area kept as visual spacer
+        drawPanel (pSeqX,  pSeqW,  "GLIDE");   // PORTA only (pattern controls moved up)
+        drawPanel (pO1X,   pO1W + pO2W, "");   // OSC section (radio shows active view)
         drawPanel (pFltX,  pFltW,  "FILTER");
-        drawPanel (pAEX,   pAEW,   "AMP ENV");
-        // LFO 1-4 panels removed — extend ctrl strip background to right edge
-        // so the freed/branding zone matches the section colour (not base black).
-        g.setColour (sectionColour.withAlpha (0.85f));
-        g.fillRect (pAEX + pAEW, cY, getWidth() - (pAEX + pAEW), ctrlH);
+        drawPanel (pAEX,   pAEW,   "");   // ENVELOPES — Amp/Filter tags drawn below
+        // (The branding/right zone is intentionally left as bare brushed metal —
+        //  the VOLTAGESEQ logo + macros sit directly on the faceplate.)
+        // Modulation slot panel (inline LFO / MOD ENV)
+        {
+            const int mX = pAEX + pAEW + 6, mW = 1090 - mX - 4;
+            drawPanel (mX, mW, "");
+        }
 
         // Control panel labels
         const int lY1 = cY + lOff1, lY2 = cY + lOff2, lY3 = cY + lOff3;
         g.setColour (textColour);
         g.setFont (juce::Font (9.0f));
-        // SEQ
-        g.drawText ("RANGE",    pSeqX,  lY1, pSeqW, 12, juce::Justification::centred);
-        g.drawText ("CLOCK",    pSeqX,  lY2, pSeqW, 12, juce::Justification::centred);
-        g.drawText ("PORTA",    pSeqX,  lY3, pSeqW, 12, juce::Justification::centred);
-        // QUANT
-        g.drawText ("ROOT",     pQntX,  lY1, pQntW, 12, juce::Justification::centred);
-        g.drawText ("SCALE",    pQntX,  lY2, pQntW, 12, juce::Justification::centred);
-        if (audioProcessor.voice[v].plaitsEnabled)
+        // GLIDE — PORTA (the only set-once synth control on the bottom-left)
+        g.drawText ("PORTA",    pSeqX,  cY + 48, pSeqW, 12, juce::Justification::centred);
+        // ── OSC section labels (per active view) ──────────────────────────────
         {
-            // Plaits mode: basic OSC1 controls hidden; ENGINE/params are in OSC panel.
-            // No front-page labels for Plaits since all controls live in the panel.
+            const int oscX = pO1X, oscW = pO1W + pO2W;
+            const bool plaits = audioProcessor.voice[v].plaitsEnabled;
+            auto kl = [&](const char* t, int x, int y, int w = 38)
+            { g.drawText (t, x, y, w, 10, juce::Justification::centred); };
+            if (plaits)
+            {
+                g.setColour (dimColour); g.setFont (juce::Font (7.5f, juce::Font::bold));
+                const int sp = oscW / 5;
+                kl ("HARM",  oscX + sp*0 + 6, cY + 110, 44);
+                kl ("TIMBRE",oscX + sp*1 + 6, cY + 110, 44);
+                kl ("MORPH", oscX + sp*2 + 6, cY + 110, 44);
+                kl ("AUX",   oscX + sp*3 + 6, cY + 110, 44);
+            }
+            else if (oscView[v] == 0)
+            {
+                g.setColour (textColour); g.setFont (juce::Font (8.0f));
+                // Sits in the empty top-row gap, right of the OSC 1/OSC 2 radio (no clash)
+                g.drawText ("WAVE", oscX + 118, cY + 8, 80, 10, juce::Justification::centredLeft);
+                kl ("LEVEL", oscX + 6,   cY + 108);
+                kl ("PWM",   oscX + 130, cY + 108);
+                kl ("FB",    oscX + 174, cY + 108);
+                kl ("DRIFT", oscX + 218, cY + 108);
+                g.setColour (dimColour); g.setFont (juce::Font (7.5f, juce::Font::bold));
+                // Sits just above the scope display, below the Macro OSC button (no clash)
+                g.drawText ("SCOPE", oscX + 268, cY + 22, 88, 9, juce::Justification::centred);
+            }
+            else
+            {
+                g.setColour (textColour); g.setFont (juce::Font (8.0f));
+                kl ("POS",  oscX + 6,   cY + 72);
+                kl ("LVL",  oscX + 50,  cY + 72);
+                kl ("FM",   oscX + 94,  cY + 72);
+                kl ("XMOD", oscX + 138, cY + 72);
+                g.setColour (dimColour); g.setFont (juce::Font (7.5f, juce::Font::bold));
+                g.drawText ("OCT",   oscX + 6,  cY + 112, 70,  10, juce::Justification::centredLeft);
+                g.drawText ("RATIO", oscX + 86, cY + 112, 200, 10, juce::Justification::centredLeft);
+            }
         }
-        else
-        {
-            // ── OSC 1 front-page labels (wave/level/oct/scope always visible) ─────
-            g.drawText ("WAVE",  pO1X,    cY+14,  pO1W, 12, juce::Justification::centred);
-            g.drawText ("LEVEL", pO1X,    cY+54,  46,   12, juce::Justification::centred);
-            g.drawText ("OCT",   pO1X+46, cY+54,  78,   12, juce::Justification::centred);
-            g.drawText ("SCOPE", pO1X+88, cY+108, pO1W-93, 11, juce::Justification::centred);
-            // OSC 1 advanced (FEEDBK/PWM/DRIFT) and full OSC 2 live in the OSC panel — no front-page labels
-        }
-        // Filter
-        g.drawText ("CUTOFF",  pFltX+5,  lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("RES",     pFltX+48, lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("DRIVE",   pFltX+91, lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("MODE",    pFltX+5,  lY2, 65,  12, juce::Justification::centred);
-        g.drawText ("SLOPE",   pFltX+74, lY2, 32,  12, juce::Justification::centred);
-        g.drawText ("ENV",     pFltX+110,lY2, kSz, 12, juce::Justification::centred);
-        g.drawText ("A",  pFltX+2,   lY3, kSz, 12, juce::Justification::centred);
-        g.drawText ("D",  pFltX+42,  lY3, kSz, 12, juce::Justification::centred);
-        g.drawText ("S",  pFltX+82,  lY3, kSz, 12, juce::Justification::centred);
-        g.drawText ("R",  pFltX+122, lY3, kSz, 12, juce::Justification::centred);
-        // AMP ENV labels (Amp ADSR stays permanently on front page)
+        // Filter — hero Cutoff label spans the bigger knob (rows centred, +20)
+        g.drawText ("CUTOFF",  pFltX+6,   lY1+20, 52,  12, juce::Justification::centred);
+        g.drawText ("RES",     pFltX+66,  lY1+20, kSz, 12, juce::Justification::centred);
+        g.drawText ("DRIVE",   pFltX+112, lY1+20, kSz, 12, juce::Justification::centred);
+        g.drawText ("MODE",    pFltX+6,   lY2+20, 64,  12, juce::Justification::centred);
+        g.drawText ("SLOPE",   pFltX+74,  lY2+20, 30,  12, juce::Justification::centred);
+        g.drawText ("ENV",     pFltX+112, lY2+20, kSz, 12, juce::Justification::centred);
+        // (Filter ADSR labels move to the ENVELOPES column below — filter
+        //  panel's bottom row is now empty.)
+        // ── ENVELOPES column — Amp ADSR (row 1) over Filter ADSR (row 2) ──────
         g.setColour (dimColour); g.setFont (juce::Font (7.5f, juce::Font::bold));
-        g.drawText ("AMP",   pAEX, cY+14, pAEW, 10, juce::Justification::centred);
+        g.drawText ("AMP ENV",    pAEX, cY + 4,  pAEW, 10, juce::Justification::centred);
+        g.drawText ("FILTER ENV", pAEX, cY + 74, pAEW, 10, juce::Justification::centred);  // in the gap between rows
         g.setColour (textColour); g.setFont (juce::Font (9.0f));
-        g.drawText ("A", pAEX+2,    lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("D", pAEX+50,   lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("S", pAEX+98,   lY1, kSz, 12, juce::Justification::centred);
-        g.drawText ("R", pAEX+146,  lY1, kSz, 12, juce::Justification::centred);
-        // MOD ENV lives in the MOD floating panel — no front-page labels needed
+        {
+            const char* adsr[4] = { "A", "D", "S", "R" };
+            for (int k = 0; k < 4; ++k)
+            {
+                g.drawText (adsr[k], pAEX + 2 + 48 * k, lY1,      kSz, 12, juce::Justification::centred);  // amp — above
+                g.drawText (adsr[k], pAEX + 2 + 48 * k, cY + 128, kSz, 12, juce::Justification::centred);  // filter — below
+            }
+        }
+        // ── Modulation slot labels (per view) ────────────────────────────────
+        {
+            const int mX = pAEX + pAEW + 6;
+            if (modSlotView[v] == 1)   // MOD ENV — label the ADSR + depth/dest
+            {
+                g.setColour (textColour); g.setFont (juce::Font (8.0f));
+                const char* me[4] = { "A", "D", "S", "R" };
+                for (int k = 0; k < 4; ++k)
+                    g.drawText (me[k], mX + 6 + 52 * k, cY + 32, kSz, 10, juce::Justification::centred);
+                g.setColour (dimColour); g.setFont (juce::Font (7.0f, juce::Font::bold));
+                g.drawText ("DEPTH", mX + 6,  cY + 94, 44,  10, juce::Justification::centred);
+                g.drawText ("DEST",  mX + 56, cY + 96, 118, 10, juce::Justification::centredLeft);
+            }
+            else   // LFO — label the rate/depth knobs (wave + target dropdowns self-label)
+            {
+                g.setColour (dimColour); g.setFont (juce::Font (7.0f, juce::Font::bold));
+                g.drawText ("RATE",  mX + 14, cY + 115, kSz, 9, juce::Justification::centred);
+                g.drawText ("DEPTH", mX + 92, cY + 115, kSz, 9, juce::Justification::centred);
+            }
+        }
 
         // Accent stripe on control panel left edge
         g.setColour (accent.withAlpha (0.4f));
         g.fillRect (pSeqX, cY, 2, ctrlH);
     }
 
-    // Divider between Voice A controls and Voice B controls
-    g.setColour (voiceAColour.withAlpha (0.2f));
-    g.fillRect (0, ctrlBY - 1, getWidth(), 2);
-    g.setColour (voiceBColour.withAlpha (0.2f));
-    g.fillRect (0, ctrlBY + 1, getWidth(), 1);
-
-    // ── Branding logo boost pass ─────────────────────────────────────────────
-    // Drawn AFTER all ctrl strip background fills so the logo renders on top,
-    // not dimmed underneath the sectionColour panels. Restricted to the TOP
-    // (Voice A) row only — the bottom row is now the MACROS panel.
-    if (backplate != nullptr)
+    // Engraved rail dividing the PATTERN zone (top) from the SYNTH zone (bottom).
+    // A dark groove with a light bevel below reads as a milled channel in the metal.
     {
-        const juce::Rectangle<float> fullArea (0.0f, 0.0f,
-                                               (float)getWidth(), (float)winH);
-        g.saveState();
-        g.reduceClipRegion (1090, ctrlAY, getWidth() - 1090, ctrlH);
-        backplate->drawWithin (g, fullArea, juce::RectanglePlacement::stretchToFit, 0.88f);
-        g.restoreState();
+        const int railY = (subBY + ctrlAY) / 2;   // ~350, centred in the gap
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.fillRect (0, railY,     getWidth(), 2);
+        g.setColour (juce::Colours::white.withAlpha (0.07f));
+        g.fillRect (0, railY + 2, getWidth(), 1);
     }
 
-    // ── MACROS panel (bottom-right, replaces the lower branding block) ────────
-    if (currentPage == 0)
+    // Divider between Voice A and Voice B synth rows — neutral milled rail (matches
+    // the pattern/synth divider; no coloured separator lines).
+    g.setColour (juce::Colours::black.withAlpha (0.45f));
+    g.fillRect (0, ctrlBY - 1, getWidth(), 2);
+    g.setColour (juce::Colours::white.withAlpha (0.07f));
+    g.fillRect (0, ctrlBY + 1, getWidth(), 1);
+
+    // ── MACROS panel (bottom-right) — only when revealed; otherwise bare metal ─
+    if (currentPage == 0 && macrosShown)
     {
         const int mzX = 1090, mzW = getWidth() - 1090;
         const juce::Colour macTeal (0xff00d4aa);
-        g.setColour (juce::Colour (0xff0c0c18));               // opaque — hide branding text
+        g.setColour (juce::Colour (0xff0c0c18).withAlpha (0.55f));   // translucent inset
         g.fillRect (mzX, ctrlBY, mzW, ctrlH);
         g.setColour (macTeal.withAlpha (0.35f));
         g.fillRect (mzX, ctrlBY, 2, ctrlH);                    // accent stripe
-        g.setColour (macTeal);
-        g.setFont (juce::Font (9.0f, juce::Font::bold));
-        g.drawText ("MACROS", mzX + 8, ctrlBY + 4, mzW - 16, 12,
-                    juce::Justification::centredLeft);
         g.setColour (macTeal.withAlpha (0.25f));
-        g.fillRect (mzX + 8, ctrlBY + 18, mzW - 16, 1);
+        g.fillRect (mzX + 8, ctrlBY + 20, mzW - 16, 1);
+    }
+
+    // ── Engraved branding (bare-metal zone, right of Voice A's modulation slot) ─
+    if (currentPage == 0)
+    {
+        const int bx = 1098, bw = getWidth() - bx - 14, by = ctrlAY;
+
+        // Incised-engraving pass: dark cut shadow on top edge, light catch below,
+        // then the recessed face of the letters.
+        auto engrave = [&] (const juce::String& t, juce::Font f,
+                            juce::Rectangle<int> area, juce::Colour face,
+                            juce::Justification just = juce::Justification::centred,
+                            float hi = 0.13f)
+        {
+            g.setFont (f);
+            g.setColour (juce::Colours::black.withAlpha (0.55f));
+            g.drawText (t, area.translated (0, -1), just);
+            g.setColour (juce::Colours::white.withAlpha (hi));        // light catch / emboss edge
+            g.drawText (t, area.translated (0,  1), just);
+            g.setColour (face);
+            g.drawText (t, area, just);
+        };
+
+        // Big logo — "VOLTAGE" engraved metal, "SEQ" accent-blue fill, small "2".
+        const juce::Colour brand (0xff3a78d8);
+        juce::Font logoFont (33.0f, juce::Font::bold);
+        const int logoY = by + 44, logoH = 38;
+        const int vW = juce::GlyphArrangement::getStringWidthInt (logoFont, "VOLTAGE ");
+        const int sW = juce::GlyphArrangement::getStringWidthInt (logoFont, "SEQ");
+        const int totW = vW + sW;
+        const int startX = bx + (bw - totW) / 2;
+        engrave ("VOLTAGE", logoFont, { startX, logoY, vW, logoH },
+                 juce::Colour (0xff14141a), juce::Justification::centredLeft);
+        engrave ("SEQ", logoFont, { startX + vW, logoY, sW, logoH },
+                 brand.darker (0.15f), juce::Justification::centredLeft);
+
+        // Engraved rule beneath the logo
+        const int ruleY = logoY + logoH + 4;
+        const int ruleInset = 70;
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.fillRect (bx + ruleInset, ruleY,     bw - ruleInset * 2, 1);
+        g.setColour (juce::Colours::white.withAlpha (0.09f));
+        g.fillRect (bx + ruleInset, ruleY + 1, bw - ruleInset * 2, 1);
+
+        // Tagline + maker — small engraved caps, stronger white emboss edge to bring
+        // them into focus against the perforated metal.
+        engrave ("DUAL-VOICE  POLYRHYTHMIC  SEQUENCER",
+                 juce::Font (10.0f, juce::Font::bold),
+                 { bx, ruleY + 10, bw, 14 }, juce::Colour (0xff20202a),
+                 juce::Justification::centred, 0.18f);
+        engrave ("MURGATROYD  INSTRUMENTS",
+                 juce::Font ("Copperplate", 13.0f, juce::Font::bold)
+                     .withExtraKerningFactor (0.10f),
+                 { bx, by + ctrlH - 30, bw, 16 }, juce::Colour (0xff14141a),
+                 juce::Justification::centred, 0.18f);   // incised + subtle emboss
     }
 }
 
@@ -3091,6 +3563,8 @@ void VoltageSeq2AudioProcessorEditor::resized()
             macroAssignBtn  [m].setBounds (cx + (colW - 76) / 2 - 4, topY + 74, 76, 15);
             macroAssignLabel[m].setBounds (cx + 4, topY + 94,             colW - 12, 58);
         }
+        // Reveal toggle — top-left of the (otherwise bare-metal) macros zone
+        macrosBtn.setBounds (1098, ctrlBY + 4, 64, 16);
     }
 
     macroOverlay.setBounds (getLocalBounds());
@@ -3112,136 +3586,148 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
     for (int i = 0; i < 16; ++i)
     {
         const int bx = seqX + i * stepStride;
-        stepKnob[v][i].setBounds (bx + 4,  seqTopY + stepSliderTop, stepStride - 8,  stepSliderH);
-        veloKnob[v][i].setBounds (bx + 4,  seqTopY + stepSliderTop, stepStride - 8,  stepSliderH);
-        gateBtn [v][i].setBounds (bx + 8,  seqTopY + gateRelY,      stepStride - 16, 13);
-        slideBtn[v][i].setBounds (bx + 8,  seqTopY + slideRelY,     stepStride - 16, 12);
+        // Wider columns with a slightly larger gap; gate row is beefier (it holds
+        // a lot of functionality, so it gets more presence).
+        const int boxW = stepStride - 6;
+        const int boxX = bx + 3;
+        stepKnob[v][i].setBounds (boxX, seqTopY + stepSliderTop, boxW, stepSliderH);
+        veloKnob[v][i].setBounds (boxX, seqTopY + stepSliderTop, boxW, stepSliderH);
+        gateBtn [v][i].setBounds (boxX, seqTopY + gateRelY,  boxW, 15);
+        slideBtn[v][i].setBounds (boxX, seqTopY + slideRelY, boxW, 11);
     }
 
     // ── Pulse counter / mode controls (right of sequencer steps) ─────────────
-    const int pCtrlX = seqX + 16 * stepStride + 4;   // x=1417
-    const int pCtrlW = seqW - 16 * stepStride - 8;   // ~74px
+    const int pCtrlX = seqX + 16 * stepStride + 8;   // just right of packed steps
+    const int pCtrlW = 74;
     pulseModeBtn[v].setBounds (pCtrlX, seqTopY + stepSliderTop + 34, pCtrlW, 15);
     pulseLenBox [v].setBounds (pCtrlX, seqTopY + stepSliderTop + 53, pCtrlW, 16);
 
-    // ── Sub-strip ─────────────────────────────────────────────────────────────
-    seqLengthSlider[v].setBounds (12,  sbCY, 82, 18);
-    playFwdBtn [v]    .setBounds (112, sbCY, 36, 18);
-    playRevBtn [v]    .setBounds (151, sbCY, 36, 18);
-    playConvBtn[v]    .setBounds (190, sbCY, 42, 18);
-    playRndBtn [v]    .setBounds (235, sbCY, 36, 18);
-    resetBtn   [v]    .setBounds (280, sbCY, 46, 18);
-    bipolarBtn   [v]  .setBounds (330, sbCY,  46, 18);
-    nudgeLeftBtn [v]  .setBounds (384, sbCY,  22, 18);
-    nudgeRightBtn[v]  .setBounds (408, sbCY,  22, 18);
-    swingSlider  [v]  .setBounds (490, sbCY, 110, 18);
+    // ══ PATTERN-SECTION control block (right of the step lanes) ════════════════
+    // Three zones: PERFORMANCE sliders · QUANT↔ORDER radio slot · TOOLS column.
+    // Everything saved-per-pattern lives up here with the lanes.
+    const int bh = 16;
 
-    // RAND: mode cycler + trigger
-    randModeBtn[v].setBounds (608, sbCY, 52, 18);
-    randomBtn  [v].setBounds (663, sbCY, 50, 18);
+    // ── Zone 1 — PERFORMANCE (Range / Length / Swing, aligned & shrunk ~75%) ───
+    const int perfX = seqX + 16 * stepStride + 96;   // ~800
+    const int perfW = 175;                            // all three identical: same
+    const int perfH = 18;                             // width, height + 40px value box
+    rangeSlider    [v].setBounds (perfX, seqTopY + 20,  perfW, perfH);
+    seqLengthSlider[v].setBounds (perfX, seqTopY + 62,  perfW, perfH);
+    swingSlider    [v].setBounds (perfX, seqTopY + 104, perfW, perfH);
+    // STOP + VELO live under the TOTAL/STAGES/pulse column (frees the perf zone)
+    runStopBtn     [v].setBounds (pCtrlX, seqTopY + 88,  pCtrlW, bh);
+    veloModeBtn    [v].setBounds (pCtrlX, seqTopY + 110, pCtrlW, bh);
 
-    // VELO toggle
-    veloModeBtn[v].setBounds (720, sbCY, 44, 18);
+    // ── Zone 2 — MIDDLE slot: QUANT / ORDER / TOOLS 3-way radio (shared slot) ──
+    const int midX = perfX + 200;   // QUANT/ORDER/TOOLS slot, pulled left into the gap
+    quantViewBtn[v].setBounds (midX,       seqTopY + 6, 58, bh);
+    orderViewBtn[v].setBounds (midX + 60,  seqTopY + 6, 58, bh);
+    toolsBtn    [v].setBounds (midX + 120, seqTopY + 6, 58, bh);
 
-    // ── MIDI Out — right side of sub-strip ────────────────────────────────────
-    midiOutBtn  [v].setBounds (770, sbCY,  80, 18);
-    midiOutChBox[v].setBounds (858, sbCY,  62, 18);
+    // QUANT view — Root / Scale / Clock stacked (labels painted to the left)
+    rootBox    [v].setBounds (midX + 40, seqTopY + 30, 82, 20);
+    scaleBox   [v].setBounds (midX + 40, seqTopY + 58, 82, 20);
+    clockDivBox[v].setBounds (midX + 40, seqTopY + 86, 82, 20);
+    // ORDER view — play order as 4 stacked options (shares the slot)
+    playFwdBtn [v].setBounds (midX, seqTopY + 30, 78, 18);
+    playRevBtn [v].setBounds (midX, seqTopY + 50, 78, 18);
+    playConvBtn[v].setBounds (midX, seqTopY + 70, 78, 18);
+    playRndBtn [v].setBounds (midX, seqTopY + 90, 78, 18);
+    // TOOLS view — RST/UNI · randomise · nudge · MIDI/VOICE config (shares slot)
+    resetBtn     [v].setBounds (midX,       seqTopY + 30, 46, bh);
+    bipolarBtn   [v].setBounds (midX + 50,  seqTopY + 30, 46, bh);
+    nudgeLeftBtn [v].setBounds (midX + 104, seqTopY + 30, 28, bh);
+    nudgeRightBtn[v].setBounds (midX + 134, seqTopY + 30, 28, bh);
+    randModeBtn  [v].setBounds (midX,       seqTopY + 52, 56, bh);
+    randomBtn    [v].setBounds (midX + 60,  seqTopY + 52, 56, bh);
+    midiViewBtn  [v].setBounds (midX,       seqTopY + 74, 48, bh);
+    voiceViewBtn [v].setBounds (midX + 50,  seqTopY + 74, 48, bh);
+    midiOutBtn   [v].setBounds (midX,       seqTopY + 96, 80, bh);
+    midiOutChBox [v].setBounds (midX + 84,  seqTopY + 96, 66, bh);
+    voiceModeBox [v].setBounds (midX,       seqTopY + 96, 78, bh);
+    uniCountBtn  [v].setBounds (midX + 80,  seqTopY + 96, 34, bh);
+    chordModeBtn [v].setBounds (midX + 116, seqTopY + 96, 42, bh);
+    uniSpreadSlider[v].setBounds (midX,      seqTopY + 116, 90, bh);
+    uniWidthSlider [v].setBounds (midX + 94, seqTopY + 116, 90, bh);
 
-    // ── Voice mode controls ──────────────────────────────────────────────────
-    voiceModeBox   [v].setBounds (900,  sbCY, 68, 18);
-    uniCountBtn    [v].setBounds (974,  sbCY, 28, 18);
-    chordModeBtn   [v].setBounds (1004, sbCY, 36, 18);
-    uniSpreadSlider[v].setBounds (1046, sbCY, 90, 18);
-    uniWidthSlider [v].setBounds (1142, sbCY, 90, 18);
+    applyMidView (v);   // QUANT / ORDER / TOOLS slot + (TOOLS) config-group
 
-    // RUN/STOP moved to far-right end of sub-strip
-    runStopBtn [v]    .setBounds (1240, sbCY, 54, 18);
+    // ── GLIDE panel — PORTA only (Range/Root/Scale/Clock now live up top) ──────
+    portaSlider[v].setBounds (pSeqX + (pSeqW - kSz) / 2, ctrlTopY + 64, kSz, kSz);
 
-    // ── SEQ panel ─────────────────────────────────────────────────────────────
-    rangeSlider[v]  .setBounds (pSeqX + 5,                     cy1 - 2, pSeqW - 10, 22);
-    clockDivBox[v]  .setBounds (pSeqX + 8,                     cy2,     pSeqW - 16, 20);
-    portaSlider[v]  .setBounds (pSeqX + (pSeqW - kSz) / 2,    cy3,     kSz, kSz);
+    // ── Modulation slot — inline [LFO | MOD ENV] (between envelopes & branding)
+    const int modX = pAEX + pAEW + 6;     // ~852
+    const int modW = 1090 - modX - 4;     // ~232 (stops short of MACROS at 1090)
+    lfoPanelBtn[v].setBounds (modX,      ctrlTopY + 4, 50, 18);
+    envPanelBtn[v].setBounds (modX + 54, ctrlTopY + 4, 64, 18);
+    for (int i = 0; i < 4; ++i)
+        lfoSelBtn[v][i].setBounds (modX + i * 44, ctrlTopY + 26, 40, 16);
 
-    // ── Quantizer ─────────────────────────────────────────────────────────────
-    rootBox [v].setBounds (pQntX + 8, cy1, pQntW - 16, 22);
-    scaleBox[v].setBounds (pQntX + 8, cy2, pQntW - 16, 22);
+    // ── OSC section (inline; OSC1 / OSC2 / PLAITS overlap, toggled by view) ────
+    const int oscX = pO1X;
+    const int oscW = pO1W + pO2W;            // ~360 px full footprint
+    // Header — view radio + Plaits toggle
+    oscView1Btn[v].setBounds (oscX + 0,  ctrlTopY + 4, 52, 18);
+    oscView2Btn[v].setBounds (oscX + 56, ctrlTopY + 4, 52, 18);
+    plaitsBtn  [v].setBounds (oscX + oscW - 62, ctrlTopY + 2, 58, 20);
 
-    // Panel toggle buttons (placed in section header strip)
+    // OSC 1 group
+    osc1WaveBox       [v].setBounds (oscX + 4,   ctrlTopY + 32, 170, 22);
+    osc1LevelSlider   [v].setBounds (oscX + 6,   ctrlTopY + 68, kSz, kSz);
+    osc1OctaveBox     [v].setBounds (oscX + 50,  ctrlTopY + 72, 70,  22);
+    osc1PWMSlider     [v].setBounds (oscX + 130, ctrlTopY + 68, kSz, kSz);
+    osc1FeedbackSlider[v].setBounds (oscX + 174, ctrlTopY + 68, kSz, kSz);
+    driftSlider       [v].setBounds (oscX + 218, ctrlTopY + 68, kSz, kSz);
+    oscScope          [v]->setBounds(oscX + 268, ctrlTopY + 32, 88, 82);
+
+    // OSC 2 group (overlaps OSC 1)
+    osc2PosSlider   [v].setBounds (oscX + 6,   ctrlTopY + 32, kSz, kSz);
+    osc2LevelSlider [v].setBounds (oscX + 50,  ctrlTopY + 32, kSz, kSz);
+    fmDepthSlider   [v].setBounds (oscX + 94,  ctrlTopY + 32, kSz, kSz);
+    crossModSlider  [v].setBounds (oscX + 138, ctrlTopY + 32, kSz, kSz);
+    osc2OctaveBox   [v].setBounds (oscX + 6,   ctrlTopY + 86, 70,  22);
+    fmRatioSlider   [v].setBounds (oscX + 86,  ctrlTopY + 86, 200, 22);
+    wavetableDisplay[v]->setBounds(oscX + 6,   ctrlTopY + 116, 300, 18);
+
+    // PLAITS group (overlaps OSC 1/2)
+    plaitsEngBox[v].setBounds (oscX + 4, ctrlTopY + 32, oscW - 72, 24);
     {
-        constexpr int btnH = 16, btnW = 52;
-        oscPanelBtn[v].setBounds (pO1X + pO1W + pO2W - btnW - 4, ctrlTopY + 4, btnW, btnH);
-        envPanelBtn[v].setBounds (pAEX + pAEW - btnW - 4,         ctrlTopY + 4, btnW, btnH);
-        lfoPanelBtn[v].setBounds (pLfo4X + pLfoW - btnW - 4,      ctrlTopY + 4, btnW, btnH);
+        const int pkY = ctrlTopY + 64, pkSz = 44, pkSp = oscW / 5;
+        plaitsHarmSlider [v].setBounds (oscX + pkSp * 0 + 6, pkY, pkSz, pkSz);
+        plaitsTimSlider  [v].setBounds (oscX + pkSp * 1 + 6, pkY, pkSz, pkSz);
+        plaitsMorphSlider[v].setBounds (oscX + pkSp * 2 + 6, pkY, pkSz, pkSz);
+        plaitsAuxSlider  [v].setBounds (oscX + pkSp * 3 + 6, pkY, pkSz, pkSz);
     }
+    plaitsTrigBtn[v].setBounds (oscX + 6,  ctrlTopY + 130, 84, 22);
+    plaitsOctBox [v].setBounds (oscX + 96, ctrlTopY + 130, 90, 22);
 
-    // ── OSC 1 ─────────────────────────────────────────────────────────────────
-    osc1WaveBox        [v].setBounds (pO1X + 8,   ctrlTopY + 26, pO1W - 16, 20);
-    osc1LevelSlider    [v].setBounds (pO1X + 6,   ctrlTopY + 66, kSz, kSz);
-    osc1OctaveBox      [v].setBounds (pO1X + 48,  ctrlTopY + 72, 90,  22);
-    osc1FeedbackSlider [v].setBounds (pO1X + 142, ctrlTopY + 66, kSz, kSz);
-    osc1PWMSlider      [v].setBounds (pO1X + 4,   ctrlTopY + 122, kSz, kSz);
-    driftSlider        [v].setBounds (pO1X + 46,  ctrlTopY + 122, kSz, kSz);
-    oscScope           [v]->setBounds(pO1X + 88,  ctrlTopY + 122, pO1W - 93, 52);
+    // ── Filter — hero Cutoff (52px) anchors the section ─────────────────────────
+    // Rows nudged down (+20) to vertically centre the 2-row filter in the panel
+    // now that the Filter ADSR has moved to the envelopes column.
+    const int heroSz = 52;
+    const int fcy1 = cy1 + 20, fcy2 = cy2 + 20;
+    cutoffSlider      [v].setBounds (pFltX + 6,   fcy1,     heroSz, heroSz);
+    resonanceSlider   [v].setBounds (pFltX + 66,  fcy1 + 5, kSz, kSz);
+    filterDriveSlider [v].setBounds (pFltX + 112, fcy1 + 5, kSz, kSz);
+    filterModeBox     [v].setBounds (pFltX + 6,   fcy2, 64, 20);
+    filterSlopeBtn    [v].setBounds (pFltX + 74,  fcy2, 30, 20);
+    filterEnvAmtSlider[v].setBounds (pFltX + 112, fcy2, kSz, kSz);
 
-    // ── PLAITS mode controls (overlay the OSC1/O2 area) ──────────────────────
-    // PLAITS toggle: top of OSC1 panel header row
-    plaitsBtn[v].setBounds (pO1X + pO1W - 62, ctrlTopY + 2, 58, 20);
-
-    // Engine combobox spanning OSC1+OSC2 width
-    plaitsEngBox[v].setBounds (pO1X, ctrlTopY + 28, pO1W + pO2W - 5, 24);
-
-    // 4 knobs in a row below the combobox: HARM, TIMBRE, MORPH, AUX
-    const int pkY  = ctrlTopY + 60;
-    const int pkSz = 44;
-    const int pkSp = (pO1W + pO2W) / 4;
-    plaitsHarmSlider [v].setBounds (pO1X + pkSp * 0 + 4,  pkY, pkSz, pkSz);
-    plaitsTimSlider  [v].setBounds (pO1X + pkSp * 1 + 4,  pkY, pkSz, pkSz);
-    plaitsMorphSlider[v].setBounds (pO1X + pkSp * 2 + 4,  pkY, pkSz, pkSz);
-    plaitsAuxSlider  [v].setBounds (pO1X + pkSp * 3 + 4,  pkY, pkSz, pkSz);
-
-    // TRIG mode button + octave transpose — below the 4 Plaits knobs
-    plaitsTrigBtn [v].setBounds (pO1X + 4,  ctrlTopY + 112, 84, 22);
-    plaitsOctBox  [v].setBounds (pO1X + 96, ctrlTopY + 112, 90, 22);
-
-    // ── OSC 2 ─────────────────────────────────────────────────────────────────
-    osc2PosSlider   [v].setBounds (pO2X + 5,   ctrlTopY + 26,  kSz, kSz);
-    osc2LevelSlider [v].setBounds (pO2X + 60,  ctrlTopY + 26,  kSz, kSz);
-    fmDepthSlider   [v].setBounds (pO2X + 115, ctrlTopY + 26,  kSz, kSz);
-    fmRatioSlider   [v].setBounds (pO2X + 5,   ctrlTopY + 80,  pO2W - 10, 22);
-    osc2OctaveBox   [v].setBounds (pO2X + 5,   ctrlTopY + 118, 70,  22);
-    crossModSlider  [v].setBounds (pO2X + 95,  ctrlTopY + 114, kSz, kSz);
-    wavetableDisplay[v]->setBounds(pO2X + 5,   ctrlTopY + 152, pO2W - 10, 16);
-
-    // ── Filter ────────────────────────────────────────────────────────────────
-    cutoffSlider      [v].setBounds (pFltX + 5,  cy1, kSz, kSz);
-    resonanceSlider   [v].setBounds (pFltX + 49, cy1, kSz, kSz);
-    filterDriveSlider [v].setBounds (pFltX + 93, cy1, kSz, kSz);
-    filterModeBox     [v].setBounds (pFltX + 5,  cy2, 70,  20);
-    filterSlopeBtn    [v].setBounds (pFltX + 80, cy2, 32,  20);
-    filterEnvAmtSlider[v].setBounds (pFltX + 118,cy2, kSz, kSz);
-
-    // ── Amp Envelope ──────────────────────────────────────────────────────────
+    // ── ENVELOPES column — Amp ADSR (cy1) over Filter ADSR (cy2) ───────────────
     envResetBtn[v].setBounds (pAEX + pAEW - 44, ctrlTopY + 2, 42, 14);
     const int aeStride = 48;
-    attackSlider [v].setBounds (pAEX + 2,            cy1, kSz, kSz);
-    decaySlider  [v].setBounds (pAEX + 2 + aeStride, cy1, kSz, kSz);
+    // Amp ADSR (top)
+    attackSlider [v].setBounds (pAEX + 2,              cy1, kSz, kSz);
+    decaySlider  [v].setBounds (pAEX + 2 + aeStride,   cy1, kSz, kSz);
     sustainSlider[v].setBounds (pAEX + 2 + aeStride*2, cy1, kSz, kSz);
     releaseSlider[v].setBounds (pAEX + 2 + aeStride*3, cy1, kSz, kSz);
+    // Filter ADSR (directly below, same column) — moved out of the filter panel
+    fAttackSlider [v].setBounds (pAEX + 2,              cy2, kSz, kSz);
+    fDecaySlider  [v].setBounds (pAEX + 2 + aeStride,   cy2, kSz, kSz);
+    fSustainSlider[v].setBounds (pAEX + 2 + aeStride*2, cy2, kSz, kSz);
+    fReleaseSlider[v].setBounds (pAEX + 2 + aeStride*3, cy2, kSz, kSz);
 
-    // ── Filter Envelope (in Filter panel cy3) ─────────────────────────────────
-    const int feStride = 40;
-    fAttackSlider [v].setBounds (pFltX + 2,               cy3, kSz, kSz);
-    fDecaySlider  [v].setBounds (pFltX + 2 + feStride,    cy3, kSz, kSz);
-    fSustainSlider[v].setBounds (pFltX + 2 + feStride*2,  cy3, kSz, kSz);
-    fReleaseSlider[v].setBounds (pFltX + 2 + feStride*3,  cy3, kSz, kSz);
-
-    // ── 4 LFO panels ─────────────────────────────────────────────────────────
-    // Each panel is pLfoW=85px wide. Layout within each:
-    //   ctrlTopY+26 : wave combo
-    //   ctrlTopY+62 : rate knob | depth knob
-    //   ctrlTopY+116: target combo
-    //   ctrlTopY+150: sync btn | div combo
-    const int lfoXArr[4] = { pLfo1X, pLfo2X, pLfo3X, pLfo4X };
+    // ── LFO controls — all 4 sets share the slot; refreshModSlot shows one ────
     juce::Slider*    rateSliders[4]  = { &lfoRateSlider[v],  &lfo2RateSlider[v],  &lfo3RateSlider[v],  &lfo4RateSlider[v]  };
     juce::Slider*    depSliders[4]   = { &lfoDepthSlider[v], &lfo2DepthSlider[v], &lfo3DepthSlider[v], &lfo4DepthSlider[v] };
     juce::ComboBox*  waveBoxes[4]    = { &lfoWaveBox[v],     &lfo2WaveBox[v],     &lfo3WaveBox[v],     &lfo4WaveBox[v]     };
@@ -3251,24 +3737,31 @@ void VoltageSeq2AudioProcessorEditor::layoutVoice (int v, int seqTopY, int ctrlT
 
     for (int li = 0; li < 4; ++li)
     {
-        const int lx = lfoXArr[li];
-        waveBoxes [li]->setBounds (lx + 3,  ctrlTopY + 26,  pLfoW - 6,  18);
-        rateSliders[li]->setBounds (lx + 3,  ctrlTopY + 62,  kSz, kSz);
-        depSliders [li]->setBounds (lx + 51, ctrlTopY + 62,  kSz, kSz);
-        tgtBoxes  [li]->setBounds (lx + 3,  ctrlTopY + 116, pLfoW - 6,  18);
-        syncBtns  [li]->setBounds (lx + 3,  ctrlTopY + 152, 42, 18);
-        divBoxes  [li]->setBounds (lx + 49, ctrlTopY + 152, 43, 18);
+        waveBoxes [li]->setBounds (modX + 4,  ctrlTopY + 48,  modW - 8, 18);
+        rateSliders[li]->setBounds (modX + 14, ctrlTopY + 72,  kSz, kSz);
+        depSliders [li]->setBounds (modX + 92, ctrlTopY + 72,  kSz, kSz);
+        tgtBoxes  [li]->setBounds (modX + 4,  ctrlTopY + 128, modW - 8, 18);
+        syncBtns  [li]->setBounds (modX + 4,  ctrlTopY + 152, 50, 18);
+        divBoxes  [li]->setBounds (modX + 58, ctrlTopY + 152, 50, 18);
     }
 
-    // ── Mod Envelope (in AMP ENV panel cy2 + cy3) ─────────────────────────────
-    modEnvAtkSlider  [v].setBounds (pAEX + 2,            cy2, kSz, kSz);
-    modEnvDecSlider  [v].setBounds (pAEX + 2 + 48,       cy2, kSz, kSz);
-    modEnvSusSlider  [v].setBounds (pAEX + 2 + 96,       cy2, kSz, kSz);
-    modEnvRelSlider  [v].setBounds (pAEX + 2 + 144,      cy2, kSz, kSz);
-    modEnvDepthSlider[v].setBounds (pAEX + 2,            cy3, kSz, kSz);
-    modEnvDestBox    [v].setBounds (pAEX + 50,           cy3 + 6, 100, 20);
-    modEnvSyncBtn    [v].setBounds (pAEX + 156,          cy3 + 6,  42, 20);
-    modEnvDivBox     [v].setBounds (pAEX + 156,          cy3 + 27, 42, 20);
+    // ── Mod Envelope — shares the slot; shown in MOD ENV view ─────────────────
+    modEnvAtkSlider  [v].setBounds (modX + 6,   ctrlTopY + 46, kSz, kSz);
+    modEnvDecSlider  [v].setBounds (modX + 58,  ctrlTopY + 46, kSz, kSz);
+    modEnvSusSlider  [v].setBounds (modX + 110, ctrlTopY + 46, kSz, kSz);
+    modEnvRelSlider  [v].setBounds (modX + 162, ctrlTopY + 46, kSz, kSz);
+    modEnvDepthSlider[v].setBounds (modX + 6,   ctrlTopY + 106, kSz, kSz);
+    modEnvDestBox    [v].setBounds (modX + 54,  ctrlTopY + 112, 120, 20);
+    modEnvSyncBtn    [v].setBounds (modX + 6,   ctrlTopY + 150, 50, 18);
+    modEnvDivBox     [v].setBounds (modX + 60,  ctrlTopY + 150, 46, 18);
+
+    // Macro-style assign button + route label (replace the old target/dest boxes)
+    lfoAssignBtn    [v].setBounds (modX + 4,   ctrlTopY + 126, 60, 18);
+    lfoAssignLabel  [v].setBounds (modX + 70,  ctrlTopY + 124, modW - 74, 28);
+    modEnvAssignBtn [v].setBounds (modX + 116, ctrlTopY + 110, 60, 18);
+    modEnvAssignLabel[v].setBounds(modX + 116, ctrlTopY + 130, modW - 120, 38);
+
+    refreshModSlot (v);   // show the active modulation view (LFO/sel or MOD ENV)
 }
 
 //==============================================================================
@@ -3498,6 +3991,13 @@ void VoltageSeq2AudioProcessorEditor::timerCallback()
             const bool tied     = vp.stepTied   [i];
             const int  r        = vp.stepRepeats[i];
 
+            // Drive the neon "playing" bloom on the step box — repaint only on change
+            if ((bool) stepKnob[v][i].getProperties().getWithDefault ("playing", false) != isActive)
+            {
+                stepKnob[v][i].getProperties().set ("playing", isActive);
+                stepKnob[v][i].repaint();
+            }
+
             if (isActive)
             {
                 // Flash the active step with a bright highlight colour
@@ -3529,6 +4029,12 @@ void VoltageSeq2AudioProcessorEditor::timerCallback()
         const bool isRunning = vp.sequencerRunning.load();
         runStopBtn[v].setColour (juce::TextButton::buttonColourId, isRunning ? stopColour : runColour);
         runStopBtn[v].setButtonText (isRunning ? "STOP" : "RUN");
+
+        // Repaint the TOTAL readout when the pulse sum changes (manual pulse/length
+        // edits previously only refreshed it on randomize).
+        int total = 0;
+        for (int i = 0; i < seqLen; ++i) total += vp.stepPulses[i];
+        if (total != lastTotalPulses[v]) { lastTotalPulses[v] = total; repaint(); }
     }
 
     for (int vi = 0; vi < 2; ++vi)
@@ -3612,7 +4118,8 @@ void VoltageSeq2AudioProcessorEditor::setupMacros()
         ab.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff14242a));
         ab.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff00d4aa));
         ab.onClick = [this, m]() {
-            (macroLearnActive == m) ? exitMacroLearn() : enterMacroLearn (m);
+            ModSource s { ModSource::Macro, 0, m };
+            (learnSource == s) ? exitMacroLearn() : enterMacroLearn (m);
         };
         addAndMakeVisible (ab);
         synthPageComponents.push_back (&ab);
@@ -3624,6 +4131,17 @@ void VoltageSeq2AudioProcessorEditor::setupMacros()
         k.toBack();
     }
 
+    // MACROS reveal toggle — macros are hidden by default (their zone is bare metal)
+    macrosBtn.setButtonText (juce::String::fromUTF8 ("MACROS"));
+    macrosBtn.setClickingTogglesState (true);
+    macrosBtn.setColour (juce::TextButton::buttonColourId,   juce::Colour (0xff14242a));
+    macrosBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff00786a));
+    macrosBtn.setColour (juce::TextButton::textColourOffId,  juce::Colour (0xff00d4aa));
+    macrosBtn.setColour (juce::TextButton::textColourOnId,   juce::Colour (0xffffffff));
+    macrosBtn.onClick = [this]() { macrosShown = macrosBtn.getToggleState(); applyMacrosVisible(); };
+    addAndMakeVisible (macrosBtn);
+    synthPageComponents.push_back (&macrosBtn);
+
     // Full-window transparent overlay for learn-mode highlights + click capture.
     macroOverlay.ed = this;
     addAndMakeVisible (macroOverlay);
@@ -3631,6 +4149,20 @@ void VoltageSeq2AudioProcessorEditor::setupMacros()
     macroOverlay.toFront (false);
 
     refreshMacroLabels();
+}
+
+void VoltageSeq2AudioProcessorEditor::applyMacrosVisible()
+{
+    macrosBtn.setToggleState (macrosShown, juce::dontSendNotification);
+    for (int m = 0; m < kNumMacros; ++m)
+    {
+        macroKnob       [m].setVisible (macrosShown);
+        macroNameLabel  [m].setVisible (macrosShown);
+        macroAssignLabel[m].setVisible (macrosShown);
+        macroAssignBtn  [m].setVisible (macrosShown);
+    }
+    if (! macrosShown && learnSource.kind == ModSource::Macro) exitMacroLearn();
+    repaint();
 }
 
 //------------------------------------------------------------------------------
@@ -3670,9 +4202,87 @@ VoltageSeq2AudioProcessorEditor::assignableScreenBounds (juce::Slider* s)
     return getLocalArea (s, s->getLocalBounds());
 }
 
-void VoltageSeq2AudioProcessorEditor::enterMacroLearn (int m)
+// ── Per-source routing accessors (macro vs LFO/mod-env) ────────────────────────
+int VoltageSeq2AudioProcessorEditor::srcCount (const ModSource& s) const
 {
-    macroLearnActive = m;
+    switch (s.kind)
+    {
+        case ModSource::Macro:  return audioProcessor.macros[s.index].count.load();
+        case ModSource::LFO:    return audioProcessor.voice[s.voice].lfoRouting[s.index].count.load();
+        case ModSource::ModEnv: return audioProcessor.voice[s.voice].modEnvRouting.count.load();
+        default: return 0;
+    }
+}
+
+int VoltageSeq2AudioProcessorEditor::srcTarget (const ModSource& s, int i) const
+{
+    switch (s.kind)
+    {
+        case ModSource::Macro:  return audioProcessor.macros[s.index].assign[i].target;
+        case ModSource::LFO:    return audioProcessor.voice[s.voice].lfoRouting[s.index].routes[i].target;
+        case ModSource::ModEnv: return audioProcessor.voice[s.voice].modEnvRouting.routes[i].target;
+        default: return 0;
+    }
+}
+
+float VoltageSeq2AudioProcessorEditor::srcDepth (const ModSource& s, int i) const
+{
+    switch (s.kind)
+    {
+        case ModSource::Macro:  return audioProcessor.macros[s.index].assign[i].depth;
+        case ModSource::LFO:    return audioProcessor.voice[s.voice].lfoRouting[s.index].routes[i].depth;
+        case ModSource::ModEnv: return audioProcessor.voice[s.voice].modEnvRouting.routes[i].depth;
+        default: return 0.0f;
+    }
+}
+
+void VoltageSeq2AudioProcessorEditor::srcSetDepth (const ModSource& s, int i, float d)
+{
+    switch (s.kind)
+    {
+        case ModSource::Macro:  audioProcessor.macros[s.index].assign[i].depth = d; break;
+        case ModSource::LFO:    audioProcessor.voice[s.voice].lfoRouting[s.index].routes[i].depth = d; break;
+        case ModSource::ModEnv: audioProcessor.voice[s.voice].modEnvRouting.routes[i].depth = d; break;
+        default: break;
+    }
+}
+
+float VoltageSeq2AudioProcessorEditor::srcValue (const ModSource& s) const
+{
+    if (s.kind == ModSource::Macro) return audioProcessor.macros[s.index].value.load();
+    return 0.0f;   // LFO / mod-env expose no live value
+}
+
+juce::Colour VoltageSeq2AudioProcessorEditor::srcColour (const ModSource& s) const
+{
+    switch (s.kind)
+    {
+        case ModSource::Macro:  return s.index == 0 ? juce::Colour (0xff00d4aa) : juce::Colour (0xffe09040);
+        case ModSource::LFO:    return juce::Colour (0xff63b4ec);   // azure — matches knob arcs
+        case ModSource::ModEnv: return juce::Colour (0xffaa66ff);   // violet
+        default: return juce::Colours::white;
+    }
+}
+
+bool VoltageSeq2AudioProcessorEditor::srcAllowsTarget (const ModSource& s, int target) const
+{
+    using AP = VoltageSeq2AudioProcessor;
+    if (s.kind == ModSource::Macro) return true;     // macros reach every target
+    // LFO / mod-env: audio-rate targets only (no block-rate ADSR/reverb).
+    switch (target)
+    {
+        case AP::MT_PWM:  case AP::MT_Cutoff: case AP::MT_Pitch: case AP::MT_Range:
+        case AP::MT_FM:   case AP::MT_Harm:   case AP::MT_Timbre: case AP::MT_Morph:
+        case AP::MT_Resonance: case AP::MT_Drive:
+            return true;
+        default:
+            return false;
+    }
+}
+
+void VoltageSeq2AudioProcessorEditor::enterLearn (ModSource s)
+{
+    learnSource = s;
     macroOverlay.toFront (false);
     updateMacroAssignBtns();
     macroOverlay.repaint();
@@ -3680,7 +4290,7 @@ void VoltageSeq2AudioProcessorEditor::enterMacroLearn (int m)
 
 void VoltageSeq2AudioProcessorEditor::exitMacroLearn()
 {
-    macroLearnActive = -1;
+    learnSource = {};
     updateMacroAssignBtns();
     macroOverlay.repaint();
 }
@@ -3689,28 +4299,59 @@ void VoltageSeq2AudioProcessorEditor::updateMacroAssignBtns()
 {
     for (int m = 0; m < kNumMacros; ++m)
     {
-        const bool on = (macroLearnActive == m);
+        const bool on = (learnSource.kind == ModSource::Macro && learnSource.index == m);
         macroAssignBtn[m].setButtonText (on ? "CLICK A KNOB" : "ASSIGN");
         macroAssignBtn[m].setColour (juce::TextButton::buttonColourId,
             on ? juce::Colour (0xff00d4aa) : juce::Colour (0xff14242a));
         macroAssignBtn[m].setColour (juce::TextButton::textColourOffId,
             on ? juce::Colour (0xff071518) : juce::Colour (0xff00d4aa));
     }
+    for (int v = 0; v < 2; ++v)
+    {
+        const bool lfoOn = (learnSource.kind == ModSource::LFO    && learnSource.voice == v);
+        const bool envOn = (learnSource.kind == ModSource::ModEnv && learnSource.voice == v);
+        lfoAssignBtn   [v].setButtonText (lfoOn ? "CLICK A KNOB" : "ASSIGN");
+        lfoAssignBtn   [v].setToggleState (lfoOn, juce::dontSendNotification);
+        modEnvAssignBtn[v].setButtonText (envOn ? "CLICK A KNOB" : "ASSIGN");
+        modEnvAssignBtn[v].setToggleState (envOn, juce::dontSendNotification);
+    }
 }
 
 void VoltageSeq2AudioProcessorEditor::assignFromClick (int sliderTarget, int voice, bool both)
 {
-    if (macroLearnActive < 0) return;
-    auto& mac = audioProcessor.macros[macroLearnActive];
-    int cnt = mac.count.load();
-    if (cnt < VoltageSeq2AudioProcessor::kMaxMacroAssign)
+    if (! learnSource.valid()) return;
+    if (! srcAllowsTarget (learnSource, sliderTarget)) return;
+    using AP = VoltageSeq2AudioProcessor;
+
+    if (learnSource.kind == ModSource::Macro)
     {
-        mac.assign[cnt].target = sliderTarget;
-        mac.assign[cnt].scope  = both ? VoltageSeq2AudioProcessor::MS_Both : voice;
-        mac.assign[cnt].depth  = 1.0f;
-        mac.count.store (cnt + 1);
+        auto& mac = audioProcessor.macros[learnSource.index];
+        int cnt = mac.count.load();
+        if (cnt < AP::kMaxMacroAssign)
+        {
+            mac.assign[cnt].target = sliderTarget;
+            mac.assign[cnt].scope  = both ? AP::MS_Both : voice;
+            mac.assign[cnt].depth  = 1.0f;
+            mac.count.store (cnt + 1);
+        }
+    }
+    else
+    {
+        // LFO / mod-env are per-voice — only assign within the source's own voice.
+        if (voice != learnSource.voice) { exitMacroLearn(); return; }
+        auto& rt = (learnSource.kind == ModSource::LFO)
+                     ? audioProcessor.voice[learnSource.voice].lfoRouting[learnSource.index]
+                     : audioProcessor.voice[learnSource.voice].modEnvRouting;
+        int cnt = rt.count.load();
+        if (cnt < AP::kMaxModRoutes)
+        {
+            rt.routes[cnt].target = sliderTarget;
+            rt.routes[cnt].depth  = 1.0f;
+            rt.count.store (cnt + 1);
+        }
     }
     refreshMacroLabels();
+    refreshModAssignLabels();
     exitMacroLearn();
     repaint();
 }
@@ -3722,28 +4363,51 @@ std::vector<VoltageSeq2AudioProcessorEditor::RingInfo>
 VoltageSeq2AudioProcessorEditor::buildRings()
 {
     using AP = VoltageSeq2AudioProcessor;
-    static const juce::Colour mc[kNumMacros] = {
-        juce::Colour (0xff00d4aa), juce::Colour (0xffe09040) };
     std::vector<RingInfo> out;
     auto assignables = buildAssignables();
-    for (int m = 0; m < kNumMacros; ++m)
+
+    // Emit one ring per active route of `s` whose target knob is currently visible.
+    // `ringIdx` offsets concentric rings so multiple sources on one knob don't overlap.
+    auto addSourceRings = [&] (const ModSource& s, int ringIdx)
     {
-        auto& mac = audioProcessor.macros[m];
-        const int n = mac.count.load();
+        const int n = srcCount (s);
         for (int a = 0; a < n; ++a)
         {
-            const auto& as = mac.assign[a];
+            const int   tgt = srcTarget (s, a);
+            const float dep = srcDepth  (s, a);
             for (const auto& ax : assignables)
             {
-                if (ax.target != as.target) continue;
-                if (! (as.scope == AP::MS_Both || as.scope == ax.voice)) continue;
+                if (ax.target != tgt) continue;
+                // Macros honour scope (handled below); LFO/mod-env are per-voice.
+                if (s.kind == ModSource::Macro)
+                {
+                    const auto& as = audioProcessor.macros[s.index].assign[a];
+                    if (! (as.scope == AP::MS_Both || as.scope == ax.voice)) continue;
+                }
+                else if (ax.voice != s.voice) continue;
+
                 auto b = assignableScreenBounds (ax.slider);
                 if (b.isEmpty()) continue;
                 const float half = b.getWidth() * 0.5f;
-                out.push_back ({ m, a, b.getCentre().toFloat(),
-                                 half + 3.0f + (float) m * 5.0f, as.depth, mc[m] });
+                out.push_back ({ s, a, b.getCentre().toFloat(),
+                                 half + 3.0f + (float) ringIdx * 5.0f, dep,
+                                 srcColour (s), s.kind == ModSource::Macro });
             }
         }
+    };
+
+    // Macros — only while the macro panel is revealed.
+    if (macrosShown)
+        for (int m = 0; m < kNumMacros; ++m)
+            addSourceRings ({ ModSource::Macro, 0, m }, m);
+
+    // Per-voice: rings for the mod source currently shown in that voice's slot.
+    for (int v = 0; v < 2; ++v)
+    {
+        if (modSlotView[v] == 0)   // LFO view → the selected LFO
+            addSourceRings ({ ModSource::LFO, v, lfoSel[v] }, 2);
+        else                        // MOD ENV view
+            addSourceRings ({ ModSource::ModEnv, v, 0 }, 2);
     }
     return out;
 }
@@ -3754,8 +4418,8 @@ VoltageSeq2AudioProcessorEditor::buildRings()
 bool VoltageSeq2AudioProcessorEditor::MacroOverlay::hitTest (int x, int y)
 {
     if (ed == nullptr) return false;
-    if (ed->macroLearnActive >= 0) return true;        // learning: capture all
-    if (ed->currentPage != 0)      return false;       // rings live on synth page only
+    if (ed->learnSource.valid()) return true;          // learning: capture all
+    if (ed->currentPage != 0)    return false;         // rings live on synth page only
     const juce::Point<float> p ((float) x, (float) y);
     for (const auto& ri : ed->buildRings())            // solid only on ring bands
         if (std::abs (ri.centre.getDistanceFrom (p) - ri.radius) <= 5.0f)
@@ -3767,23 +4431,26 @@ void VoltageSeq2AudioProcessorEditor::MacroOverlay::paint (juce::Graphics& g)
 {
     if (ed == nullptr || ed->currentPage != 0) return;
 
-    // Learn mode: dim + highlight every visible assignable knob.
-    if (ed->macroLearnActive >= 0)
+    // Learn mode: dim + highlight every assignable knob valid for this source.
+    if (ed->learnSource.valid())
     {
         g.fillAll (juce::Colour (0x33000000));
-        const juce::Colour teal (0xff00d4aa);
+        const juce::Colour hl = ed->srcColour (ed->learnSource);
         for (const auto& a : ed->buildAssignables())
         {
+            if (! ed->srcAllowsTarget (ed->learnSource, a.target)) continue;
+            // Per-voice sources can only target their own voice's knobs.
+            if (ed->learnSource.kind != ModSource::Macro && a.voice != ed->learnSource.voice) continue;
             auto b = ed->assignableScreenBounds (a.slider);
             if (b.isEmpty()) continue;
-            g.setColour (teal.withAlpha (0.18f));
+            // Soft fill glow only — no outline, so it doesn't read as a second ring
+            // next to the depth rings.
+            g.setColour (hl.withAlpha (0.22f));
             g.fillRoundedRectangle (b.toFloat().expanded (3.0f), 6.0f);
-            g.setColour (teal);
-            g.drawRoundedRectangle (b.toFloat().expanded (3.0f), 6.0f, 2.0f);
         }
     }
 
-    // Depth rings around assigned knobs (always shown on the synth page).
+    // Depth rings around assigned knobs.
     for (const auto& ri : ed->buildRings())
     {
         const float cx = ri.centre.x, cy = ri.centre.y, r = ri.radius;
@@ -3796,16 +4463,27 @@ void VoltageSeq2AudioProcessorEditor::MacroOverlay::paint (juce::Graphics& g)
         g.setColour (ri.colour);
         g.strokePath (arc, juce::PathStrokeType (2.5f));
 
-        // ── Live modulation dot ───────────────────────────────────────────────
-        // Travels along the arc to the current point: macroValue × depth.
-        const float mv  = ed->audioProcessor.macros[ri.macro].value.load();
-        const float ang = a0 + mv * sweep;            // fraction mv toward depth end
-        const float dx  = cx + r * std::sin (ang);    // addCentredArc angle convention
-        const float dy  = cy - r * std::cos (ang);
-        g.setColour (juce::Colour (0xffff3b30));       // bright red live indicator
-        g.fillEllipse (dx - 3.0f, dy - 3.0f, 6.0f, 6.0f);
-        g.setColour (juce::Colours::white.withAlpha (0.85f));
-        g.drawEllipse (dx - 3.0f, dy - 3.0f, 6.0f, 6.0f, 1.0f);
+        // ── Live modulation dot (macros only — they expose a wheel value) ──────
+        if (ri.liveDot)
+        {
+            const float mv  = ed->srcValue (ri.source);
+            const float ang = a0 + mv * sweep;
+            const float dx  = cx + r * std::sin (ang);
+            const float dy  = cy - r * std::cos (ang);
+            g.setColour (juce::Colour (0xffff3b30));
+            g.fillEllipse (dx - 3.0f, dy - 3.0f, 6.0f, 6.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.85f));
+            g.drawEllipse (dx - 3.0f, dy - 3.0f, 6.0f, 6.0f, 1.0f);
+        }
+        else
+        {
+            // Static endpoint dot at the depth position.
+            const float ang = a0 + sweep;
+            const float dx  = cx + r * std::sin (ang);
+            const float dy  = cy - r * std::cos (ang);
+            g.setColour (ri.colour.brighter (0.3f));
+            g.fillEllipse (dx - 2.5f, dy - 2.5f, 5.0f, 5.0f);
+        }
     }
 }
 
@@ -3814,11 +4492,13 @@ void VoltageSeq2AudioProcessorEditor::MacroOverlay::mouseDown (const juce::Mouse
     if (ed == nullptr) return;
 
     // ── Learn mode: assign the clicked knob ───────────────────────────────────
-    if (ed->macroLearnActive >= 0)
+    if (ed->learnSource.valid())
     {
         const bool both = e.mods.isAltDown();
         for (const auto& a : ed->buildAssignables())
         {
+            if (! ed->srcAllowsTarget (ed->learnSource, a.target)) continue;
+            if (ed->learnSource.kind != ModSource::Macro && a.voice != ed->learnSource.voice) continue;
             auto b = ed->assignableScreenBounds (a.slider);
             if (! b.isEmpty() && b.expanded (3).contains (e.getPosition()))
             {
@@ -3836,7 +4516,7 @@ void VoltageSeq2AudioProcessorEditor::MacroOverlay::mouseDown (const juce::Mouse
     {
         if (std::abs (ri.centre.getDistanceFrom (p) - ri.radius) <= 5.0f)
         {
-            ed->dragRingMacro      = ri.macro;
+            ed->dragRingSource     = ri.source;
             ed->dragRingAssign     = ri.assignIdx;
             ed->dragRingStartDepth = ri.depth;
             return;
@@ -3846,21 +4526,22 @@ void VoltageSeq2AudioProcessorEditor::MacroOverlay::mouseDown (const juce::Mouse
 
 void VoltageSeq2AudioProcessorEditor::MacroOverlay::mouseDrag (const juce::MouseEvent& e)
 {
-    if (ed == nullptr || ed->dragRingMacro < 0) return;
-    auto& mac = ed->audioProcessor.macros[ed->dragRingMacro];
-    if (ed->dragRingAssign >= mac.count.load()) return;
+    if (ed == nullptr || ! ed->dragRingSource.valid()) return;
+    if (ed->dragRingAssign >= ed->srcCount (ed->dragRingSource)) return;
     // Drag up = increase depth. Full sweep (-1..+1) over ~200 px.
     const float d = juce::jlimit (-1.0f, 1.0f,
         ed->dragRingStartDepth + (float) (-e.getDistanceFromDragStartY()) / 200.0f);
-    mac.assign[ed->dragRingAssign].depth = d;
+    ed->srcSetDepth (ed->dragRingSource, ed->dragRingAssign, d);
     ed->refreshMacroLabels();
+    ed->refreshModAssignLabels();
     repaint();
 }
 
 void VoltageSeq2AudioProcessorEditor::MacroOverlay::mouseUp (const juce::MouseEvent&)
 {
     if (ed == nullptr) return;
-    ed->dragRingMacro = ed->dragRingAssign = -1;
+    ed->dragRingSource = {};
+    ed->dragRingAssign = -1;
 }
 
 //==============================================================================
@@ -3982,9 +4663,72 @@ void VoltageSeq2AudioProcessorEditor::refreshMacroLabels()
                 << juce::String::fromUTF8 (" \xc2\xb7 ") << scopeTag[juce::jlimit (0, 2, as.scope)]
                 << "  " << (pct >= 0 ? "+" : "") << pct << "%\n";
         }
-        if (txt.isEmpty()) txt = "(right-click to assign)";
+        if (txt.isEmpty()) txt = "Right click for additional parameters";
         macroAssignLabel[m].setText (txt, juce::dontSendNotification);
     }
+}
+
+void VoltageSeq2AudioProcessorEditor::refreshModAssignLabels()
+{
+    using AP = VoltageSeq2AudioProcessor;
+    auto build = [this] (const ModSource& s) -> juce::String
+    {
+        const int n = srcCount (s);
+        juce::String txt;
+        for (int a = 0; a < n; ++a)
+        {
+            const int t   = juce::jlimit (0, (int) AP::MT_Count - 1, srcTarget (s, a));
+            const int pct = juce::roundToInt (srcDepth (s, a) * 100.0f);
+            txt << AP::kMacroTargetNames[t] << "  " << (pct >= 0 ? "+" : "") << pct << "%\n";
+        }
+        if (txt.isEmpty()) txt = "(click ASSIGN, then a knob)";
+        return txt;
+    };
+    for (int v = 0; v < 2; ++v)
+    {
+        lfoAssignLabel   [v].setText (build ({ ModSource::LFO,    v, lfoSel[v] }), juce::dontSendNotification);
+        modEnvAssignLabel[v].setText (build ({ ModSource::ModEnv, v, 0         }), juce::dontSendNotification);
+    }
+}
+
+void VoltageSeq2AudioProcessorEditor::showModMenu (ModSource s)
+{
+    using AP = VoltageSeq2AudioProcessor;
+    auto& rt = (s.kind == ModSource::LFO)
+                 ? audioProcessor.voice[s.voice].lfoRouting[s.index]
+                 : audioProcessor.voice[s.voice].modEnvRouting;
+
+    juce::PopupMenu menu;
+    const int n = rt.count.load();
+    if (n == 0)
+        menu.addItem (1, "Click ASSIGN, then a knob", false, false);
+    for (int a = 0; a < n; ++a)
+    {
+        const int t   = juce::jlimit (0, (int) AP::MT_Count - 1, rt.routes[a].target);
+        const int pct = juce::roundToInt (rt.routes[a].depth * 100.0f);
+        menu.addItem (100 + a, juce::String ("Remove  ") + AP::kMacroTargetNames[t]
+                      + "  (" + (pct >= 0 ? "+" : "") + juce::String (pct) + "%)");
+    }
+    if (n > 0) { menu.addSeparator(); menu.addItem (1000, "Clear all"); }
+
+    menu.showMenuAsync (juce::PopupMenu::Options(), [this, s] (int r)
+    {
+        auto& r2 = (s.kind == ModSource::LFO)
+                     ? audioProcessor.voice[s.voice].lfoRouting[s.index]
+                     : audioProcessor.voice[s.voice].modEnvRouting;
+        if (r >= 100 && r < 1000)
+        {
+            const int idx = r - 100, cnt = r2.count.load();
+            if (idx >= 0 && idx < cnt)
+            {
+                for (int i = idx; i < cnt - 1; ++i) r2.routes[i] = r2.routes[i + 1];
+                r2.count.store (cnt - 1);
+            }
+        }
+        else if (r == 1000) r2.count.store (0);
+        refreshModAssignLabels();
+        macroOverlay.repaint();
+    });
 }
 
 void VoltageSeq2AudioProcessorEditor::showMacroMenu (int m)
@@ -4081,7 +4825,8 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
 {
 
 
-    refreshMacroLabels();   // macro assignments may have changed (preset load)
+    refreshMacroLabels();         // macro assignments may have changed (preset load)
+    refreshModAssignLabels();     // LFO/mod-env routes too
 
     for (int v = 0; v < 2; ++v)
     {
@@ -4097,8 +4842,8 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
                                      juce::dontSendNotification);
         }
 
-        seqLengthSlider[v].setValue (vp.sequenceLength, juce::dontSendNotification);
-        swingSlider    [v].setValue (vp.swingAmount,    juce::dontSendNotification);
+        seqLengthSlider[v].setValue (vp.sequenceLength,      juce::dontSendNotification);
+        swingSlider    [v].setValue (vp.swingAmount * 100.0, juce::dontSendNotification);   // shown as %
 
         juce::TextButton* pBtns[4] = { &playFwdBtn[v], &playRevBtn[v], &playConvBtn[v], &playRndBtn[v] };
         for (int i = 0; i < 4; ++i)
@@ -4108,8 +4853,25 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
         bipolarBtn[v].setButtonText  (vp.unipolar ? "UNI" : "BI");
         bipolarBtn[v].setColour (juce::TextButton::buttonColourId,
                                   vp.unipolar ? juce::Colour (0xff305050) : juce::Colour (0xff2a2050));
-        // Note: step knob ranges are fixed at -5..+5 by the APVTS attachment.
-        // Portamento and Range are also APVTS-attached — no manual setValue needed.
+        // Sync each step-slider range to the unipolar flag so the box render
+        // matches at startup / state-load (previously only the button onClick
+        // did this, so a fresh voice rendered bipolar despite unipolar=true).
+        for (int i = 0; i < 16; ++i)
+        {
+            if (vp.unipolar)
+            {
+                stepKnob[v][i].setRange (0.0, 5.0, 0.01);
+                float c = juce::jmax (0.0f, vp.stepVoltages[i]);
+                audioProcessor.voice[v].stepVoltages[i] = c;
+                stepKnob[v][i].setValue (c, juce::dontSendNotification);
+            }
+            else
+            {
+                stepKnob[v][i].setRange (-5.0, 5.0, 0.01);
+                stepKnob[v][i].setValue (vp.stepVoltages[i], juce::dontSendNotification);
+            }
+        }
+        // Portamento and Range are APVTS-attached — no manual setValue needed.
         clockDivBox[v].setSelectedItemIndex (vp.clockDivision, juce::dontSendNotification);
         rootBox [v].setSelectedItemIndex (vp.rootNote,     juce::dontSendNotification);
         scaleBox[v].setSelectedItemIndex (vp.currentScale, juce::dontSendNotification);
@@ -4204,7 +4966,7 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
 
     for (int v = 0; v < 2; ++v)
     {
-        plaitsBtn[v].setButtonText (audioProcessor.voice[v].plaitsEnabled ? "PLAITS ●" : "PLAITS");
+        plaitsBtn[v].setButtonText (audioProcessor.voice[v].plaitsEnabled ? "Macro OSC ●" : "Macro OSC");
         plaitsEngBox[v].setSelectedId (audioProcessor.voice[v].plaitsEngine + 1, juce::dontSendNotification);
         // plaitsHarm/Timb/Morph are now APVTS-attached — no manual setValue needed
         plaitsAuxSlider [v].setValue (audioProcessor.voice[v].plaitsAuxBlend,  juce::dontSendNotification);
@@ -4527,6 +5289,158 @@ void VoltageSeq2AudioProcessorEditor::closeLfoPanel (int v)
 }
 
 //==============================================================================
+void VoltageSeq2AudioProcessorEditor::applyCfgView (int v)
+{
+    const bool midi = (cfgView[v] == 0);
+    midiViewBtn [v].setToggleState ( midi, juce::dontSendNotification);
+    voiceViewBtn[v].setToggleState (!midi, juce::dontSendNotification);
+    // MIDI group
+    midiOutBtn  [v].setVisible (midi);
+    midiOutChBox[v].setVisible (midi);
+    // VOICE group
+    voiceModeBox   [v].setVisible (!midi);
+    uniCountBtn    [v].setVisible (!midi);
+    chordModeBtn   [v].setVisible (!midi);
+    uniSpreadSlider[v].setVisible (!midi);
+    uniWidthSlider [v].setVisible (!midi);
+}
+
+void VoltageSeq2AudioProcessorEditor::applyMidView (int v)
+{
+    const bool quant = (midView[v] == 0);
+    const bool order = (midView[v] == 1);
+    const bool tools = (midView[v] == 2);
+    quantViewBtn[v].setToggleState (quant, juce::dontSendNotification);
+    orderViewBtn[v].setToggleState (order, juce::dontSendNotification);
+    toolsBtn    [v].setToggleState (tools, juce::dontSendNotification);
+
+    // QUANT view — Root / Scale / Clock
+    rootBox    [v].setVisible (quant);
+    scaleBox   [v].setVisible (quant);
+    clockDivBox[v].setVisible (quant);
+    // ORDER view — play-order buttons
+    playFwdBtn [v].setVisible (order);
+    playRevBtn [v].setVisible (order);
+    playConvBtn[v].setVisible (order);
+    playRndBtn [v].setVisible (order);
+    // TOOLS view — RST/UNI · randomise · nudge · MIDI/VOICE config
+    resetBtn     [v].setVisible (tools);
+    bipolarBtn   [v].setVisible (tools);
+    randModeBtn  [v].setVisible (tools);
+    randomBtn    [v].setVisible (tools);
+    nudgeLeftBtn [v].setVisible (tools);
+    nudgeRightBtn[v].setVisible (tools);
+    midiViewBtn  [v].setVisible (tools);
+    voiceViewBtn [v].setVisible (tools);
+    if (tools)
+    {
+        applyCfgView (v);   // shows the active MIDI/VOICE sub-group, hides the other
+    }
+    else
+    {
+        midiOutBtn  [v].setVisible (false);
+        midiOutChBox[v].setVisible (false);
+        voiceModeBox   [v].setVisible (false);
+        uniCountBtn    [v].setVisible (false);
+        chordModeBtn   [v].setVisible (false);
+        uniSpreadSlider[v].setVisible (false);
+        uniWidthSlider [v].setVisible (false);
+    }
+    repaint();
+}
+
+void VoltageSeq2AudioProcessorEditor::refreshModSlot (int v)
+{
+    const bool lfo = (modSlotView[v] == 0);
+
+    // If learning a per-voice source for THIS voice that's no longer the one on
+    // display, cancel learn (so a click can't assign to a hidden source).
+    if (learnSource.valid() && learnSource.voice == v && learnSource.kind != ModSource::Macro)
+    {
+        const bool shown = (lfo  && learnSource.kind == ModSource::LFO    && learnSource.index == lfoSel[v])
+                        || (!lfo && learnSource.kind == ModSource::ModEnv);
+        if (! shown) exitMacroLearn();
+    }
+
+    lfoPanelBtn[v].setToggleState ( lfo, juce::dontSendNotification);
+    envPanelBtn[v].setToggleState (!lfo, juce::dontSendNotification);
+
+    // LFO selector tabs — only in LFO view
+    for (int i = 0; i < 4; ++i)
+    {
+        lfoSelBtn[v][i].setVisible (lfo);
+        lfoSelBtn[v][i].setToggleState (i == lfoSel[v], juce::dontSendNotification);
+    }
+
+    // LFO control sets — show only the selected one (LFO view), else hide all.
+    // The target dropdown is gone (replaced by macro-style assign), so it's not here.
+    juce::Component* lfoSets[4][5] = {
+        { &lfoWaveBox[v],  &lfoRateSlider[v],  &lfoDepthSlider[v],  &lfoSyncBtn[v],  &lfoSyncDivBox[v]  },
+        { &lfo2WaveBox[v], &lfo2RateSlider[v], &lfo2DepthSlider[v], &lfo2SyncBtn[v], &lfo2SyncDivBox[v] },
+        { &lfo3WaveBox[v], &lfo3RateSlider[v], &lfo3DepthSlider[v], &lfo3SyncBtn[v], &lfo3SyncDivBox[v] },
+        { &lfo4WaveBox[v], &lfo4RateSlider[v], &lfo4DepthSlider[v], &lfo4SyncBtn[v], &lfo4SyncDivBox[v] },
+    };
+    for (int li = 0; li < 4; ++li)
+    {
+        const bool show = lfo && (li == lfoSel[v]);
+        for (int k = 0; k < 5; ++k) lfoSets[li][k]->setVisible (show);
+    }
+    // Legacy target dropdowns always hidden (kept only for old-preset migration).
+    lfoTargetBox[v].setVisible (false);  lfo2TargetBox[v].setVisible (false);
+    lfo3TargetBox[v].setVisible (false); lfo4TargetBox[v].setVisible (false);
+
+    // MOD ENV controls — only in MOD ENV view
+    const bool modv = !lfo;
+    modEnvAtkSlider  [v].setVisible (modv);
+    modEnvDecSlider  [v].setVisible (modv);
+    modEnvSusSlider  [v].setVisible (modv);
+    modEnvRelSlider  [v].setVisible (modv);
+    modEnvDepthSlider[v].setVisible (modv);
+    modEnvDestBox    [v].setVisible (false);   // legacy
+    modEnvSyncBtn    [v].setVisible (modv);
+    modEnvDivBox     [v].setVisible (modv);
+
+    // Macro-style assign UI
+    lfoAssignBtn    [v].setVisible (lfo);
+    lfoAssignLabel  [v].setVisible (lfo);
+    modEnvAssignBtn [v].setVisible (modv);
+    modEnvAssignLabel[v].setVisible (modv);
+
+    refreshModAssignLabels();
+    updateMacroAssignBtns();
+    repaint();
+}
+
+void VoltageSeq2AudioProcessorEditor::refreshOscView (int v)
+{
+    const bool plaits = audioProcessor.voice[v].plaitsEnabled;
+    const bool o1 = (!plaits && oscView[v] == 0);
+    const bool o2 = (!plaits && oscView[v] == 1);
+
+    oscView1Btn[v].setToggleState (oscView[v] == 0, juce::dontSendNotification);
+    oscView2Btn[v].setToggleState (oscView[v] == 1, juce::dontSendNotification);
+    oscView1Btn[v].setEnabled (!plaits);   // greyed when Plaits active
+    oscView2Btn[v].setEnabled (!plaits);
+
+    // OSC 1 native
+    osc1WaveBox[v].setVisible (o1);  osc1LevelSlider[v].setVisible (o1);
+    osc1OctaveBox[v].setVisible (o1); osc1PWMSlider[v].setVisible (o1);
+    osc1FeedbackSlider[v].setVisible (o1); driftSlider[v].setVisible (o1);
+    oscScope[v]->setVisible (o1);
+    // OSC 2 native
+    osc2PosSlider[v].setVisible (o2); osc2LevelSlider[v].setVisible (o2);
+    fmDepthSlider[v].setVisible (o2); crossModSlider[v].setVisible (o2);
+    osc2OctaveBox[v].setVisible (o2); fmRatioSlider[v].setVisible (o2);
+    wavetableDisplay[v]->setVisible (o2);
+    // PLAITS engine
+    plaitsEngBox[v].setVisible (plaits); plaitsHarmSlider[v].setVisible (plaits);
+    plaitsTimSlider[v].setVisible (plaits); plaitsMorphSlider[v].setVisible (plaits);
+    plaitsAuxSlider[v].setVisible (plaits); plaitsTrigBtn[v].setVisible (plaits);
+    plaitsOctBox[v].setVisible (plaits);
+
+    repaint();
+}
+
 void VoltageSeq2AudioProcessorEditor::applySectionVisibility (int v)
 {
     // Section controls are hidden by default — only visible when their panel is open.
