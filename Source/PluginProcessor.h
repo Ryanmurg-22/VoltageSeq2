@@ -59,7 +59,7 @@ public:
         float  assignedVoltage = 0.0f;
     };
 
-    // Mod envelope — ADSR envelope assignable to FM or Pitch, with optional clock sync
+    // Mod envelope — ADSR envelope, macro-style multi-destination routing.
     struct ModEnvParams
     {
         float attack  = 0.01f;
@@ -67,9 +67,23 @@ public:
         float sustain = 0.0f;
         float release = 0.3f;
         float depth   = 0.0f;
-        int   dest    = 0;      // 0=FM Depth  1=Pitch  2=Filter
+        int   dest    = 0;      // LEGACY single dest (kept for old-preset migration)
         bool  clockSync = false;
         int   clockDiv  = 3;    // index into cenvDivBars[]
+    };
+
+    // ── Macro-style modulation routing (shared by LFOs + mod-env) ─────────────
+    // A modulation SOURCE (LFO or mod-env) carries up to kMaxModRoutes destinations.
+    // Each route stores a target (in the MacroTarget enum space — LFO targets 0..8
+    // already mirror it) and a signed depth. Edited on the message thread, read on
+    // the audio thread: fixed array + atomic count (write count LAST to publish).
+    static constexpr int kMaxModRoutes = 8;
+    struct ModRoute { int target = 0; float depth = 0.0f; };
+    struct ModRouting
+    {
+        ModRoute         routes[kMaxModRoutes];
+        std::atomic<int> count { 0 };
+        ModRouting() = default;
     };
 
     // All per-voice parameters — written by the UI thread.
@@ -178,6 +192,13 @@ public:
 
         // ── Mod Envelope ─────────────────────────────────────────────────────
         ModEnvParams modEnv;
+
+        // ── Macro-style mod routing (per LFO + the mod-env) ───────────────────
+        // routes[i].target uses the MacroTarget enum space. Master amount is still
+        // the per-source depth knob (lfoNDepth / modEnv.depth); each route adds a
+        // further signed scaler.
+        ModRouting lfoRouting[4];
+        ModRouting modEnvRouting;
 
         // ── MIDI Out ─────────────────────────────────────────────────────────
         bool midiOutEnabled = false;

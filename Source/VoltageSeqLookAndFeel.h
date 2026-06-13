@@ -27,10 +27,12 @@ public:
         setColour (juce::ResizableWindow::backgroundColourId, juce::Colour (0xff0d0d1a));
 
         // Sliders — defaults; individual sliders can override with setColour()
-        setColour (juce::Slider::thumbColourId,       juce::Colour (0xffe09040));
-        setColour (juce::Slider::trackColourId,       juce::Colour (0xffe09040));
+        // Accent is a soft azure (lighter than the logo blue, near the velocity cyan)
+        // so the many knob arcs read as light highlights rather than heavy blue.
+        setColour (juce::Slider::thumbColourId,       juce::Colour (0xff63b4ec));
+        setColour (juce::Slider::trackColourId,       juce::Colour (0xff63b4ec));
         setColour (juce::Slider::backgroundColourId,  juce::Colour (0xff252540));
-        setColour (juce::Slider::rotarySliderFillColourId,    juce::Colour (0xffe09040));
+        setColour (juce::Slider::rotarySliderFillColourId,    juce::Colour (0xff63b4ec));
         setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (0xff252540));
 
         // Buttons

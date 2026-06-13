@@ -54,8 +54,22 @@ Branch: `ui-redesign` (keep `main`/v4.6 releasable until merge).
 
 ### Modulation slot — [ LFO | MOD ENV ] radio (per voice)
 One inline slot toggled by a radio (replaces the LFO + MOD-ENV popups):
-- **LFO**: the 4 LFOs; give them the **macro-style assign** workflow.
-- **MOD ENV**: the mod envelope + destination.
+- **LFO**: the 4 LFOs; **macro-style click-to-assign** ✅ — ASSIGN enters learn mode,
+  click any audio-rate knob, drag the depth ring. Multi-destination. Right-click
+  ASSIGN to remove/clear routes.
+- **MOD ENV**: the mod envelope; same click-to-assign (no more dest dropdown).
+
+#### Mod-assign architecture (implemented)
+- All sources (2 macros, 4 LFOs/voice, mod-env/voice) feed ONE unified audio-rate
+  apply switch (`applyMod`). LFOs/mod-env carry a `ModRouting` list (`{target,depth}[]`,
+  target in the `MacroTarget` enum space).
+- LFO/mod-env are per-voice → routes target their own voice only, no scope field.
+  Reachable = audio-rate set (PWM, Cutoff, Res, Drive, Range, FM, Pitch, PL Harm/Timb/
+  Morph); ADSR/reverb stay macro-only.
+- The depth knob = per-source master amount; each route adds a signed per-destination
+  depth (the ring). A voice's rings show the source currently on display; macro rings
+  show when the macro panel is open.
+- Versioned serialization: old single-target presets migrate to a one-route list.
 
 ---
 
@@ -67,12 +81,12 @@ One inline slot toggled by a radio (replaces the LFO + MOD-ENV popups):
 ---
 
 ## Global / cross-cutting
-- **Tooltips** everywhere (`setToolTip`, shared `TooltipWindow`).
-- **Preset browser** — combobox + next/prev.
-- **Macro**: remove the "right-click to assign" caption (keep the menu).
-- **Consistency fixes**: "VoltageSEQ" logo colour (grey vs orange); overlapping
-  Mod button / save-load buttons (these die with the popups anyway).
-- **Rename "Plaits"** → generic label ("Macro Osc"/"Engine") — trademark.
+- **Tooltips** everywhere (`setToolTip`, shared `TooltipWindow`). ⏳ not started.
+- **Preset browser** — combobox + next/prev. ⏳ not started (SAVE/LOAD buttons exist).
+- **Macro**: caption now reads "Right click for additional parameters" (menu kept). ✅
+- **Consistency fixes**: logo is now engraved blue + gunmetal palette ✅; the old
+  Mod / save-load overlap died with the popups ✅.
+- **Rename "Plaits"** → **"Macro OSC"** everywhere in the UI. ✅ (trademark avoided)
 
 ---
 
@@ -104,8 +118,14 @@ One inline slot toggled by a radio (replaces the LFO + MOD-ENV popups):
 3. **Set-and-forget** — RANGE→performative top slider ✅, ROOT/SCALE/CLOCK moved to
    the pattern section's QUANT slot ✅. (Top = pattern, bottom = synth split.)
 4. **FX page** — both voices, fill space, global modulators. ⏳ not started.
-5. **Polish** — tooltips, preset browser, macro caption, consistency, rename Plaits. ⏳
-6. **Bug pass** — Run/Stop, Total steps, Delay sync, Chorus. ⏳ (unipolar default ✅).
+5. **Polish** — macro caption ✅, consistency ✅, rename Plaits ✅; tooltips ⏳ +
+   preset browser ⏳ still outstanding.
+6. **Bug pass** — Run/Stop, Total steps, Delay sync, Chorus all ✅ done.
+7. **Faceplate** (new) — brushed-metal Eurorack look: perforated mic-grille texture,
+   screws, milled dividers, engraved VOLTAGE SEQ logo + Murgatroyd nameplate,
+   blue/azure + gunmetal palette. ✅
+8. **Mod assign** (new) — macro-style click-to-assign extended to LFOs + mod-env
+   (unified routing engine, depth rings). ✅
 
 ### Structural summary (current state)
 - **TOP = the pattern**: step lanes (taller now) + TOTAL/STAGES, then performance
