@@ -204,6 +204,12 @@ public:
         bool midiOutEnabled = false;
         int  midiOutChannel = 1;     // 1–16
 
+        // ── MIDI In (pattern-trigger channel) ─────────────────────────────────
+        // 0 = All/Omni (respond to every channel — preserves legacy behaviour);
+        // 1–16 = listen only to that channel, so each voice can be triggered
+        // independently from the DAW (e.g. Voice A on Ch1, Voice B on Ch2).
+        int  midiInChannel = 0;
+
         // ── Unison / Poly mode ────────────────────────────────────────────────
         enum VoiceMode { Mono = 0, Unison = 1, Poly = 2 };
         VoiceMode voiceMode       = Mono;
@@ -277,6 +283,15 @@ public:
     };
     PatternSeqState patSeq[2];
     std::atomic<bool> patternChangedForUI[2] { false, false };
+
+    // Which bank slot is currently loaded per voice (-1 = none). Updated by every
+    // load path (direct click, SEQ auto-advance, MIDI trigger) so the BANK page
+    // can highlight the active slot regardless of how it was loaded.
+    std::atomic<int> currentPatternSlot[2] { -1, -1 };
+
+    // Voice B output routing: 0 = fold into main bus (1/2), 1 = exclusive on the
+    // second bus (3/4). Mirror of the "voiceBOut" APVTS param, read at block rate.
+    std::atomic<int> voiceBOutMode { 0 };
 
     struct TuringMachineState
     {
@@ -500,6 +515,16 @@ private:
         // ── LFO phases ────────────────────────────────────────────────────────────
         float  lfoPhase  = 0.0f, lfo2Phase  = 0.0f;
         float  lfo3Phase = 0.0f, lfo4Phase  = 0.0f;
+
+        // ── LFO random-shape state (S&H + smooth random) ───────────────────────────
+        // Per-LFO held value + next target; advanced on each phase wrap.
+        float       lfoRandHeld[4] = {};
+        float       lfoRandNext[4] = {};
+        juce::Random lfoRng;
+
+        // Last-block mod-envelope output — lets block-rate targets (ADSR/reverb)
+        // read the mod-env at block rate without re-advancing it.
+        float  prevModEnvOut = 0.0f;
 
         // ── Pulse width (shared, modulated by LFO PWM) ───────────────────────────
         float  pulseWidth = 0.5f;

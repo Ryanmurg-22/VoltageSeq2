@@ -383,6 +383,7 @@ private:
     std::vector<juce::Component*> fxPageComponents;
     void layoutFxPage();
     void setupFxControls();
+    void refreshVoiceBOutBtn();
 
     // ── Page 5 — ABOUT ────────────────────────────────────────────────────────
     juce::TextButton              aboutPageBtn;
@@ -427,6 +428,7 @@ private:
 
     // ── FX page — per-voice bypass (both voices shown at once, no tab) ───────
     juce::TextButton fxBypassBtn [2];
+    juce::TextButton voiceBOutBtn;        // Voice B output routing: Main 1/2 vs Separate 3/4
 
     // Refresh both voices' FX page controls from audioProcessor.fx[].
     void syncFxPageFromVoice();
@@ -434,6 +436,9 @@ private:
     // ── MIDI Out (per voice, on Synth page) ────────────────────────────────
     juce::TextButton midiOutBtn    [2];   // enable toggle
     juce::ComboBox   midiOutChBox  [2];   // MIDI channel 1–16
+
+    // ── MIDI In trigger channel (per voice, on Pattern page) ────────────────
+    juce::ComboBox   midiInChBox   [2];   // "All" (id 100) or Ch 1–16
 
     // ── MIDI/VOICE config radio (toggles which config sub-group is visible) ──
     juce::TextButton midiViewBtn   [2];   // "MIDI" radio

@@ -1266,6 +1266,8 @@ void VoltageSeq2AudioProcessorEditor::setupVoice (int v)
     {
         box.addItem ("Sine", 1); box.addItem ("Tri",  2);
         box.addItem ("Saw",  3); box.addItem ("Sqr",  4);
+        box.addItem ("Ramp", 5); box.addItem ("S&H",  6);
+        box.addItem ("Rand", 7);
     };
 
     // Helper: set up sync button + div box for one LFO
@@ -2250,7 +2252,37 @@ void VoltageSeq2AudioProcessorEditor::setupFxControls()
         addFx (masterGainSlider[v]);
     }
 
+    // ── Voice B output routing (global) ──────────────────────────────────────
+    // Voice A always feeds main 1/2; Voice B can fold into main (default) or sit
+    // exclusively on outputs 3/4. Lives in Voice B's FX master area.
+    voiceBOutBtn.setColour (juce::TextButton::buttonColourId,   juce::Colour(0xff161630));
+    voiceBOutBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour(0xff2a6e3a));
+    voiceBOutBtn.setTooltip ("Voice B output: fold into the main outs (1/2) or route "
+                             "exclusively to outputs 3/4. Never duplicated across both.");
+    voiceBOutBtn.onClick = [this]()
+    {
+        if (auto* p = audioProcessor.apvts.getParameter ("voiceBOut"))
+        {
+            const bool toSeparate = (p->getValue() < 0.5f);   // 0→1
+            p->setValueNotifyingHost (toSeparate ? 1.0f : 0.0f);
+        }
+        refreshVoiceBOutBtn();
+    };
+    addFx (voiceBOutBtn);
+
     syncFxPageFromVoice();   // load both voices' values into their controls
+}
+
+// Reflect the current Voice B output-routing parameter on its button.
+void VoltageSeq2AudioProcessorEditor::refreshVoiceBOutBtn()
+{
+    bool separate = false;
+    if (auto* p = audioProcessor.apvts.getParameter ("voiceBOut"))
+        separate = (p->getValue() >= 0.5f);
+    voiceBOutBtn.setButtonText (separate ? "VOICE B \xe2\x86\x92 OUT 3/4"
+                                         : "VOICE B \xe2\x86\x92 OUT 1/2");
+    voiceBOutBtn.setColour (juce::TextButton::buttonColourId,
+                            separate ? juce::Colour(0xff2a6e3a) : juce::Colour(0xff161630));
 }
 
 //==============================================================================
@@ -2305,6 +2337,10 @@ void VoltageSeq2AudioProcessorEditor::layoutFxPage()
         const int mX = 1040;
         masterDriveSlider[v].setBounds (mX + 14,      kY1, K, K);
         masterGainSlider [v].setBounds (mX + 14 + sp, kY1, K, K);
+
+        // Voice B output routing toggle — in Voice B's master button row only.
+        if (v == 1)
+            voiceBOutBtn.setBounds (mX + 14, btnY, 170, 24);
     }
 }
 
@@ -2313,6 +2349,8 @@ void VoltageSeq2AudioProcessorEditor::layoutFxPage()
 //==============================================================================
 void VoltageSeq2AudioProcessorEditor::syncFxPageFromVoice()
 {
+    refreshVoiceBOutBtn();
+
     for (int v = 0; v < 2; ++v)
     {
         const auto& p = audioProcessor.fx[v];
@@ -3828,6 +3866,26 @@ void VoltageSeq2AudioProcessorEditor::setupPatternSeqControls()
         addChildComponent (patSeqImmBtn[v]);
         patternPageComponents.push_back (&patSeqImmBtn[v]);
 
+        // ── MIDI-In trigger channel ───────────────────────────────────────────
+        // "All" responds to every channel (both voices can be driven at once);
+        // pick a channel to trigger this voice independently (e.g. A=1, B=2).
+        midiInChBox[v].addItem ("In: All", 100);
+        for (int ch = 1; ch <= 16; ++ch)
+            midiInChBox[v].addItem ("In: Ch " + juce::String (ch), ch);
+        {
+            const int inCh = audioProcessor.voice[v].midiInChannel;
+            midiInChBox[v].setSelectedId (inCh == 0 ? 100 : inCh, juce::dontSendNotification);
+        }
+        midiInChBox[v].setTooltip ("Which incoming MIDI channel triggers this voice's "
+                                   "pattern sequencer (MIDI mode). 'All' = every channel.");
+        midiInChBox[v].onChange = [this, v]()
+        {
+            const int id = midiInChBox[v].getSelectedId();
+            audioProcessor.voice[v].midiInChannel = (id == 100 ? 0 : id);
+        };
+        addChildComponent (midiInChBox[v]);
+        patternPageComponents.push_back (&midiInChBox[v]);
+
         // ── List length +/- buttons ───────────────────────────────────────────
         patSeqLenUpBtn[v].setButtonText ("+");
         patSeqLenUpBtn[v].onClick = [this, v]()
@@ -3949,6 +4007,8 @@ void VoltageSeq2AudioProcessorEditor::layoutPatternSeqControls()
         patSeqAutoBtn [v].setBounds (margin + 50,  py,      44, 22);
         patSeqMidiBtn [v].setBounds (margin + 100, py,      44, 22);
         patSeqImmBtn  [v].setBounds (margin + 180, py,     110, 22);
+        // MIDI-in channel sits up in the tab row, right of the SEQUENCER tab.
+        midiInChBox   [v].setBounds (margin + 160, ly,      86, 18);
 
         // List length +/- buttons at far right
         patSeqLenUpBtn[v].setBounds (getWidth() - 60, py,  26, 22);
@@ -4041,6 +4101,16 @@ void VoltageSeq2AudioProcessorEditor::timerCallback()
     {
         if (audioProcessor.patternChangedForUI[vi].exchange (false))
         {
+            // Reflect the slot that SEQ auto-advance / MIDI trigger just loaded in
+            // the BANK grid's green-square highlight (direct clicks handle their
+            // own highlight via PatternSlotView::onLoaded).
+            const int slot = audioProcessor.currentPatternSlot[vi].load();
+            if (slot >= 0 && slot < 16 && slot != activePatternSlot[vi])
+            {
+                activePatternSlot[vi] = slot;
+                for (int i = 0; i < 16; ++i)
+                    patternSlot[vi][i]->setActive (i == slot);
+            }
             syncUIFromProcessor();
             repaint();
         }
@@ -4266,18 +4336,11 @@ juce::Colour VoltageSeq2AudioProcessorEditor::srcColour (const ModSource& s) con
 
 bool VoltageSeq2AudioProcessorEditor::srcAllowsTarget (const ModSource& s, int target) const
 {
-    using AP = VoltageSeq2AudioProcessor;
-    if (s.kind == ModSource::Macro) return true;     // macros reach every target
-    // LFO / mod-env: audio-rate targets only (no block-rate ADSR/reverb).
-    switch (target)
-    {
-        case AP::MT_PWM:  case AP::MT_Cutoff: case AP::MT_Pitch: case AP::MT_Range:
-        case AP::MT_FM:   case AP::MT_Harm:   case AP::MT_Timbre: case AP::MT_Morph:
-        case AP::MT_Resonance: case AP::MT_Drive:
-            return true;
-        default:
-            return false;
-    }
+    juce::ignoreUnused (s, target);
+    // Every source (macro, LFO, mod-env) reaches every destination. LFO/mod-env
+    // route to audio-rate targets per-sample and to block-rate targets (ADSR/
+    // reverb) once per block — both handled in the processor.
+    return true;
 }
 
 void VoltageSeq2AudioProcessorEditor::enterLearn (ModSource s)
@@ -4681,7 +4744,7 @@ void VoltageSeq2AudioProcessorEditor::refreshModAssignLabels()
             const int pct = juce::roundToInt (srcDepth (s, a) * 100.0f);
             txt << AP::kMacroTargetNames[t] << "  " << (pct >= 0 ? "+" : "") << pct << "%\n";
         }
-        if (txt.isEmpty()) txt = "(click ASSIGN, then a knob)";
+        if (txt.isEmpty()) txt = "ASSIGN + a knob, or right-click for all params";
         return txt;
     };
     for (int v = 0; v < 2; ++v)
@@ -4699,9 +4762,16 @@ void VoltageSeq2AudioProcessorEditor::showModMenu (ModSource s)
                  : audioProcessor.voice[s.voice].modEnvRouting;
 
     juce::PopupMenu menu;
+
+    // ── Add destination → full parameter list (same set the macros offer) ─────
+    juce::PopupMenu addMenu;
+    for (int t = 0; t < AP::MT_Count; ++t)
+        addMenu.addItem (5000 + t, AP::kMacroTargetNames[t]);
+    menu.addSubMenu ("Add destination", addMenu);
+
+    // ── Existing routes → remove ──────────────────────────────────────────────
     const int n = rt.count.load();
-    if (n == 0)
-        menu.addItem (1, "Click ASSIGN, then a knob", false, false);
+    if (n > 0) menu.addSeparator();
     for (int a = 0; a < n; ++a)
     {
         const int t   = juce::jlimit (0, (int) AP::MT_Count - 1, rt.routes[a].target);
@@ -4713,10 +4783,22 @@ void VoltageSeq2AudioProcessorEditor::showModMenu (ModSource s)
 
     menu.showMenuAsync (juce::PopupMenu::Options(), [this, s] (int r)
     {
+        using AP = VoltageSeq2AudioProcessor;
         auto& r2 = (s.kind == ModSource::LFO)
                      ? audioProcessor.voice[s.voice].lfoRouting[s.index]
                      : audioProcessor.voice[s.voice].modEnvRouting;
-        if (r >= 100 && r < 1000)
+        if (r >= 5000 && r < 5000 + (int) AP::MT_Count)   // add destination
+        {
+            const int target = r - 5000;
+            const int cnt = r2.count.load();
+            if (cnt < AP::kMaxModRoutes)
+            {
+                r2.routes[cnt].target = target;
+                r2.routes[cnt].depth  = 1.0f;
+                r2.count.store (cnt + 1);   // publish after fields written
+            }
+        }
+        else if (r >= 100 && r < 1000)
         {
             const int idx = r - 100, cnt = r2.count.load();
             if (idx >= 0 && idx < cnt)
@@ -4952,6 +5034,8 @@ void VoltageSeq2AudioProcessorEditor::syncUIFromProcessor()
                                   vp.midiOutEnabled ? juce::Colour(0xff228844) : juce::Colour(0xff161630));
         midiOutChBox[v].setSelectedId (vp.midiOutChannel, juce::dontSendNotification);
         midiOutChBox[v].setEnabled    (vp.midiOutEnabled);
+        midiInChBox [v].setSelectedId (vp.midiInChannel == 0 ? 100 : vp.midiInChannel,
+                                       juce::dontSendNotification);
 
         // Unison / Poly
         voiceModeBox   [v].setSelectedId ((int)vp.voiceMode + 1, juce::dontSendNotification);

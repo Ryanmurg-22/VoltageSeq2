@@ -104,6 +104,22 @@ const char* const VoltageSeq2AudioProcessor::kMacroTargetNames[MT_Count] = {
     "Reverb Mix", "Reverb Time"
 };
 
+// Shared LFO shape generator (used at both audio rate and block rate).
+// 0=Sine 1=Tri 2=Saw(up) 3=Sqr 4=Ramp(down). Shapes 5 (S&H) and 6 (smooth
+// random) are stateful and handled by the caller — passing them here yields the
+// last-held random value via the caller, so this returns sine as a safe default.
+static inline float lfoWaveform (float phase, int wave)
+{
+    switch (wave)
+    {
+        case 1: return (phase < 0.5f) ? (phase * 4.0f - 1.0f) : (3.0f - phase * 4.0f); // tri
+        case 2: return phase * 2.0f - 1.0f;                                            // saw (up)
+        case 3: return (phase < 0.5f) ? 1.0f : -1.0f;                                  // sqr
+        case 4: return 1.0f - phase * 2.0f;                                            // ramp (down)
+        default: return std::sin (phase * juce::MathConstants<float>::twoPi);          // sine
+    }
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout
 VoltageSeq2AudioProcessor::createParameterLayout()
 {
@@ -208,6 +224,14 @@ VoltageSeq2AudioProcessor::createParameterLayout()
             juce::ParameterID ("macro" + juce::String (m), 1),
             "Macro " + juce::String (m + 1),
             juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.0f));
+
+    // ── Voice B output routing ───────────────────────────────────────────────
+    // "Main 1/2" folds Voice B into the main stereo bus (default — works in every
+    // host, incl. AU where the 2nd bus is always activated). "Separate 3/4" keeps
+    // Voice B exclusively on the second bus. Exclusive either way — never both.
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        juce::ParameterID ("voiceBOut", 1), "Voice B Output",
+        juce::StringArray { "Main 1/2", "Separate 3/4" }, 0));
 
     return { params.begin(), params.end() };
 }
@@ -919,6 +943,51 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                     }
                 }
             }
+
+            // LFO + mod-env block-rate contributions to the same ADSR/reverb
+            // targets (sampled once per block). This gives LFOs and the mod-env
+            // the SAME destination list the macros have. Source values are read at
+            // block start (one block of latency — inaudible for envelope/reverb).
+            {
+                auto addBlk = [&] (float c, int target)
+                {
+                    switch (target)
+                    {
+                        case MT_AmpA: mA[0] += c; break;  case MT_AmpD: mA[1] += c; break;
+                        case MT_AmpS: mA[2] += c; break;  case MT_AmpR: mA[3] += c; break;
+                        case MT_FltA: mA[4] += c; break;  case MT_FltD: mA[5] += c; break;
+                        case MT_FltS: mA[6] += c; break;  case MT_FltR: mA[7] += c; break;
+                        case MT_ReverbMix:  mA[8] += c; break;
+                        case MT_ReverbTime: mA[9] += c; break;
+                        default: break;   // audio-rate targets handled per-sample
+                    }
+                };
+                auto blkLfoVal = [&] (int li, float phase, int wave, float depth) -> float
+                {
+                    const float base = (wave >= 5) ? vstate[vi].lfoRandHeld[li]
+                                                   : lfoWaveform (phase, wave);
+                    return base * depth;
+                };
+                const float lv[4] = {
+                    blkLfoVal (0, vstate[vi].lfoPhase,  vp.lfoWaveform,  vp.lfoDepth),
+                    blkLfoVal (1, vstate[vi].lfo2Phase, vp.lfo2Waveform, vp.lfo2Depth),
+                    blkLfoVal (2, vstate[vi].lfo3Phase, vp.lfo3Waveform, vp.lfo3Depth),
+                    blkLfoVal (3, vstate[vi].lfo4Phase, vp.lfo4Waveform, vp.lfo4Depth)
+                };
+                for (int li = 0; li < 4; ++li)
+                {
+                    const auto& rt = vp.lfoRouting[li];
+                    const int   rn = rt.count.load();
+                    for (int a = 0; a < rn && a < kMaxModRoutes; ++a)
+                        addBlk (lv[li] * rt.routes[a].depth, rt.routes[a].target);
+                }
+                const float me = vstate[vi].prevModEnvOut;
+                const auto& rt = vp.modEnvRouting;
+                const int   rn = rt.count.load();
+                for (int a = 0; a < rn && a < kMaxModRoutes; ++a)
+                    addBlk (me * rt.routes[a].depth, rt.routes[a].target);
+            }
+
             // Additive; full depth ≈ full param range. Times in seconds, levels 0..1.
             vp.adsrParams.attack   = juce::jlimit (0.001f, 2.0f, vp.adsrParams.attack   + mA[0] * 2.0f);
             vp.adsrParams.decay    = juce::jlimit (0.001f, 2.0f, vp.adsrParams.decay    + mA[1] * 2.0f);
@@ -1045,7 +1114,9 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                  && (msg.isNoteOn() || msg.isNoteOff());
                 if (msg.isNoteOn() && note >= 36 && note <= 51)
                     for (int vi = 0; vi < 2; ++vi)
-                        if (patSeq[vi].mode == 2)
+                        if (patSeq[vi].mode == 2
+                            && (voice[vi].midiInChannel == 0
+                                || msg.getChannel() == voice[vi].midiInChannel))
                             patSeq[vi].pendingSlot = note - 36;
                 if (!isTrig)
                     passThrough.addEvent (msg, meta.samplePosition);
@@ -1063,6 +1134,9 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // Refresh macro wheel values from APVTS (block-rate) into the audio-thread mirror.
     for (int m = 0; m < numMacros; ++m)
         macros[m].value.store (apvts.getRawParameterValue ("macro" + juce::String (m))->load());
+
+    // Mirror Voice B output routing (block-rate).
+    voiceBOutMode.store ((int) apvts.getRawParameterValue ("voiceBOut")->load());
 
     //--------------------------------------------------------------------------
     // SAMPLE LOOP — Voice A → channels 0/1, Voice B → channels 2/3
@@ -1374,13 +1448,27 @@ void VoltageSeq2AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     processFxBuffer (chB0, chB1, numSamples, fxs[1], fx[1], lfoDelayMod[1], macroDelayMixMod[1],
                      macroReverbMixMod[1], macroReverbSizeMod[1]);
 
-    // Single-bus fallback: mix Voice B into Voice A (legacy behaviour).
-    if (!hasDualOut)
+    // ── Voice B output routing (exclusive — never duplicated) ─────────────────
+    // "Separate 3/4" leaves Voice B on the second bus only (needs a host that
+    // gives us 4 channels). Otherwise Voice B folds into the main bus and the
+    // second bus — if present — is cleared so the voice never appears on both.
+    //
+    // VST hosts that leave the 2nd bus disabled always take the fold path (their
+    // existing, correct behaviour is unchanged). AU hosts always activate the 2nd
+    // bus, so the explicit clear is what stops the duplicate that previously left
+    // Voice B silent on the main outs.
+    const bool separateOut = (voiceBOutMode.load() == 1) && hasDualOut;
+    if (! separateOut)
     {
         for (int s = 0; s < numSamples; ++s)
         {
             chA0[s] = (chA0[s] + chB0[s]) * 0.5f;
             chA1[s] = (chA1[s] + chB1[s]) * 0.5f;
+        }
+        if (hasDualOut)   // fold mode but a real 2nd bus exists → silence it
+        {
+            juce::FloatVectorOperations::clear (chB0, numSamples);
+            juce::FloatVectorOperations::clear (chB1, numSamples);
         }
     }
 }
@@ -1770,38 +1858,47 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
     //--------------------------------------------------------------------------
     // LFOs
     //--------------------------------------------------------------------------
-    auto lfoWave = [](float phase, int wave) -> float
-    {
-        switch (wave)
-        {
-            case 1: return (phase < 0.5f) ? (phase * 4.0f - 1.0f) : (3.0f - phase * 4.0f); // tri
-            case 2: return phase * 2.0f - 1.0f;                                               // saw
-            case 3: return (phase < 0.5f) ? 1.0f : -1.0f;                                    // sqr
-            default: return std::sin (phase * juce::MathConstants<float>::twoPi);             // sine
-        }
-    };
-
     auto syncRate = [&](int divIdx) -> float
     {
         return (float)(effectiveBPM / 60.0 / (cenvDivBars[juce::jlimit (0, 7, divIdx)] * 4.0));
     };
 
-    auto advanceLFO = [&](float& phase, float freeRate, bool synced, int divIdx)
+    // Advance one LFO phase; returns true on the sample where it wraps (used to
+    // re-sample the stateful random shapes).
+    auto advanceLFO = [&](float& phase, float freeRate, bool synced, int divIdx) -> bool
     {
         float rate = synced ? syncRate (divIdx) : freeRate;
         phase += rate / (float)currentSampleRate;
-        if (phase >= 1.0f) phase -= 1.0f;
+        if (phase >= 1.0f) { phase -= 1.0f; return true; }
+        return false;
     };
 
-    advanceLFO (vs.lfoPhase,  vp.lfoRate,  vp.lfoSync,  vp.lfoSyncDiv);
-    advanceLFO (vs.lfo2Phase, vp.lfo2Rate, vp.lfo2Sync, vp.lfo2SyncDiv);
-    advanceLFO (vs.lfo3Phase, vp.lfo3Rate, vp.lfo3Sync, vp.lfo3SyncDiv);
-    advanceLFO (vs.lfo4Phase, vp.lfo4Rate, vp.lfo4Sync, vp.lfo4SyncDiv);
+    const bool lfoWrapped[4] = {
+        advanceLFO (vs.lfoPhase,  vp.lfoRate,  vp.lfoSync,  vp.lfoSyncDiv),
+        advanceLFO (vs.lfo2Phase, vp.lfo2Rate, vp.lfo2Sync, vp.lfo2SyncDiv),
+        advanceLFO (vs.lfo3Phase, vp.lfo3Rate, vp.lfo3Sync, vp.lfo3SyncDiv),
+        advanceLFO (vs.lfo4Phase, vp.lfo4Rate, vp.lfo4Sync, vp.lfo4SyncDiv)
+    };
 
-    float lfo1Val = lfoWave (vs.lfoPhase,  vp.lfoWaveform)  * vp.lfoDepth;
-    float lfo2Val = lfoWave (vs.lfo2Phase, vp.lfo2Waveform) * vp.lfo2Depth;
-    float lfo3Val = lfoWave (vs.lfo3Phase, vp.lfo3Waveform) * vp.lfo3Depth;
-    float lfo4Val = lfoWave (vs.lfo4Phase, vp.lfo4Waveform) * vp.lfo4Depth;
+    // Shape a single LFO. Deterministic shapes (0..4) use lfoWaveform(); 5 (S&H,
+    // stepped) and 6 (smooth random, interpolated) hold a per-LFO random value
+    // that re-samples each time the phase wraps.
+    auto shapeLFO = [&](int idx, float phase, int wave, bool wrapped) -> float
+    {
+        if (wave <= 4) return lfoWaveform (phase, wave);
+        if (wrapped)
+        {
+            vs.lfoRandHeld[idx] = vs.lfoRandNext[idx];
+            vs.lfoRandNext[idx] = vs.lfoRng.nextFloat() * 2.0f - 1.0f;
+        }
+        if (wave == 5) return vs.lfoRandHeld[idx];                                   // S&H
+        return vs.lfoRandHeld[idx] + (vs.lfoRandNext[idx] - vs.lfoRandHeld[idx]) * phase; // smooth
+    };
+
+    float lfo1Val = shapeLFO (0, vs.lfoPhase,  vp.lfoWaveform,  lfoWrapped[0]) * vp.lfoDepth;
+    float lfo2Val = shapeLFO (1, vs.lfo2Phase, vp.lfo2Waveform, lfoWrapped[1]) * vp.lfo2Depth;
+    float lfo3Val = shapeLFO (2, vs.lfo3Phase, vp.lfo3Waveform, lfoWrapped[2]) * vp.lfo3Depth;
+    float lfo4Val = shapeLFO (3, vs.lfo4Phase, vp.lfo4Waveform, lfoWrapped[3]) * vp.lfo4Depth;
 
     // ── Unified audio-rate modulation accumulators ───────────────────────────
     // Every source (LFOs, macros, mod-env) adds into these via applyMod().
@@ -1882,6 +1979,7 @@ void VoltageSeq2AudioProcessor::processSingleVoiceSample (
     const bool gateOn   = running && vp.stepGates[vp.currentStep];
     const float modEnvOut = processModEnv (vp.modEnv, vs, gateOn, effectiveBPM)
                             * vp.modEnv.depth;
+    vs.prevModEnvOut = modEnvOut;   // expose to next block's block-rate routing
     {
         const auto& rt = vp.modEnvRouting;
         const int   n  = rt.count.load();
@@ -2379,6 +2477,7 @@ static void saveVoiceToXml (juce::XmlElement& el,
 
     el.setAttribute ("midiOutEn",  (int)vp.midiOutEnabled);
     el.setAttribute ("midiOutCh",  vp.midiOutChannel);
+    el.setAttribute ("midiInCh",   vp.midiInChannel);
 
     el.setAttribute ("voiceMode",    (int)vp.voiceMode);
     el.setAttribute ("uniCount",     vp.unisonCount);
@@ -2513,6 +2612,7 @@ static void loadVoiceFromXml (const juce::XmlElement& el,
 
     vp.midiOutEnabled = getB ("midiOutEn", false);
     vp.midiOutChannel = getI ("midiOutCh", 1);
+    vp.midiInChannel  = juce::jlimit (0, 16, getI ("midiInCh", 0));
 
     vp.voiceMode          = (VoltageSeq2AudioProcessor::VoiceParams::VoiceMode)getI ("voiceMode", 0);
     vp.unisonCount        = juce::jlimit (2, 4, getI ("uniCount", 4));
@@ -2626,6 +2726,7 @@ void VoltageSeq2AudioProcessor::loadPattern (int vi, int slot)
     v.currentScale   = p.currentScale;
     v.rangeVCA       = p.rangeVCA;
     v.resetOnNextBlock.store (true);
+    currentPatternSlot[vi].store (slot);
     // Push the newly-loaded step voltages + synth params into APVTS so that
     // SliderAttachments and the DAW automation system both see the new values.
     syncAPVTSFromVoice (vi);
@@ -3132,6 +3233,7 @@ void VoltageSeq2AudioProcessor::loadPatternAudio (int vi, int slot, bool resetPo
     if (resetPos)
         v.resetOnNextBlock.store (true);
 
+    currentPatternSlot[vi].store (slot);   // so the BANK page can highlight it
     patternChangedForUI[vi].store (true);
     // Note: intentionally does NOT call syncAPVTSFromVoice — audio thread only
 }
