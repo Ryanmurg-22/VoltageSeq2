@@ -9,16 +9,22 @@ permissions:
   contents: write
 
 jobs:
-  # ── macOS ARM64 ─────────────────────────────────────────────────────────────
+  # ── macOS Universal (arm64 + x86_64) ─────────────────────────────────────────
   build-mac:
-    name: macOS (Apple Silicon)
+    name: macOS (Universal)
     runs-on: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure (CMake)
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        # Build one fat binary for Apple Silicon + Intel. The deployment target
+        # sets the oldest macOS the (Intel) slice will run on — 10.13 is JUCE 8's
+        # supported floor.
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -50,13 +56,20 @@ jobs:
 
           # Bundle both into one installer
           productbuild --package vst3.pkg --package au.pkg \
-                       VoltageSeq2_macOS_ARM64.pkg
+                       VoltageSeq2_macOS_Universal.pkg
+
+          # Sanity-check the shipped binaries are actually fat (both slices).
+          for b in "$VST3/Contents/MacOS/VoltageSeq2" "$AU/Contents/MacOS/VoltageSeq2"; do
+            echo "archs in $b:"; lipo -archs "$b"
+            lipo -archs "$b" | grep -q x86_64 && lipo -archs "$b" | grep -q arm64 \
+              || { echo "::error::$b is not universal"; exit 1; }
+          done
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: mac-pkg
-          path: VoltageSeq2_macOS_ARM64.pkg
+          path: VoltageSeq2_macOS_Universal.pkg
 
   # ── Windows x64 ──────────────────────────────────────────────────────────────
   build-windows:
@@ -99,12 +112,12 @@ jobs:
         uses: actions/download-artifact@v4
 
       - name: Rename macOS pkg with version tag
-        run: mv mac-pkg/VoltageSeq2_macOS_ARM64.pkg VoltageSeq2_${{ github.ref_name }}_macOS_ARM64.pkg
+        run: mv mac-pkg/VoltageSeq2_macOS_Universal.pkg VoltageSeq2_${{ github.ref_name }}_macOS_Universal.pkg
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           fail_on_unmatched_files: false   # ship Mac even if the Windows .exe is absent
           files: |
-            VoltageSeq2_${{ github.ref_name }}_macOS_ARM64.pkg
+            VoltageSeq2_${{ github.ref_name }}_macOS_Universal.pkg
             windows-installer/*.exe
