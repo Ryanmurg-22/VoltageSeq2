@@ -63,6 +63,21 @@ target_compile_definitions(VoltageSeq2 PUBLIC
     _USE_MATH_DEFINES=1
 )
 
+# ── VST3 backwards-compatibility ──────────────────────────────────────────────
+# The VST3 class ID is derived from the manufacturer + plugin codes. Earlier
+# builds shipped with DIFFERENT codes (Projucer/local builds left them unset or
+# auto-generated), so each change orphaned every saved project that referenced
+# the old ID. The canonical code is now pinned to Volt/VoS2 (above) so it will
+# never drift again; these declare every historical ID as "compatible" so DAWs
+# (Ableton 11.3+, others that implement IPluginCompatibility) transparently remap
+# existing project instances onto this build.
+#   'Manu'/'Dftm'  abcdef019182faeb4d616e754466746d  — JUCE defaults (mid-2026)
+#   'SnAc'/'SAK3'  abcdef019182faeb536e416353414b33  — early 2026
+#   'Skys'/'Uyzp'  abcdef019182faeb536b797355797a70  — 2025
+target_compile_definitions(VoltageSeq2 PUBLIC
+    "JUCE_VST3_COMPATIBLE_CLASSES=VST3Interface::jucePluginId('Manu','Dftm'),VST3Interface::jucePluginId('SnAc','SAK3'),VST3Interface::jucePluginId('Skys','Uyzp')"
+)
+
 # ── Link libraries ────────────────────────────────────────────────────────────
 target_link_libraries(VoltageSeq2 PRIVATE
     juce::juce_audio_basics
