@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(VoltageSeq2 VERSION 5.1.1)
+project(VoltageSeq2 VERSION 5.1.2)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,7 +23,12 @@ juce_add_plugin(VoltageSeq2
     FORMATS                 VST3 AU
     IS_SYNTH                TRUE
     NEEDS_MIDI_INPUT        TRUE
-    PRODUCES_MIDI_OUTPUT    TRUE
+    # NOTE: the keyword is NEEDS_MIDI_OUTPUT, NOT "PRODUCES_MIDI_OUTPUT".
+    # juce_add_plugin silently ignores unknown keywords, so the old typo left
+    # JucePlugin_ProducesMidiOutput=0 and the VST3/AU MIDI-output (event) bus was
+    # never created — the plugin stopped appearing as a MIDI source in DAWs once
+    # builds moved from Projucer to CMake.
+    NEEDS_MIDI_OUTPUT       TRUE
     IS_MIDI_EFFECT          FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD TRUE
