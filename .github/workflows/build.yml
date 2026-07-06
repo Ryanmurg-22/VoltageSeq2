@@ -31,27 +31,48 @@ jobs:
 
       - name: Package as .pkg
         run: |
+          VER="${{ github.ref_name }}"; VER="${VER#v}"   # pkg version must be numeric, not the 'v5.1.2' tag
           VST3=$(find build -name "VoltageSeq2.vst3" -type d | head -1)
           AU=$(find build -name "VoltageSeq2.component" -type d | head -1)
           echo "Found VST3 at: $VST3"
           echo "Found AU at:   $AU"
 
-          # VST3 component pkg
-          mkdir -p pkg_vst3
+          # CRITICAL: JUCE gives every format ONE shared CFBundleIdentifier
+          # (com.<company>.<target>), and with a spaced company name it was even
+          # invalid ("com.Murgatroyd Instruments.VoltageSeq2"). When two payloads
+          # in a single product share a CFBundleIdentifier, the macOS Installer's
+          # bundle bookkeeping writes only ONE of them — which silently dropped the
+          # VST3 on end-user machines (the dev never runs the .pkg, so never saw it).
+          # Rewrite each bundle to a DISTINCT, valid id, then re-sign (editing
+          # Info.plist invalidates the ad-hoc signature).
+          VST3_ID="com.murgatroydinstruments.voltageseq2.vst3"
+          AU_ID="com.murgatroydinstruments.voltageseq2.component"
+          mkdir -p pkg_vst3 pkg_au
           cp -r "$VST3" pkg_vst3/
+          cp -r "$AU"   pkg_au/
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $VST3_ID" "pkg_vst3/VoltageSeq2.vst3/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $AU_ID"   "pkg_au/VoltageSeq2.component/Contents/Info.plist"
+          codesign --force --deep --sign - "pkg_vst3/VoltageSeq2.vst3"
+          codesign --force --deep --sign - "pkg_au/VoltageSeq2.component"
+
+          # Guard: the two ids MUST differ, or the installer will drop one again.
+          GOT_VST3=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "pkg_vst3/VoltageSeq2.vst3/Contents/Info.plist")
+          GOT_AU=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "pkg_au/VoltageSeq2.component/Contents/Info.plist")
+          echo "VST3 bundle id: $GOT_VST3"; echo "AU   bundle id: $GOT_AU"
+          [ "$GOT_VST3" != "$GOT_AU" ] || { echo "::error::VST3 and AU share a CFBundleIdentifier"; exit 1; }
+
+          # VST3 component pkg
           pkgbuild --root pkg_vst3 \
                    --install-location "/Library/Audio/Plug-Ins/VST3" \
                    --identifier "com.MurgatroydInstruments.VoltageSeq2.vst3" \
-                   --version "${{ github.ref_name }}" \
+                   --version "$VER" \
                    vst3.pkg
 
           # AU component pkg
-          mkdir -p pkg_au
-          cp -r "$AU" pkg_au/
           pkgbuild --root pkg_au \
                    --install-location "/Library/Audio/Plug-Ins/Components" \
                    --identifier "com.MurgatroydInstruments.VoltageSeq2.au" \
-                   --version "${{ github.ref_name }}" \
+                   --version "$VER" \
                    au.pkg
 
           # Bundle both into one installer

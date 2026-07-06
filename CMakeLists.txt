@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(VoltageSeq2 VERSION 5.1.2)
+project(VoltageSeq2 VERSION 5.1.3)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,6 +18,11 @@ FetchContent_MakeAvailable(JUCE)
 juce_add_plugin(VoltageSeq2
     COMPANY_NAME            "Murgatroyd Instruments"
     COMPANY_EMAIL           "ryan@soulcandi.co.za"
+    # Explicit, valid bundle id. The JUCE default (com.<company>.<target>) would
+    # otherwise embed the space from the company name and produce an INVALID
+    # CFBundleIdentifier. CI further suffixes this per-format (.vst3 / .component)
+    # so the two payloads don't collide in the installer.
+    BUNDLE_ID               "com.murgatroydinstruments.voltageseq2"
     PLUGIN_MANUFACTURER_CODE Volt
     PLUGIN_CODE             VoS2
     FORMATS                 VST3 AU
