@@ -108,6 +108,26 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
+      - name: Verify static MSVC runtime (no VC++ Redist dependency)
+        shell: pwsh
+        run: |
+          # The shipped VST3 must NOT import the dynamic CRT (vcruntime140.dll /
+          # msvcp140.dll), or it won't load on machines lacking the VC++
+          # Redistributable. Locate dumpbin via vswhere and inspect the DLL's imports.
+          $dll = Get-ChildItem -Recurse -Path build -Filter VoltageSeq2.vst3 -File |
+                 Where-Object { $_.FullName -like '*x86_64-win*' } | Select-Object -First 1
+          if (-not $dll) { Write-Error "Built VST3 DLL not found"; exit 1 }
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vc = & $vswhere -latest -products * -find "**\dumpbin.exe" | Select-Object -First 1
+          Write-Host "dumpbin: $vc"
+          $deps = & $vc /dependents $dll.FullName
+          $deps | Write-Host
+          if ($deps -match 'vcruntime140|msvcp140|msvcp1[0-9]0\.dll|vcruntime1[0-9]0\.dll') {
+            Write-Error "::error::VST3 still imports the dynamic MSVC runtime (VC++ Redist required). /MT did not apply."
+            exit 1
+          }
+          Write-Host "OK: static MSVC runtime confirmed (no vcruntime140/msvcp140 imports)."
+
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
