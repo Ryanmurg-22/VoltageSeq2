@@ -1,8 +1,18 @@
 cmake_minimum_required(VERSION 3.22)
-project(VoltageSeq2 VERSION 5.1.4)
+project(VoltageSeq2 VERSION 5.1.5)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# ── Windows: statically link the MSVC runtime ─────────────────────────────────
+# With the default dynamic runtime (/MD) the shipped VST3 DLL depends on the
+# Visual C++ Redistributable; on a machine that lacks it the DLL silently fails
+# to load and the plugin never appears in the DAW. Static linking (/MT) bakes the
+# runtime in so the plugin loads on any clean Windows machine. Requires policy
+# CMP0091 = NEW, which is the default for our cmake_minimum_required (3.22).
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 # ── Fetch JUCE 8.0.12 ─────────────────────────────────────────────────────────
 include(FetchContent)
