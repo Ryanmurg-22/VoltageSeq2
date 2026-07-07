@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(VoltageSeq2 VERSION 5.1.3)
+project(VoltageSeq2 VERSION 5.1.4)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -74,27 +74,22 @@ target_compile_definitions(VoltageSeq2 PUBLIC
 )
 
 # ── VST3 identity / backwards-compatibility ───────────────────────────────────
-# The VST3 class ID is derived from the manufacturer + plugin codes, which
-# drifted across earlier builds (Projucer/local builds left them unset or
-# auto-generated), so each change orphaned every saved project referencing the
-# old ID:
-#   'Manu'/'Dftm'  abcdef019182faeb4d616e754466746d  — JUCE defaults (mid-2026, the bulk of live projects)
+# The VST3 class ID derives from the manufacturer + plugin codes. Historical IDs:
+#   'Volt'/'VoS2'  abcdef019182faeb566f6c74566f5332  — natural CMake ID; shipped in PUBLIC releases v5.0 & v5.1
+#   'Manu'/'Dftm'  abcdef019182faeb4d616e754466746d  — JUCE defaults (old Projucer builds); pinned in v5.1.1–v5.1.3
 #   'SnAc'/'SAK3'  abcdef019182faeb536e416353414b33  — early 2026
 #   'Skys'/'Uyzp'  abcdef019182faeb536b797355797a70  — 2025
 #
-# JUCE_VST3_COMPONENT_CLASS PINS this build's primary component ID to the
-# 'Manu'/'Dftm' value that the overwhelming majority of existing sessions store,
-# so hosts match it by DIRECT ID — no reliance on host IPluginCompatibility
-# support (which older Live versions lack). The remaining historical IDs (plus
-# the Volt/VoS2 code this CMake build would otherwise produce) are declared as
-# compatible classes for hosts that DO support remapping.
-# NOTE: with JUCE_VST3_COMPONENT_CLASS defined, jucePluginId() is hijacked to
-# return the pinned ID for ANY component lookup, so the compatible list must use
-# hexStringToId() with the explicit legacy IDs instead.
-#   Volt/VoS2  abcdef019182faeb566f6c74566f5332  — the code this CMake build would otherwise use
+# LAUNCH DECISION: the primary component ID is the NATURAL Volt/VoS2 (NO pin), so
+# it matches the public v5.0/v5.1 releases that customers/testers actually
+# installed — their projects load by DIRECT ID. Pinning to Manu/Dftm (v5.1.1)
+# fixed the author's own old Projucer sessions but orphaned every public user, so
+# it is reverted. Volt/VoS2 is also stable going forward (no pin to drift). The
+# older IDs — incl. Manu/Dftm — are declared compatible so remap-capable hosts
+# can still load pre-v5.0 / author sessions. With no COMPONENT_CLASS pin, both
+# the component AND controller derive from Volt/VoS2 (matched pair, as in v5.0/v5.1).
 target_compile_definitions(VoltageSeq2 PUBLIC
-    JUCE_VST3_COMPONENT_CLASS="abcdef019182faeb4d616e754466746d"
-    "JUCE_VST3_COMPATIBLE_CLASSES=VST3Interface::hexStringToId(\"abcdef019182faeb566f6c74566f5332\"),VST3Interface::hexStringToId(\"abcdef019182faeb536e416353414b33\"),VST3Interface::hexStringToId(\"abcdef019182faeb536b797355797a70\")"
+    "JUCE_VST3_COMPATIBLE_CLASSES=VST3Interface::hexStringToId(\"abcdef019182faeb4d616e754466746d\"),VST3Interface::hexStringToId(\"abcdef019182faeb536e416353414b33\"),VST3Interface::hexStringToId(\"abcdef019182faeb536b797355797a70\")"
 )
 
 # ── Link libraries ────────────────────────────────────────────────────────────
